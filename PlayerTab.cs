@@ -1,0 +1,508 @@
+// プレイヤータブ: player_data 専用の編集UI。
+// 基本値 / 説明 / 能力値(6) / 身体部位(6×4) / 特性 / インベントリ / 装備 / その他ログ
+using System.Text.Json.Nodes;
+
+namespace InstantaleSaveEditor
+{
+    // プレイヤータブ。player_data の各データを専用ウィジェットで編集する。
+    // 編集対象の構造定義（Spec 群）を先頭に置き、UI 生成と反映はそれらを回して行う。
+    internal sealed class PlayerTab : UserControl
+    {
+        // 基本値の定義: (JSONキー, 画面表示名, 整数として扱うか)。整数欄は保存時に数値検証する。
+        private static readonly (string key, string label, bool isInt)[] BasicSpec =
+        {
+            ("name","名前",false),
+            ("category","区分",false),
+            ("age","年齢",true),
+            ("experience_level","レベル",true),
+            ("experience_point","経験値",true),
+            ("gold","所持金",true),
+            ("current_hp","現在HP",true),
+            ("physical_integrity","スタミナ(現在)",true),
+            ("max_physical_integrity","スタミナ(最大)",true),
+            ("original_max_physical_integrity","スタミナ(基礎)",true),
+            ("location","現在地ID",false),
+            ("current_area","エリアID",false),
+            ("current_node","ノードID",false),
+        };
+        // 能力値6項目: (JSONキー, 日本語名)。プレイヤーは original_ability_scores(小数)を編集する。
+        private static readonly (string key, string jp)[] AbilitySpec =
+        {
+            ("strength","筋力"),
+            ("dexterity","敏捷"),
+            ("constitution","耐久"),
+            ("intelligence","知力"),
+            ("wisdom","判断力"),
+            ("charisma","魅力"),
+        };
+        // 身体部位6つ: (JSONキー, 日本語名)。各部位は injury/stage/state/description を持つ。
+        private static readonly (string key, string jp)[] BodySpec =
+        {
+            ("head","頭部"),
+            ("body","胴体"),
+            ("arms","腕"),
+            ("legs","脚"),
+            ("organs","内臓"),
+            ("sanity","正気"),
+        };
+        // ログ・記憶など構造が複雑な項目は専用UIを作らず JSON 編集ボタンで扱う。
+        private static readonly (string key, string label)[] OpaqueSpec =
+        {
+            ("skills","スキル"),
+            ("memory","記憶(memory)"),
+            ("life_log","生涯ログ(life_log)"),
+            ("current_log","現在ログ(current_log)"),
+            ("area_history","エリア履歴"),
+            ("image_src","画像パス(image_src)"),
+            ("story_achievements","ストーリー実績"),
+        };
+
+        private JsonObject _pd;                                            // player_data 本体
+        private JsonObject _areas;                                         // areas データ（エリアComboBox生成用）
+        private readonly Panel _host = new() { Dock = DockStyle.Fill, AutoScroll = true };
+        private readonly Dictionary<string, TextBox> _basic = new();       // 基本値の入力欄(キー→欄)
+        private readonly Dictionary<string, ComboBox> _combos = new();    // ComboBox で表示する基本値欄
+        private readonly Dictionary<string, TextBox> _abil = new();        // 能力値の入力欄(キー→欄)
+        private DataGridView _bodyGrid;                                    // 身体部位の表
+        private ListBox _traitList, _invList;                             // 特性 / インベントリ一覧
+        private ComboBox _cbWeapon, _cbWearable;                          // 装備(アイテムID参照)
+
+        // current_area=エリア / current_node=ノード / location=施設 をプルダウンで表示する。
+        private static readonly HashSet<string> ComboKeys = new() { "current_area", "current_node", "location" };
+
+        public PlayerTab() { Controls.Add(_host); }
+
+        // player_data を読み込み、各セクションを縦に並べて表示する。player_data 無しなら案内のみ。
+        public void Bind(JsonObject root)
+        {
+            _areas = J.Obj(root, "areas");
+            _pd = J.Obj(root, "player_data");
+            _host.Controls.Clear(); _basic.Clear(); _abil.Clear(); _combos.Clear();
+            if (_pd == null)
+            {
+                _host.Controls.Add(new Label { Text = "このファイルには player_data がありません（ワールドデータのみ）。", AutoSize = true, Padding = new Padding(12) });
+                return;
+            }
+
+            // 1列レイアウト。各セクションを Dock=Top で横幅いっぱい（ウィンドウ幅に追従）に。
+            var stack = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, AutoScroll = true, Padding = new Padding(8) };
+            stack.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+
+            var sections = new Control[]
+            {
+                BuildBasic(), BuildDescriptions(), BuildAbilities(), BuildBody(),
+                BuildTraits(), BuildInventoryAndEquip(), BuildOpaque(),
+            };
+            for (int i = 0; i < sections.Length; i++)
+            {
+                sections[i].Dock = DockStyle.Top;
+                stack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                stack.Controls.Add(sections[i], 0, i);
+            }
+
+            _host.Controls.Add(stack);
+            LinkAreaCombos();
+        }
+
+        // current_area の選択変更に追従して location(施設)・current_node(ノード)の候補を作り直す。
+        // 変更後のエリアに無いIDを指していた場合は選択をクリアする。
+        private void LinkAreaCombos()
+        {
+            if (!_combos.TryGetValue("current_area", out var areaCb)) return;
+            areaCb.SelectedIndexChanged += (_, _) =>
+            {
+                string area = AreaComboHelper.ExtractId(areaCb.Text);
+                if (_combos.TryGetValue("location", out var locCb))
+                    RefillCombo(locCb, id => AreaComboHelper.FillFacilityItems(locCb, _areas, area, id));
+                if (_combos.TryGetValue("current_node", out var nodeCb))
+                    RefillCombo(nodeCb, _ => AreaComboHelper.FillNodeItems(nodeCb, _areas, area));
+            };
+        }
+
+        // コンボの候補を fill(旧ID) で作り直し、旧IDが残っていれば "ID: 名前" に補完、無ければクリアする。
+        private static void RefillCombo(ComboBox cb, Action<string> fill)
+        {
+            string id = AreaComboHelper.ExtractId(cb.Text);
+            fill(id);
+            string match = cb.Items.Cast<string>()
+                .FirstOrDefault(it => AreaComboHelper.ExtractId(it) == id);
+            cb.Text = match ?? "";
+        }
+
+        // 各ウィジェットの値を player_data に書き戻す（保存前に呼ばれる）。
+        // 一覧系(特性/インベントリ)は操作時に即反映済みなのでここでは扱わない。型エラー時は false。
+        public bool Apply()
+        {
+            if (_pd == null) return true;
+
+            // 基本値: 整数項目はパース検証、それ以外は文字列としてそのまま。
+            // ComboBox 欄は "ID: 名前" から ID 部分だけを取り出して保存する。
+            foreach (var (key, _, isInt) in BasicSpec)
+            {
+                if (_combos.TryGetValue(key, out var cb))
+                {
+                    _pd[key] = AreaComboHelper.ExtractId(cb.Text);
+                    continue;
+                }
+                if (!_basic.TryGetValue(key, out var tb)) continue;
+                if (isInt)
+                {
+                    if (!long.TryParse(tb.Text, out long lv)) return Fail(key, "整数");
+                    _pd[key] = lv;
+                }
+                else _pd[key] = tb.Text;
+            }
+            // 説明3項目（複数行）。
+            foreach (var tb in new[] { "profile", "personality", "look_description" })
+                _pd[tb] = _descs[tb].Text;
+
+            // 基礎能力値（小数で保持）。無ければ作る。
+            var oas = J.Obj(_pd, "original_ability_scores");
+            if (oas == null) { oas = new JsonObject(); _pd["original_ability_scores"] = oas; }
+            foreach (var (key, _) in AbilitySpec)
+            {
+                if (!double.TryParse(_abil[key].Text, out double dv)) return Fail(key, "数値");
+                oas[key] = dv;
+            }
+
+            // 身体部位: 表の各行を対応する部位オブジェクトへ反映（列1=損傷,2=段階,3=状態,4=説明）。
+            var bp = J.Obj(_pd, "body_parts");
+            if (bp != null)
+                foreach (DataGridViewRow r in _bodyGrid.Rows)
+                {
+                    string part = r.Cells[0].Tag as string;   // 行に保持した内部キー
+                    if (part == null || bp[part] is not JsonObject po) continue;
+                    if (!long.TryParse(Cell(r, 1), out long inj)) return Fail(part + " の損傷", "整数");
+                    po["injury"] = inj;
+                    po["stage"] = Cell(r, 2);
+                    po["state"] = Cell(r, 3);
+                    po["description"] = Cell(r, 4);
+                }
+
+            // 装備: コンボの選択をアイテムID(なしは null)として反映。
+            var eq = J.Obj(_pd, "equipments");
+            if (eq == null) { eq = new JsonObject(); _pd["equipments"] = eq; }
+            eq["weapon"] = ComboVal(_cbWeapon);
+            eq["wearable"] = ComboVal(_cbWearable);
+
+            return true;
+        }
+
+        private readonly Dictionary<string, TextBox> _descs = new();   // 説明欄(キー→欄)
+
+        // ---------------- 各セクション ----------------
+        private GroupBox BuildBasic()
+        {
+            var g = Group("基本値", 440);
+            var t = Grid(2);
+            int row = 0;
+            foreach (var (key, label, _) in BasicSpec)
+            {
+                t.Controls.Add(L(label), 0, row);
+                if (ComboKeys.Contains(key))
+                {
+                    // current_area: エリア一覧 / current_node: 現在エリアのノード一覧 /
+                    // location: 現在エリアの施設一覧(NPCのcurrent_locationと同様、入口/出口/区画は除外)。
+                    string curVal = ValAsText(key);
+                    string curArea = ValAsText("current_area");
+                    var cb = key switch
+                    {
+                        "current_area" => AreaComboHelper.MakeAreaCombo(_areas, curVal),
+                        "location" => AreaComboHelper.MakeFacilityCombo(_areas, curArea, curVal),
+                        _ => AreaComboHelper.MakeNodeCombo(_areas, curArea, curVal),
+                    };
+                    cb.Dock = DockStyle.Fill;
+                    t.Controls.Add(cb, 1, row); _combos[key] = cb;
+                }
+                else
+                {
+                    var tb = new TextBox { Dock = DockStyle.Fill, Text = ValAsText(key) };
+                    t.Controls.Add(tb, 1, row); _basic[key] = tb;
+                }
+                row++;
+            }
+            g.Controls.Add(t);
+            return g;
+        }
+
+        private GroupBox BuildDescriptions()
+        {
+            var g = new GroupBox { Text = "説明", AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Margin = new Padding(4), Padding = new Padding(8) };
+            var t = Grid(1);
+            int row = 0;
+            foreach (var (key, label) in new[] { ("profile", "プロフィール"), ("personality", "性格"), ("look_description", "外見") })
+            {
+                t.Controls.Add(L(label), 0, row++);
+                var rtb = new ResizableTextBox(520, 90) { Dock = DockStyle.Top, Margin = new Padding(3, 3, 3, 8) };
+                rtb.Box.Text = J.Str(_pd, key);
+                t.Controls.Add(rtb, 0, row++); _descs[key] = rtb.Box;
+            }
+            g.Controls.Add(t);
+            return g;
+        }
+
+        private GroupBox BuildAbilities()
+        {
+            var g = Group("基礎能力値 (original_ability_scores)", 230);
+            var t = Grid(2);
+            int row = 0;
+            var oas = J.Obj(_pd, "original_ability_scores");
+            foreach (var (key, jp) in AbilitySpec)
+            {
+                t.Controls.Add(L($"{jp} ({key})"), 0, row);
+                var tb = new TextBox { Width = 100, Text = J.Dbl(oas, key).ToString() };
+                t.Controls.Add(tb, 1, row); _abil[key] = tb; row++;
+            }
+            g.Controls.Add(t);
+            return g;
+        }
+
+        // 身体部位の表。6行固定（追加/削除不可）。1列目に内部キーを Tag で保持し読み取り専用にする。
+        private GroupBox BuildBody()
+        {
+            var g = Group("身体部位 (body_parts)", 250);
+            _bodyGrid = new DataGridView
+            {
+                Dock = DockStyle.Top,
+                Height = 200,
+                AllowUserToAddRows = false,
+                AllowUserToDeleteRows = false,
+                RowHeadersVisible = false,
+                AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
+            };
+            _bodyGrid.Columns.Add(Col("部位", true));
+            _bodyGrid.Columns.Add(Col("損傷(injury)", false));
+            _bodyGrid.Columns.Add(Col("段階(stage)", false));
+            _bodyGrid.Columns.Add(Col("状態(state)", false));
+            _bodyGrid.Columns.Add(Col("説明(description)", false));
+            var bp = J.Obj(_pd, "body_parts");
+            foreach (var (key, jp) in BodySpec)
+            {
+                var po = bp != null ? bp[key] as JsonObject : null;
+                if (po == null) continue;
+                int idx = _bodyGrid.Rows.Add($"{jp}", J.Int(po, "injury").ToString(), J.Str(po, "stage"), J.Str(po, "state"), J.Str(po, "description"));
+                _bodyGrid.Rows[idx].Cells[0].Tag = key;          // 内部キーを保持
+                _bodyGrid.Rows[idx].Cells[0].ReadOnly = true;
+            }
+            g.Controls.Add(_bodyGrid);
+            return g;
+        }
+
+        // 特性一覧。追加は最小テンプレを足し、編集/削除は選択行に対して JSON ダイアログ等で行う。
+        // 配列を直接書き換えるため別途 Apply 不要（即反映）。
+        private GroupBox BuildTraits()
+        {
+            var g = Group("特性 (traits)", 190);
+            _traitList = new ListBox { Dock = DockStyle.Top, Height = 100 };
+            RefreshTraits();
+            var bar = ButtonBar(
+                ("追加", () => { EnsureArr("traits").Add(new JsonObject { ["name"] = "新しい特性", ["description"] = "", ["severity"] = 0 }); RefreshTraits(); }
+            ),
+                ("編集", () => EditListItem(_traitList, J.Arr(_pd, "traits"), RefreshTraits)),
+                ("削除", () => RemoveListItem(_traitList, J.Arr(_pd, "traits"), RefreshTraits)));
+            g.Controls.Add(bar); g.Controls.Add(_traitList);
+            return g;
+        }
+
+        // インベントリ一覧＋装備コンボ。装備はインベントリのアイテムIDから選ぶ（追加/削除で候補も更新）。
+        private GroupBox BuildInventoryAndEquip()
+        {
+            var g = Group("インベントリ / 装備", 280);
+            _invList = new ListBox { Dock = DockStyle.Top, Height = 120 };
+            RefreshInventory();
+            var bar = ButtonBar(
+                ("追加", AddInventoryItem),
+                ("編集", () => { EditDictItem(_invList, J.Obj(_pd, "inventory")); RefreshInventory(); RefreshEquipCombos(); }
+            ),
+                ("削除", () => { RemoveDictItem(_invList, J.Obj(_pd, "inventory")); RefreshInventory(); RefreshEquipCombos(); }
+            ));
+
+            var eqPanel = new TableLayoutPanel { Dock = DockStyle.Top, ColumnCount = 2, AutoSize = true, Padding = new Padding(0, 6, 0, 0) };
+            eqPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120));
+            eqPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            eqPanel.Controls.Add(L("武器画像"), 0, 0);
+            _cbWeapon = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 200 };
+            eqPanel.Controls.Add(_cbWeapon, 1, 0);
+            eqPanel.Controls.Add(L("防具画像"), 0, 1);
+            _cbWearable = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 200 };
+            eqPanel.Controls.Add(_cbWearable, 1, 1);
+            RefreshEquipCombos();
+
+            // 上から: 装備コンボ → ボタン → 一覧 (Dock=Top は逆順に積まれるため追加順に注意)
+
+            g.Controls.Add(eqPanel);
+            g.Controls.Add(bar);
+            g.Controls.Add(_invList);
+            return g;
+        }
+
+        // 構造が複雑な項目（記憶・ログ等）を JSON 編集ボタンとして並べる。押すと丸ごと JSON 編集。
+        private GroupBox BuildOpaque()
+        {
+            var g = Group("その他データ (JSON編集)", 120);
+            var flow = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, Padding = new Padding(4) };
+            foreach (var (key, label) in OpaqueSpec)
+            {
+                var btn = new Button { Text = label, AutoSize = true, Margin = new Padding(4) };
+                string k = key;
+                btn.Click += (_, _) =>
+                {
+                    using var d = new JsonEditDialog(label, _pd.TryGetPropertyValue(k, out var cur) ? cur : null);
+                    if (d.ShowDialog(this) == DialogResult.OK) _pd[k] = d.ResultNode;
+                };
+                flow.Controls.Add(btn);
+            }
+            g.Controls.Add(flow);
+            return g;
+        }
+
+        // ---------------- リスト操作（一覧の再描画 / 追加・編集・削除） ----------------
+        // 特性一覧を traits 配列から作り直す（名前と severity を表示）。
+        private void RefreshTraits()
+        {
+            _traitList.Items.Clear();
+            var arr = J.Arr(_pd, "traits");
+            if (arr == null) return;
+            foreach (var n in arr) _traitList.Items.Add(n is JsonObject o ? J.Str(o, "name", "(無名)") + "  [severity " + J.Int(o, "severity") + "]" : n?.ToString() ?? "null");
+        }
+
+        // インベントリ一覧を inventory 辞書から作り直す（"id: 名前" 表示）。
+        private void RefreshInventory()
+        {
+            _invList.Items.Clear();
+            var inv = J.Obj(_pd, "inventory");
+            if (inv == null) return;
+            foreach (var kv in inv)
+                _invList.Items.Add($"{kv.Key}: " + (kv.Value is JsonObject o ? J.Str(o, "name", "(無名)") : ""));
+        }
+
+        // 装備コンボの候補を現在のインベントリIDから作り直し、既存の装備値を選択状態にする。
+        private void RefreshEquipCombos()
+        {
+            var inv = J.Obj(_pd, "inventory");
+            var ids = new List<string> { "(なし)" };
+            if (inv != null) ids.AddRange(inv.Select(kv => kv.Key));
+            FillCombo(_cbWeapon, ids, J.Str(_pd != null ? J.Obj(_pd, "equipments") : null, "weapon"));
+            FillCombo(_cbWearable, ids, J.Str(_pd != null ? J.Obj(_pd, "equipments") : null, "wearable"));
+        }
+
+        // インベントリに item_N (Nは最大+1) を最小テンプレで追加する。
+        private void AddInventoryItem()
+        {
+            var inv = EnsureObj("inventory");
+            int max = -1;
+            foreach (var kv in inv)
+            {
+                var s = kv.Key.StartsWith("item_") ? kv.Key.Substring(5) : kv.Key;
+                if (int.TryParse(s, out int n) && n > max) max = n;
+            }
+            string id = "item_" + (max + 1);
+            inv[id] = new JsonObject
+            {
+                ["name"] = "新しいアイテム",
+                ["item_type"] = "material",
+                ["attributes"] = new JsonObject(),
+                ["description"] = "",
+                ["value"] = 0,
+                ["rarity"] = "common",
+            };
+            RefreshInventory(); RefreshEquipCombos();
+        }
+
+        // ---------------- 小ヘルパ ----------------
+        // 基本値欄の初期テキスト。整数/文字列いずれでも表示用文字列にして返す。
+        private string ValAsText(string key)
+        {
+            if (_pd == null || !_pd.TryGetPropertyValue(key, out var n) || n is not JsonValue v) return "";
+            if (v.TryGetValue<long>(out long l)) return l.ToString();
+            if (v.TryGetValue<string>(out string s)) return s;
+            return v.ToString();
+        }
+
+        // 指定キーの配列/辞書を取得（無ければ作って入れてから返す）。
+        private JsonArray EnsureArr(string key)
+        {
+            var a = J.Arr(_pd, key); if (a == null) { a = new JsonArray(); _pd[key] = a; }
+            return a;
+        }
+        private JsonObject EnsureObj(string key)
+        {
+            var o = J.Obj(_pd, key); if (o == null) { o = new JsonObject(); _pd[key] = o; }
+            return o;
+        }
+
+        // 配列の選択要素を JSON ダイアログで編集 / 削除。辞書版も同様（キー単位）。
+        private void EditListItem(ListBox lb, JsonArray arr, Action refresh)
+        {
+            int i = lb.SelectedIndex; if (arr == null || i < 0 || i >= arr.Count) return;
+            using var d = new JsonEditDialog("項目を編集", arr[i]);
+            if (d.ShowDialog(this) == DialogResult.OK) { arr[i] = d.ResultNode; refresh(); }
+        }
+        private void RemoveListItem(ListBox lb, JsonArray arr, Action refresh)
+        {
+            int i = lb.SelectedIndex; if (arr == null || i < 0 || i >= arr.Count) return;
+            if (MessageBox.Show("削除しますか？", "確認", MessageBoxButtons.YesNo) == DialogResult.Yes) { arr.RemoveAt(i); refresh(); }
+        }
+        private void EditDictItem(ListBox lb, JsonObject obj)
+        {
+            int i = lb.SelectedIndex; if (obj == null || i < 0) return;
+            string id = obj.ElementAt(i).Key;
+            using var d = new JsonEditDialog(id + " を編集", obj[id]);
+            if (d.ShowDialog(this) == DialogResult.OK) obj[id] = d.ResultNode;
+        }
+        private void RemoveDictItem(ListBox lb, JsonObject obj)
+        {
+            int i = lb.SelectedIndex; if (obj == null || i < 0) return;
+            string id = obj.ElementAt(i).Key;
+            if (MessageBox.Show(id + " を削除しますか？", "確認", MessageBoxButtons.YesNo) == DialogResult.Yes) obj.Remove(id);
+        }
+
+        // コンボに候補を入れ、現在値を選択。先頭は "(なし)" 想定。
+        private static void FillCombo(ComboBox cb, List<string> ids, string current)
+        {
+            cb.Items.Clear();
+            foreach (var s in ids) cb.Items.Add(s);
+            int idx = string.IsNullOrEmpty(current) ? 0 : ids.IndexOf(current);
+            cb.SelectedIndex = idx >= 0 ? idx : 0;
+        }
+        // コンボ選択をJSON値へ。先頭("なし")は null、それ以外はアイテムID文字列。
+        private static JsonNode ComboVal(ComboBox cb)
+            => cb.SelectedIndex <= 0 ? null : JsonValue.Create((string)cb.SelectedItem);
+
+        // 表セルの文字列取得（null安全）。
+        private static string Cell(DataGridViewRow r, int c) => r.Cells[c].Value?.ToString() ?? "";
+
+        // 型エラー表示（false を返す）。
+        private static bool Fail(string f, string type)
+        { MessageBox.Show(f + " は" + type + "で入力してください。", "型エラー", MessageBoxButtons.OK, MessageBoxIcon.Warning); return false; }
+
+        // --- UI 部品ファクトリ ---
+        // 固定幅760・固定高のグループ枠（Dock=Top で実幅は窓に追従）。
+        private static GroupBox Group(string title, int height)
+            => new() { Text = title, AutoSize = false, Width = 760, Height = height, Margin = new Padding(4), Padding = new Padding(8) };
+        // ラベル。
+        private static Label L(string t) => new() { Text = t, AutoSize = true, Anchor = AnchorStyles.Left, Padding = new Padding(2, 6, 4, 0) };
+        // 表の列（読み取り専用指定可）。
+        private static DataGridViewTextBoxColumn Col(string h, bool ro) => new() { HeaderText = h, ReadOnly = ro };
+        // ラベル+入力の表。cols=2 はラベル列固定、1 は単一列。いずれも右側はウィンドウ幅に追従。
+        private TableLayoutPanel Grid(int cols)
+        {
+            var t = new TableLayoutPanel { Dock = DockStyle.Top, ColumnCount = cols == 2 ? 2 : 1, AutoSize = true, Padding = new Padding(6) };
+            if (cols == 2) { t.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 160)); t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); }
+            else t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            return t;
+        }
+        // (ラベル,処理) の並びからボタン列を作る。
+        private FlowLayoutPanel ButtonBar(params (string text, Action act)[] btns)
+        {
+            var bar = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(0, 4, 0, 4) };
+            foreach (var (text, act) in btns)
+            {
+                var b = new Button { Text = text, Width = 70, Margin = new Padding(2) };
+                b.Click += (_, _) => act();
+                bar.Controls.Add(b);
+            }
+            return bar;
+        }
+    }
+}

@@ -1,0 +1,19 @@
+# ---- .NET ビルド成果物 ----
+bin/
+obj/
+publish/
+*.user
+*.suo
+.vs/
+
+# ---- 実データ（ゲーム本体のデータ・セーブは公開しない） ----
+*.json
+world_data*
+savedata*
+*_decoded.json
+*_plain.json
+
+# ---- その他 ----
+*.log
+Thumbs.db
+.DS_Store
