@@ -15,26 +15,10 @@
 - プレイヤー編集（基本値・能力値・身体部位・特性・インベントリ・装備など）
 - ワールド編集（areas / npcs / quests / story_quests / world_data / index）
 - ゲーム変数の編集
-- テンプレートを組み合わせたクエスト素案の作成（ダンジョン追加と連動）
 
 ## 動作環境
 - Windows
 - 単体実行ファイル（.NET ランタイム同梱）としてビルド可能
-
-## ビルド
-.NET 8 SDK を用意し、ソース一式のあるフォルダで:
-
-```
-dotnet publish -c Release
-```
-
-出力（単体 exe）:
-
-```
-bin\Release\net8.0-windows\win-x64\publish\InstantaleSaveEditor.exe
-```
-
-開発中の起動は `dotnet run` でも可能です。
 
 ## 使い方（概要）
 1. 「ファイル → 開く」で対象データを選択
