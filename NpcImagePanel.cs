@@ -210,14 +210,36 @@ namespace InstantaleSaveEditor
         }
 
         // NPC切替時: キャラクターフォルダから4枚の画像を読み込む。
+        // 「使用する」の状態は即時反映済みの reduced_color_image.png から判定して復元する。
         public void LoadImages(string charDir)
         {
             _charDir = charDir;
             LoadPb(_pbFace, charDir != null ? Path.Combine(charDir, "face_image.png") : null);
             for (int i = 0; i < 3; i++)
                 LoadPb(_pbStand[i], StandDisplayPath(i));
-            _activeIdx = 0;
+            _activeIdx = DetectActiveIndex();
             UpdateButtonStyles();
+        }
+
+        // 現在 reduced_color_image.png に反映されている立ち絵のインデックスを判定する。
+        // バックアップが無い（未変更）なら 0。実体を立ち絵ファイルとバイト比較して一致する枠を返す。
+        private int DetectActiveIndex()
+        {
+            if (string.IsNullOrEmpty(_charDir)) return 0;
+            string reduced = Path.Combine(_charDir, "reduced_color_image.png");
+            string backup  = Path.Combine(_charDir, BackupFile);
+            if (!File.Exists(backup) || !File.Exists(reduced)) return 0;
+            try
+            {
+                byte[] cur = File.ReadAllBytes(reduced);
+                for (int i = 1; i < StandFiles.Length; i++)   // idx0(縮小色)は比較不要
+                {
+                    string p = Path.Combine(_charDir, StandFiles[i]);
+                    if (File.Exists(p) && cur.AsSpan().SequenceEqual(File.ReadAllBytes(p))) return i;
+                }
+            }
+            catch { }
+            return 0;
         }
 
         // ファイルをバイト列経由で読み込み、GDI+ のファイルロックを回避する。

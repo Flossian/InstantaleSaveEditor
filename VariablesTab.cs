@@ -19,7 +19,7 @@ namespace InstantaleSaveEditor
                 ForeColor = Color.Firebrick,
                 Padding = new Padding(8, 6, 8, 6),
                 AutoSize = false,
-                Text = "注意: ここはバトル中フラグ・会話状態・UI退避情報など実行時の一時状態を多く含みます。\n不用意な変更はゲーム進行と不整合を起こす可能性があります。変更時のゲーム挙動はツール制作者も把握できてません。",
+                Text = "注意: ここはバトル中フラグ・会話状態・UI退避情報など実行時の一時状態を多く含みます。\n不用意な変更はゲーム進行と不整合を起こす可能性があります。",
             };
             // Fill(本体/案内) を先に、Top(注意) を後に追加して重なりを防ぐ。
             Controls.Add(_form);

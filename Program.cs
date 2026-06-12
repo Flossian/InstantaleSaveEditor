@@ -1,19 +1,18 @@
 // Instantale Save Editor (C# / WinForms)
 // セーブデータ(savedata.json)の構造を土台にしたエディタ。
 // タブ構成: プレイヤー / ワールド / ゲーム変数
-// 難読化: 固定鍵 XOR / 形式: 最小化UTF-8 (Codec 参照)
+// 入出力形式: 最小化UTF-8 (Codec 参照)
 using System.Text;
 using System.Text.Json.Nodes;
 
 namespace InstantaleSaveEditor
 {
     // アプリ本体ウィンドウ。3つのタブ（プレイヤー/ワールド/ゲーム変数）とメニュー・ステータスを持つ。
-    // _root に復号済み JSON を保持し、各タブはそれを共有して編集する。
+    // _root に読み込んだ JSON を保持し、各タブはそれを共有して編集する。
     internal sealed class MainForm : Form
     {
-        private JsonObject _root;                                      // 編集中のデータ全体（復号済み）
-        private string _path;                                         // 現在のファイルパス
-        private byte[] _key = Encoding.UTF8.GetBytes(Codec.DefaultKey); // 難読化鍵（変更可）
+        private JsonObject _root;                                           // 編集中のデータ全体
+        private string _path;                                               // 現在のファイルパス
 
         private readonly TabControl _tabs = new() { Dock = DockStyle.Fill };
         private readonly PlayerTab _player = new();
@@ -52,14 +51,12 @@ namespace InstantaleSaveEditor
             file.DropDownItems.Add("上書き保存", null, (_, _) => SaveFile());
             file.DropDownItems.Add("名前を付けて保存...", null, (_, _) => SaveFileAs());
             file.DropDownItems.Add(new ToolStripSeparator());
-            file.DropDownItems.Add("復号JSONをエクスポート...", null, (_, _) => ExportPlain());
+            file.DropDownItems.Add("JSONをエクスポート...", null, (_, _) => ExportPlain());
             file.DropDownItems.Add(new ToolStripSeparator());
-            //file.DropDownItems.Add("鍵を変更...", null, (_, _) => ChangeKey());
-            //file.DropDownItems.Add(new ToolStripSeparator());
             file.DropDownItems.Add("終了", null, (_, _) => Close());
 
             var tools = new ToolStripMenuItem("ツール(&T)");
-            tools.DropDownItems.Add("クエスト作成...", null, (_, _) => CreateQuest());
+            tools.DropDownItems.Add("クエスト作成...(作成中)", null, (_, _) => CreateQuest());
             tools.DropDownItems.Add("全体をJSONで編集...", null, (_, _) => EditRaw());
 
             menu.Items.Add(file); menu.Items.Add(tools);
@@ -71,19 +68,19 @@ namespace InstantaleSaveEditor
             => _statusLabel.Text = m + (_path != null ? "  [" + Path.GetFileName(_path) + "]" : "");
 
         // ---------------- ファイル操作 ----------------
-        // 難読化ファイルを開いて復号し、3タブにバインドする。失敗時(鍵違い等)はエラー表示。
+        // ファイルを開いて3タブにバインドする。失敗時はエラー表示。
         private void OpenFile()
         {
             using var dlg = new OpenFileDialog
             {
-                InitialDirectory = @"%AppData%\Darmabeko\Instantale\saves\",
+                InitialDirectory = @"%LocalAppData%\Darmabeko\Instantale\saves\",
                 Filter = "セーブ/JSON|*.json|すべて|*.*"
             };
             if (dlg.ShowDialog(this) != DialogResult.OK) return;
-            try { _root = Codec.Load(dlg.FileName, _key); }
+            try { _root = Codec.Load(dlg.FileName); }
             catch (Exception ex)
             {
-                MessageBox.Show(this, "復号またはJSON解析に失敗しました。鍵を確認してください。\n\n" + ex.Message,
+                MessageBox.Show(this, "ファイルの読み込みに失敗しました。\n\n" + ex.Message,
                     "読み込み失敗", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
@@ -98,15 +95,15 @@ namespace InstantaleSaveEditor
         private bool ApplyAll()
             => _player.Apply() && _world.ApplyCurrent() && _vars.Apply();
 
-        // 全タブを反映してから、難読化形式で上書き保存する。
+        // 全タブを反映してから、ゲームが読める形式で上書き保存する。
         private void SaveFile()
         {
             if (_root == null) return;
             if (_path == null) { SaveFileAs(); return; }
             if (!ApplyAll()) return;
-            try { Codec.Save(_path, _root, _key); }
+            try { Codec.Save(_path, _root); }
             catch (Exception ex) { MessageBox.Show(this, ex.Message, "保存失敗", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
-            MessageBox.Show(this, "難読化形式で保存しました。", "保存", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(this, "保存しました。", "保存", MessageBoxButtons.OK, MessageBoxIcon.Information);
             Status("保存しました");
         }
 
@@ -119,7 +116,7 @@ namespace InstantaleSaveEditor
             _path = dlg.FileName; SaveFile();
         }
 
-        // 復号した整形JSONを書き出す（確認用。難読化されないのでゲームには使えない）。
+        // 整形JSONを書き出す（確認用。ゲームには読み込めない）。
         private void ExportPlain()
         {
             if (_root == null) return;
@@ -127,18 +124,8 @@ namespace InstantaleSaveEditor
             using var dlg = new SaveFileDialog { Filter = "JSON|*.json", DefaultExt = "json", FileName = "savedata_plain.json" };
             if (dlg.ShowDialog(this) != DialogResult.OK) return;
             File.WriteAllText(dlg.FileName, _root.ToJsonString(Codec.Pretty), new UTF8Encoding(false));
-            MessageBox.Show(this, "復号した整形JSONを保存しました（確認用・ゲームには使えません）。",
+            MessageBox.Show(this, "整形JSONを保存しました（確認用・ゲームには読み込めません）。",
                 "エクスポート", MessageBoxButtons.OK, MessageBoxIcon.Information);
-        }
-
-        // 難読化鍵を入力し直す（ゲーム側で鍵が変わった場合用）。
-        private void ChangeKey()
-        {
-            using var dlg = new Form { Text = "難読化鍵", Width = 420, Height = 140, StartPosition = FormStartPosition.CenterParent };
-            var tb = new TextBox { Dock = DockStyle.Top, Text = Encoding.UTF8.GetString(_key), Margin = new Padding(8) };
-            var ok = new Button { Text = "OK", Dock = DockStyle.Bottom };
-            ok.Click += (_, _) => { _key = Encoding.UTF8.GetBytes(tb.Text); dlg.Close(); Status("鍵を変更しました"); };
-            dlg.Controls.Add(tb); dlg.Controls.Add(ok); dlg.ShowDialog(this);
         }
 
         // クエスト作成ダイアログを開き、OK ならワールドタブを再構築して結果を通知する。

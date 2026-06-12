@@ -50,7 +50,6 @@ namespace InstantaleSaveEditor
         {
             ("skills","スキル"),
             ("memory","記憶(memory)"),
-            ("life_log","生涯ログ(life_log)"),
             ("current_log","現在ログ(current_log)"),
             ("area_history","エリア履歴"),
             ("image_src","画像パス(image_src)"),
@@ -66,6 +65,7 @@ namespace InstantaleSaveEditor
         private DataGridView _bodyGrid;                                    // 身体部位の表
         private ListBox _traitList, _invList;                             // 特性 / インベントリ一覧
         private ComboBox _cbWeapon, _cbWearable;                          // 装備(アイテムID参照)
+        private LifeLogGrid _lifeLog;                                      // 生涯ログ(life_log)のグリッド
 
         // current_area=エリア / current_node=ノード / location=施設 をプルダウンで表示する。
         private static readonly HashSet<string> ComboKeys = new() { "current_area", "current_node", "location" };
@@ -91,7 +91,7 @@ namespace InstantaleSaveEditor
             var sections = new Control[]
             {
                 BuildBasic(), BuildDescriptions(), BuildAbilities(), BuildBody(),
-                BuildTraits(), BuildInventoryAndEquip(), BuildOpaque(),
+                BuildTraits(), BuildInventoryAndEquip(), BuildLifeLog(), BuildOpaque(),
             };
             for (int i = 0; i < sections.Length; i++)
             {
@@ -184,6 +184,9 @@ namespace InstantaleSaveEditor
             if (eq == null) { eq = new JsonObject(); _pd["equipments"] = eq; }
             eq["weapon"] = ComboVal(_cbWeapon);
             eq["wearable"] = ComboVal(_cbWearable);
+
+            // 生涯ログ: グリッドの行内容を life_log 配列へ反映。
+            if (_lifeLog != null) _pd["life_log"] = _lifeLog.ToArray();
 
             return true;
         }
@@ -333,6 +336,17 @@ namespace InstantaleSaveEditor
             g.Controls.Add(eqPanel);
             g.Controls.Add(bar);
             g.Controls.Add(_invList);
+            return g;
+        }
+
+        // 生涯ログ(life_log)をグリッドで表示・編集する。各行は開始日/終了日/要約回数/内容。
+        private GroupBox BuildLifeLog()
+        {
+            // グリップで高さを変えられるよう、枠はグリッド高に追従する AutoSize にする。
+            var g = new GroupBox { Text = "生涯ログ (life_log)", AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Width = 760, Margin = new Padding(4), Padding = new Padding(8) };
+            _lifeLog = new LifeLogGrid(250) { Dock = DockStyle.Top };
+            _lifeLog.Bind(J.Arr(_pd, "life_log"));
+            g.Controls.Add(_lifeLog);
             return g;
         }
 

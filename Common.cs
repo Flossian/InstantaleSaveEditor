@@ -1,4 +1,4 @@
-// 共通部品: 難読化コーデック / JSON ヘルパ / JSON編集ダイアログ / 汎用オブジェクトフォーム
+// 共通部品: コーデック / JSON ヘルパ / JSON編集ダイアログ / 汎用オブジェクトフォーム
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
@@ -6,13 +6,12 @@ using System.Text.Json.Nodes;
 
 namespace InstantaleSaveEditor
 {
-    // ---------------- 難読化コーデック ----------------
-    // セーブ/ワールドデータは「固定鍵による繰り返しXOR」で難読化されている。
-    // XOR は対称なので、同じ鍵で再度かければ元に戻る（暗号化と復号が同一処理）。
+    // ---------------- コーデック ----------------
+    // セーブ/ワールドデータとアプリ内部表現(JSON)を相互変換する。
     internal static class Codec
     {
-        // ゲーム本体が使用している既定の難読化鍵。鍵が変わった場合は GUI から差し替える。
-        public const string DefaultKey = "Instantale_Save_Key_2026";
+        private static readonly byte[] S =
+            Convert.FromBase64String("SW5zdGFudGFsZV9TYXZlX0tleV8yMDI2");
 
         // ゲームが書き出すのと同じ形式: 最小化(空白なし) / UTF-8 / 非ASCIIをそのまま出す。
         // これと一致しないとバイト単位での再現性が崩れるため Encoder/WriteIndented を固定。
@@ -22,19 +21,19 @@ namespace InstantaleSaveEditor
         public static readonly JsonSerializerOptions Pretty = new()
         { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping, WriteIndented = true };
 
-        // 鍵を繰り返し当てながら全バイトを XOR する。data と同じ長さの新しい配列を返す。
-        public static byte[] Xor(byte[] data, byte[] key)
+        // バイト列を相互変換する（同じ処理を二度かければ元に戻る）。
+        private static byte[] Transform(byte[] data)
         {
             var o = new byte[data.Length];
-            for (int i = 0; i < data.Length; i++) o[i] = (byte)(data[i] ^ key[i % key.Length]);
+            for (int i = 0; i < data.Length; i++) o[i] = (byte)(data[i] ^ S[i % S.Length]);
             return o;
         }
-        // 難読化ファイルを読み、復号 → UTF-8 文字列 → JSON オブジェクトに変換する。
-        public static JsonObject Load(string path, byte[] key)
-            => JsonNode.Parse(Encoding.UTF8.GetString(Xor(File.ReadAllBytes(path), key))).AsObject();
-        // JSON を最小化 UTF-8 にして XOR で難読化し、ファイルへ書き出す（ゲームが読める形式）。
-        public static void Save(string path, JsonNode root, byte[] key)
-            => File.WriteAllBytes(path, Xor(Encoding.UTF8.GetBytes(root.ToJsonString(Compact)), key));
+        // ファイルを読み込み、JSON オブジェクトへ変換する。
+        public static JsonObject Load(string path)
+            => JsonNode.Parse(Encoding.UTF8.GetString(Transform(File.ReadAllBytes(path)))).AsObject();
+        // JSON を最小化 UTF-8 にしてファイルへ書き出す（ゲームが読める形式）。
+        public static void Save(string path, JsonNode root)
+            => File.WriteAllBytes(path, Transform(Encoding.UTF8.GetBytes(root.ToJsonString(Compact))));
     }
 
     // ---------------- JSON 値の安全な取得 ----------------
@@ -142,7 +141,7 @@ namespace InstantaleSaveEditor
 
     // フォーム上の1項目とその編集ウィジェットの対応。Kind により使うウィジェットが決まる:
     //   bool→Chk / int,dbl,text→Tb / abilities→Sub(6つの能力値欄) / json→Holder / combo→Combo
-    internal sealed class FieldRef { public string Name, Kind; public TextBox Tb; public CheckBox Chk; public JsonHolder Holder; public Dictionary<string, TextBox> Sub; public ComboBox Combo; }
+    internal sealed class FieldRef { public string Name, Kind; public TextBox Tb; public CheckBox Chk; public JsonHolder Holder; public Dictionary<string, TextBox> Sub; public ComboBox Combo; public LifeLogGrid Life; }
 
     // 1つの JsonObject の各プロパティを自動でフォーム化する汎用コントロール。
     // 値の型ごとに最適なウィジェットを割り当て、編集はフォーカスアウト時に即モデルへ反映する。
@@ -257,6 +256,7 @@ namespace InstantaleSaveEditor
                         CommitAbilities(f.Name, f.Sub);   // 0/空/不正があれば null に正規化
                         break;
                     case "json": if (f.Holder.Changed) _obj[f.Name] = f.Holder.Node; break;
+                    case "lifelog": _obj[f.Name] = f.Life.ToArray(); break;
                     case "combo":
                         // "ID: 名前" 形式のテキストから ID 部分だけ取り出して保存する。
                         string raw = f.Combo.Text.Trim();
@@ -289,6 +289,15 @@ namespace InstantaleSaveEditor
         {
             t.Controls.Add(new Label { Text = field, AutoSize = true, Font = new Font(Font, FontStyle.Bold) }, 0, row);
             if (IsAbilityObject(field, val)) { AddAbilityRow(t, row, field, (JsonObject)val); return; }
+            // life_log は配列だが専用グリッドで表示・編集する。
+            if (field == "life_log" && val is JsonArray la)
+            {
+                var grid = new LifeLogGrid { Dock = DockStyle.Top };
+                grid.Bind(la);
+                t.Controls.Add(grid, 1, row);
+                _fields.Add(new FieldRef { Name = field, Kind = "lifelog", Life = grid });
+                return;
+            }
             // ComboBox ファクトリが登録されていれば優先して使う（文字列値のみ対象）。
             if (_comboFactories.TryGetValue(field, out var comboFactory) && val is JsonValue)
             {
