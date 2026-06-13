@@ -111,7 +111,7 @@
 <div class="wrap">
 
 <header class="title">
-  <h1>Instantale Save Editor 説明書 <span class="badge">v3</span></h1>
+  <h1>Instantale Save Editor 説明書 <span class="badge">v4</span></h1>
   <div class="sub">ゲーム <strong>Instantale</strong> のセーブデータ／ワールドデータ編集ツール（非公式）</div>
 </header>
 
@@ -131,6 +131,7 @@
     <li><a href="#world">ワールドタブ</a></li>
     <li><a href="#variables">ゲーム変数タブ</a></li>
     <li><a href="#lifelog">生涯ログの編集</a></li>
+    <li><a href="#relationship">好感度の編集</a></li>
     <li><a href="#image">キャラクター画像の編集</a></li>
     <li><a href="#quest">クエスト作成 <span class="badge">作成中</span></a></li>
     <li><a href="#files">データの保存場所</a></li>
@@ -196,7 +197,15 @@
   <li>NPC を選ぶと、説明文の下に<strong>画像パネル</strong>が表示されます（<a href="#image">詳細</a>）。</li>
   <li><code>areas</code> のうち、ダンジョン（<code>size</code> が <code>dungeon</code>）は <strong>dungeon</strong> として別ツリーにまとめて表示されます。編集・複製・削除の動作は通常の <code>areas</code> と同じです。</li>
   <li>facility（拠点）を選ぶと、説明文の下に対応する<strong>背景画像</strong>が表示されます（クリックで原寸表示。表示のみで差し替えはできません）。</li>
+  <li>NPC の<strong>好感度（relationship）</strong>は、対象ごとに 1 行の<strong>表（グリッド）</strong>で表示・編集します（<a href="#relationship">詳細</a>）。</li>
+  <li>NPC の<strong>画像生成プロンプト</strong>は <code>look</code> 欄（<strong>look(画像生成時のプロンプト)</strong>）に表示されます。</li>
 </ul>
+<div class="warn">
+  <strong>未生成 NPC の編集ロック</strong> <span class="badge">v4</span><br>
+  立ち絵画像をまだ取得していない（＝ゲーム内で未生成の可能性がある）NPC は、誤編集でゲームが起動しなくなる恐れがあるため、
+  <strong>既定で閲覧のみ（読み取り専用）</strong>になり、複製・削除も無効になります。
+  どうしても編集する場合は <strong>「ロック解除」</strong>ボタンを押し、警告に同意してください。
+</div>
 
 <h2 id="variables">5. ゲーム変数タブ</h2>
 <p><code>game_variables</code> を編集します。</p>
@@ -220,7 +229,26 @@
   <li>表の<strong>下端のグレーの帯を上下にドラッグ</strong>すると、表の高さを変えられます。</li>
 </ul>
 
-<h2 id="image">7. キャラクター画像の編集</h2>
+<h2 id="relationship">7. 好感度の編集 <span class="badge">v4</span></h2>
+<p>
+  NPC の好感度（<code>relationship</code>）は、関係を持つ<strong>対象ごとに 1 行</strong>の表（グリッド）で編集します。
+  対象が増えても自動で行が増えます。<strong>プレイヤー</strong>の行は常に先頭に表示されます。
+</p>
+<table>
+  <tr><th>列</th><th>意味</th></tr>
+  <tr><td>対象</td><td>関係の相手（プレイヤー／NPC 名）。既存の行は固定で変更できません。</td></tr>
+  <tr><td>好感度(affinity)</td><td>好感度の数値。</td></tr>
+  <tr><td>状態(affinity_text)</td><td>好感度に対応する状態の説明。複数値は「、」で区切ります。</td></tr>
+  <tr><td>関係(relationship)</td><td>相手との関係を表すタグ。複数値は「、」で区切ります。</td></tr>
+  <tr><td>会話回数(conversation_count)</td><td>会話した回数。</td></tr>
+</table>
+<ul>
+  <li><strong>追加</strong>ボタンで新しい対象の行を、<strong>削除</strong>ボタンで選択中の行を削除します。</li>
+  <li>新しい対象を追加するときは、<strong>対象</strong>欄に相手の ID を入力します。</li>
+  <li>表の<strong>下端のグレーの帯を上下にドラッグ</strong>すると、表の高さを変えられます。</li>
+</ul>
+
+<h2 id="image">8. キャラクター画像の編集</h2>
 <p>
   ワールドタブで <strong>NPC</strong> を選んだとき、またはプレイヤータブの<strong>キャラクター画像</strong>セクションで、
   顔画像と立ち絵 3 種（縮小色・ピクセル化・原本）が表示されます。どちらも操作は同じです。
@@ -237,7 +265,7 @@
   元の縮小色画像はバックアップに退避されるので、<strong>「立ち絵（縮小色）」の「使用する」</strong>を押せば元に戻せます。
 </div>
 
-<h2 id="quest">8. クエスト作成 <span class="badge">作成中</span></h2>
+<h2 id="quest">9. クエスト作成 <span class="badge">作成中</span></h2>
 <p>
   <strong>ツール → クエスト作成</strong> から開きます。テンプレート（種別・雰囲気・依頼主役職など）を選んで
   <strong>テンプレ生成</strong>を押すと、タイトルや依頼文の素案が各欄に入ります。内容を整えてから
@@ -248,7 +276,7 @@
   仕様が変わる可能性があるため、使用後は必ず動作を確認してください。
 </div>
 
-<h2 id="files">9. データの保存場所</h2>
+<h2 id="files">10. データの保存場所</h2>
 <table>
   <tr><th>種類</th><th>場所</th></tr>
   <tr><td>セーブデータ</td><td><code>%LocalAppData%\Darmabeko\Instantale\saves\{ワールド名}\savedata.json</code></td></tr>
@@ -259,12 +287,13 @@
   ※ <code>%AppData%</code> はエクスプローラーのアドレス欄にそのまま入力すると開けます。
 </p>
 
-<h2 id="faq">10. 困ったときは</h2>
+<h2 id="faq">11. 困ったときは</h2>
 <ul>
   <li><strong>編集が反映されない</strong> … 入力欄から<strong>フォーカスを外す</strong>（別の場所をクリック）と反映されます。最後に「上書き保存」を忘れずに。</li>
   <li><strong>ゲームがセーブを読み込めなくなった</strong> … バックアップしておいたファイルに戻してください。</li>
   <li><strong>タブに「ありません」と出る</strong> … そのデータ（プレイヤー／ゲーム変数）を含まないファイルを開いています。異常ではありません。</li>
   <li><strong>立ち絵を元に戻したい</strong> … NPC の「立ち絵（縮小色）」の「使用する」を押してください。</li>
+  <li><strong>NPC が編集できない（入力欄が灰色）</strong> … 立ち絵が未取得の未生成 NPC のため、安全のためロックされています。編集するには「ロック解除」ボタンを押してください（ゲームが起動しなくなる恐れがあるため非推奨）。</li>
 </ul>
 
 <footer>
