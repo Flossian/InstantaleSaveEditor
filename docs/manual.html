@@ -111,7 +111,7 @@
 <div class="wrap">
 
 <header class="title">
-  <h1>Instantale Save Editor 説明書</h1>
+  <h1>Instantale Save Editor 説明書 <span class="badge">v3</span></h1>
   <div class="sub">ゲーム <strong>Instantale</strong> のセーブデータ／ワールドデータ編集ツール（非公式）</div>
 </header>
 
@@ -131,7 +131,7 @@
     <li><a href="#world">ワールドタブ</a></li>
     <li><a href="#variables">ゲーム変数タブ</a></li>
     <li><a href="#lifelog">生涯ログの編集</a></li>
-    <li><a href="#npcimage">NPC 画像の編集</a></li>
+    <li><a href="#image">キャラクター画像の編集</a></li>
     <li><a href="#quest">クエスト作成 <span class="badge">作成中</span></a></li>
     <li><a href="#files">データの保存場所</a></li>
     <li><a href="#faq">困ったときは</a></li>
@@ -176,6 +176,7 @@
   <tr><th>セクション</th><th>内容</th></tr>
   <tr><td>基本値</td><td>名前・所持金・現在地など。数値欄には数値を入力します。</td></tr>
   <tr><td>説明文(descriptions)</td><td>外見・背景などの長文。枠の下端をドラッグして高さを変えられます。</td></tr>
+  <tr><td>キャラクター画像</td><td>プレイヤーの顔画像と立ち絵。NPC と同じ操作で表示・差し替えができます。<a href="#image">詳細</a>。</td></tr>
   <tr><td>能力値</td><td>6 つの能力値。<code>0</code> や空欄は無効値として扱われます。</td></tr>
   <tr><td>身体部位</td><td>6 部位の状態を表で編集します。</td></tr>
   <tr><td>特性(traits)</td><td>所持している特性の一覧。</td></tr>
@@ -192,7 +193,9 @@
 <ul>
   <li>長い文章はリサイズ可能なテキスト枠で編集できます。</li>
   <li>配列や複雑な構造は「JSON編集...」ボタンで編集します。</li>
-  <li>NPC を選ぶと、説明文の下に<strong>画像パネル</strong>が表示されます（<a href="#npcimage">詳細</a>）。</li>
+  <li>NPC を選ぶと、説明文の下に<strong>画像パネル</strong>が表示されます（<a href="#image">詳細</a>）。</li>
+  <li><code>areas</code> のうち、ダンジョン（<code>size</code> が <code>dungeon</code>）は <strong>dungeon</strong> として別ツリーにまとめて表示されます。編集・複製・削除の動作は通常の <code>areas</code> と同じです。</li>
+  <li>facility（拠点）を選ぶと、説明文の下に対応する<strong>背景画像</strong>が表示されます（クリックで原寸表示。表示のみで差し替えはできません）。</li>
 </ul>
 
 <h2 id="variables">5. ゲーム変数タブ</h2>
@@ -217,8 +220,11 @@
   <li>表の<strong>下端のグレーの帯を上下にドラッグ</strong>すると、表の高さを変えられます。</li>
 </ul>
 
-<h2 id="npcimage">7. NPC 画像の編集</h2>
-<p>ワールドタブで NPC を選ぶと、顔画像と立ち絵 3 種（縮小色・ピクセル化・原本）が表示されます。</p>
+<h2 id="image">7. キャラクター画像の編集</h2>
+<p>
+  ワールドタブで <strong>NPC</strong> を選んだとき、またはプレイヤータブの<strong>キャラクター画像</strong>セクションで、
+  顔画像と立ち絵 3 種（縮小色・ピクセル化・原本）が表示されます。どちらも操作は同じです。
+</p>
 <table>
   <tr><th>操作</th><th>説明</th></tr>
   <tr><td>画像をクリック</td><td>原寸で別ウィンドウ表示します。</td></tr>

@@ -85,7 +85,7 @@ namespace InstantaleSaveEditor
                 return;
             }
             _path = dlg.FileName;
-            _player.Bind(_root);
+            _player.Bind(_root, _path);
             _world.Bind(_root, _path);
             _vars.Bind(_root);
             Status("読み込み完了");
@@ -155,7 +155,7 @@ namespace InstantaleSaveEditor
             if (d.ShowDialog(this) == DialogResult.OK && d.ResultNode is JsonObject obj)
             {
                 _root = obj;
-                _player.Bind(_root); _world.Bind(_root); _vars.Bind(_root);
+                _player.Bind(_root, _path); _world.Bind(_root, _path); _vars.Bind(_root);
                 Status("JSONを反映しました");
             }
         }

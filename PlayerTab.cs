@@ -58,6 +58,8 @@ namespace InstantaleSaveEditor
 
         private JsonObject _pd;                                            // player_data 本体
         private JsonObject _areas;                                         // areas データ（エリアComboBox生成用）
+        private string _worldDir;                                          // worlds/{スロット}/ のパス。画像フォルダ解決に使う
+        private readonly NpcImagePanel _imagePanel = new();               // 顔画像＋立ち絵パネル（NPCタブと共通）
         private readonly Panel _host = new() { Dock = DockStyle.Fill, AutoScroll = true };
         private readonly Dictionary<string, TextBox> _basic = new();       // 基本値の入力欄(キー→欄)
         private readonly Dictionary<string, ComboBox> _combos = new();    // ComboBox で表示する基本値欄
@@ -73,10 +75,11 @@ namespace InstantaleSaveEditor
         public PlayerTab() { Controls.Add(_host); }
 
         // player_data を読み込み、各セクションを縦に並べて表示する。player_data 無しなら案内のみ。
-        public void Bind(JsonObject root)
+        public void Bind(JsonObject root, string filePath = null)
         {
             _areas = J.Obj(root, "areas");
             _pd = J.Obj(root, "player_data");
+            _worldDir = WorldTab.ResolveWorldDir(filePath);
             _host.Controls.Clear(); _basic.Clear(); _abil.Clear(); _combos.Clear();
             if (_pd == null)
             {
@@ -90,7 +93,7 @@ namespace InstantaleSaveEditor
 
             var sections = new Control[]
             {
-                BuildBasic(), BuildDescriptions(), BuildAbilities(), BuildBody(),
+                BuildBasic(), BuildDescriptions(), BuildImages(), BuildAbilities(), BuildBody(),
                 BuildTraits(), BuildInventoryAndEquip(), BuildLifeLog(), BuildOpaque(),
             };
             for (int i = 0; i < sections.Length; i++)
@@ -241,6 +244,21 @@ namespace InstantaleSaveEditor
                 t.Controls.Add(rtb, 0, row++); _descs[key] = rtb.Box;
             }
             g.Controls.Add(t);
+            return g;
+        }
+
+        // キャラクター画像（顔＋立ち絵3種）。NPCタブと共通の NpcImagePanel を使う。
+        // 画像は worlds/{スロット}/characters/{プレイヤー名}/ から読み込む。
+        private GroupBox BuildImages()
+        {
+            var g = new GroupBox { Text = "キャラクター画像", AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Width = 760, Margin = new Padding(4), Padding = new Padding(8) };
+            _imagePanel.Dock = DockStyle.Top;
+            g.Controls.Add(_imagePanel);
+            string name = J.Str(_pd, "name");
+            string charDir = _worldDir != null && !string.IsNullOrEmpty(name)
+                ? Path.Combine(_worldDir, "characters", name)
+                : null;
+            _imagePanel.LoadImages(charDir != null && Directory.Exists(charDir) ? charDir : null);
             return g;
         }
 

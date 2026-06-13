@@ -19,6 +19,7 @@ namespace InstantaleSaveEditor
         private readonly TreeView _tree = new() { Dock = DockStyle.Fill, HideSelection = false };
         private readonly ObjectForm _form = new() { Dock = DockStyle.Fill };
         private readonly NpcImagePanel _npcPanel = new();         // NPC選択時にフォームへ注入する画像パネル
+        private readonly BackgroundImagePanel _bgPanel = new();   // facility選択時にフォームへ注入する背景画像パネル
         private Button _btnDup, _btnDel;
         private string _curKind;            // obj / item / node / facility
         private JsonObject _curContainer;   // 選択レコードを保持する辞書（複製/削除の対象）
@@ -61,7 +62,7 @@ namespace InstantaleSaveEditor
         // 開いたファイルパスから worlds/{スロット}/ ディレクトリを導く。
         // world_data.json 直接の場合: そのディレクトリ。
         // saves/{スロット}/savedata.json の場合: ../worlds/{スロット}/ を探す。
-        private static string ResolveWorldDir(string filePath)
+        internal static string ResolveWorldDir(string filePath)
         {
             if (string.IsNullOrEmpty(filePath)) return null;
             try
@@ -97,15 +98,31 @@ namespace InstantaleSaveEditor
             foreach (var sec in Sections)
             {
                 if (_root[sec] is not JsonObject so) continue;
+                // areas は size=="dungeon" を別ツリー(dungeon)に分ける。どちらも実体は _root["areas"] の
+                // ため、項目/facility の Tag セクションは "areas" のまま（編集・複製・削除はそのまま動く）。
+                if (sec == "areas")
+                {
+                    var keys = so.Select(p => p.Key).OrderBy(k => k.Length).ThenBy(k => k).ToList();
+                    bool IsDungeon(string k) => J.Str(so[k] as JsonObject, "size") == "dungeon";
+                    var normal = keys.Where(k => !IsDungeon(k)).ToList();
+                    var dungeon = keys.Where(IsDungeon).ToList();
+
+                    var areaNode = new TreeNode($"areas ({normal.Count})") { Tag = new[] { "sec", "areas" } };
+                    foreach (var k in normal) areaNode.Nodes.Add(BuildAreaItem(so, k));
+                    _tree.Nodes.Add(areaNode);
+
+                    if (dungeon.Count > 0)
+                    {
+                        var dunNode = new TreeNode($"dungeon ({dungeon.Count})") { Tag = new[] { "sec", "areas" } };
+                        foreach (var k in dungeon) dunNode.Nodes.Add(BuildAreaItem(so, k));
+                        _tree.Nodes.Add(dunNode);
+                    }
+                    continue;
+                }
                 var node = new TreeNode($"{sec} ({so.Count})") { Tag = new[] { "sec", sec } };
                 foreach (var k in so.Select(p => p.Key).OrderBy(k => k.Length).ThenBy(k => k))
                 {
                     var itemNode = new TreeNode($"{k}: {Label(so[k])}") { Tag = new[] { "item", sec, k } };
-                    // areas は配下の facilities を接続グラフで階層展開する（中間の node 階層は隠す）。
-                    if (sec == "areas" && J.Obj(so[k] as JsonObject, "nodes") is JsonObject nodes)
-                        foreach (var nk in nodes.Select(p => p.Key).OrderBy(k2 => k2.Length).ThenBy(k2 => k2))
-                            if (J.Obj(nodes[nk] as JsonObject, "facilities") is JsonObject facs)
-                                AddFacilityTree(itemNode, k, nk, facs, J.Str(nodes[nk].AsObject(), "entrance_facility"));
                     node.Nodes.Add(itemNode);
                 }
                 _tree.Nodes.Add(node);
@@ -113,6 +130,18 @@ namespace InstantaleSaveEditor
             if (_root["index"] is JsonObject)
                 _tree.Nodes.Add(new TreeNode("index") { Tag = new[] { "obj", "index" } });
             _tree.EndUpdate();
+        }
+
+        // areas の1レコードを項目ノード化する。配下の facilities を接続グラフで階層展開する
+        // （中間の node 階層は隠す）。areas/dungeon の両ツリーから共通で使う。
+        private static TreeNode BuildAreaItem(JsonObject areas, string k)
+        {
+            var itemNode = new TreeNode($"{k}: {Label(areas[k])}") { Tag = new[] { "item", "areas", k } };
+            if (J.Obj(areas[k] as JsonObject, "nodes") is JsonObject nodes)
+                foreach (var nk in nodes.Select(p => p.Key).OrderBy(k2 => k2.Length).ThenBy(k2 => k2))
+                    if (J.Obj(nodes[nk] as JsonObject, "facilities") is JsonObject facs)
+                        AddFacilityTree(itemNode, k, nk, facs, J.Str(nodes[nk].AsObject(), "entrance_facility"));
+            return itemNode;
         }
 
         // facilities を connections に沿って木構造で展開し、areaNode 直下に差し込む。
@@ -186,8 +215,12 @@ namespace InstantaleSaveEditor
                 case "facility":  // areas[area].nodes[node].facilities[facility]
                     _curContainer = J.Obj(J.Obj(_root?["areas"]?[tag[1]]?.AsObject(), "nodes")?[tag[2]]?.AsObject(), "facilities");
                     _curKey = tag[3];
+                    var facObj = _curContainer[_curKey].AsObject();
                     _form.ClearComboFields();
-                    _form.Bind(_curContainer[_curKey].AsObject()); SetBtns(true); break;
+                    // description 直後に背景画像(backgrounds/{facility名}/image.png)を差し込む。
+                    _bgPanel.LoadImage(_worldDir, J.Str(facObj, "name"));
+                    _form.Bind(facObj, _bgPanel, "description");
+                    SetBtns(true); break;
                 default:      // セクション見出しなど
                     _form.Clear(); SetBtns(false); break;
             }

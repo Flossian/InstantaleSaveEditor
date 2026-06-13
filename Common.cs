@@ -29,8 +29,30 @@ namespace InstantaleSaveEditor
             return o;
         }
         // ファイルを読み込み、JSON オブジェクトへ変換する。
+        // 通常はゲームの難読化ファイルだが、復号済み(エクスポート)JSON もそのまま読み込めるよう
+        // 先に平文 JSON として解釈を試み、失敗したら XOR 復号する。
         public static JsonObject Load(string path)
-            => JsonNode.Parse(Encoding.UTF8.GetString(Transform(File.ReadAllBytes(path)))).AsObject();
+        {
+            var bytes = File.ReadAllBytes(path);
+            // BOM を除いた先頭の非空白文字が '{' / '[' なら平文 JSON とみなす。
+            if (LooksLikePlainJson(bytes))
+            {
+                try { return JsonNode.Parse(StripBom(Encoding.UTF8.GetString(bytes))).AsObject(); }
+                catch { /* 平文解釈に失敗したら難読化として扱う */ }
+            }
+            return JsonNode.Parse(Encoding.UTF8.GetString(Transform(bytes))).AsObject();
+        }
+
+        // UTF-8 BOM を含む先頭空白を読み飛ばし、最初の文字が JSON の開始記号かを判定。
+        private static bool LooksLikePlainJson(byte[] bytes)
+        {
+            int i = 0;
+            if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF) i = 3;
+            while (i < bytes.Length && (bytes[i] == ' ' || bytes[i] == '\t' || bytes[i] == '\r' || bytes[i] == '\n')) i++;
+            return i < bytes.Length && (bytes[i] == '{' || bytes[i] == '[');
+        }
+
+        private static string StripBom(string s) => s.Length > 0 && s[0] == '﻿' ? s.Substring(1) : s;
         // JSON を最小化 UTF-8 にしてファイルへ書き出す（ゲームが読める形式）。
         public static void Save(string path, JsonNode root)
             => File.WriteAllBytes(path, Transform(Encoding.UTF8.GetBytes(root.ToJsonString(Compact))));
