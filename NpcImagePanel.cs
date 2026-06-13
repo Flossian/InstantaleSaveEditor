@@ -7,7 +7,7 @@ namespace InstantaleSaveEditor
 {
     internal sealed class NpcImagePanel : Panel
     {
-        // --- サイズ定数 ---
+        // ---------------- サイズ定数 ----------------
         private const int FaceW = 120, FaceH = 160;
         private const int StandW = 162, StandH = 324;
         private const int ColGap = 10;
@@ -21,13 +21,13 @@ namespace InstantaleSaveEditor
         // 元の縮小色を退避する固定バックアップ名。縮小色枠はこれを参照する。
         private const string BackupFile = "reduced_color_image_bk.png";
 
-        // --- ウィジェット ---
+        // ---------------- ウィジェット ----------------
         private readonly PictureBox _pbFace = MakePb(FaceW, FaceH);
         private readonly PictureBox[] _pbStand =
             { MakePb(StandW, StandH), MakePb(StandW, StandH), MakePb(StandW, StandH) };
         private readonly Button[] _useBtns = new Button[3];
 
-        // --- 状態 ---
+        // ---------------- 状態 ----------------
         private int _activeIdx = 0;
         private string _charDir;
 

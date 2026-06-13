@@ -1,12 +1,11 @@
 // ワールドタブ: セーブ内の世界データ(world_data/areas/npcs/quests/story_quests/index)を
-// ツリーで辿り、選択レコードを汎用フォームで編集する。
-// NPC 選択時は look_description の直後に NpcImagePanel を差し込んで画像を表示する。
+// 左ツリーで辿り、選択レコードを右の汎用フォーム(ObjectForm)で編集する。
+// NPC/facility 選択時は対応する画像パネル(NpcImagePanel/BackgroundImagePanel)を差し込む。
 using System.Text.Json.Nodes;
 
 namespace InstantaleSaveEditor
 {
-    // ワールドタブ。左ツリーでレコードを選び、右の汎用フォーム(ObjectForm)で編集する。
-    // 編集はフォーカスアウトで即反映されるため、レコード切替時の特別な保存処理は不要。
+    // 編集はフォーカスアウトで即モデルへ反映されるため、レコード切替時の特別な保存処理は不要。
     internal sealed class WorldTab : UserControl
     {
         // ツリーに「セクション→項目」で展開する、id付き辞書のセクション。
@@ -20,7 +19,8 @@ namespace InstantaleSaveEditor
         private readonly ObjectForm _form = new() { Dock = DockStyle.Fill };
         private readonly NpcImagePanel _npcPanel = new();         // NPC選択時にフォームへ注入する画像パネル
         private readonly BackgroundImagePanel _bgPanel = new();   // facility選択時にフォームへ注入する背景画像パネル
-        private Button _btnDup, _btnDel;
+        private Button _btnDup, _btnDel, _btnUnlock;
+        private bool _npcLocked;            // 現在のNPCが未生成（立ち絵未取得）で閲覧のみか
         private string _curKind;            // obj / item / node / facility
         private JsonObject _curContainer;   // 選択レコードを保持する辞書（複製/削除の対象）
         private string _curKey;             // _curContainer 内のキー
@@ -39,15 +39,16 @@ namespace InstantaleSaveEditor
             var ops = new FlowLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(4) };
             _btnDup = new Button { Text = "複製", Width = 70, Enabled = false };
             _btnDel = new Button { Text = "削除", Width = 70, Enabled = false };
+            _btnUnlock = new Button { Text = "ロック解除", Width = 90, Visible = false };
             _btnDup.Click += (_, _) => Duplicate();
             _btnDel.Click += (_, _) => Delete();
-            ops.Controls.AddRange(new Control[] { _btnDup, _btnDel });
+            _btnUnlock.Click += (_, _) => UnlockNpc();
+            ops.Controls.AddRange(new Control[] { _btnDup, _btnDel, _btnUnlock });
             right.Controls.Add(ops, 0, 0);
             right.Controls.Add(_form, 0, 1);
             split.Panel2.Controls.Add(right);
 
             Controls.Add(split);
-            // 値はフォーカスが外れた時点で即反映されるため、切替時の特別処理は不要。
             _tree.AfterSelect += (_, e) => OnSelect(e.Node);
         }
 
@@ -181,6 +182,7 @@ namespace InstantaleSaveEditor
         // ツリー選択に応じて対象オブジェクトをフォームへバインドし、操作ボタンの有効/無効を切り替える。
         private void OnSelect(TreeNode node)
         {
+            _btnUnlock.Visible = false; _npcLocked = false;
             if (node?.Tag is not string[] tag) { _form.Clear(); SetBtns(false); return; }
             _curKind = tag[0];
             switch (tag[0])
@@ -203,8 +205,13 @@ namespace InstantaleSaveEditor
                             : null;
                         _npcPanel.LoadImages(Directory.Exists(charDir) ? charDir : null);
                         RegisterNpcCombos(itemObj);
-                        _form.Bind(itemObj, _npcPanel, "look_description");
+                        // relationship の対象キー（player 以外は NPC ID 想定）を NPC 名へ解決する。
+                        _form.RelationshipTargetNamer = ResolveNpcName;
+                        // look（外見タグ）を look_description の直下へ移動し、画像パネルはその下に差し込む。
+                        string injectAfter = itemObj.ContainsKey("look") ? "look" : "look_description";
+                        _form.Bind(itemObj, _npcPanel, injectAfter, ("look", "look_description"));
                         LinkAreaLocation();
+                        ApplyNpcLock(charDir);
                     }
                     else
                     {
@@ -228,6 +235,54 @@ namespace InstantaleSaveEditor
 
         // 複製/削除ボタンはレコード（item/node/facility）選択時のみ有効。
         private void SetBtns(bool on) { _btnDup.Enabled = on; _btnDel.Enabled = on; }
+
+        // 未生成NPC（立ち絵未取得）はゲームが落ちる恐れがあるため、既定でフォームを読み取り専用にし
+        // 複製/削除も無効化する。ロック解除ボタンを表示し、押下で警告のうえ編集を許可する。
+        private void ApplyNpcLock(string charDir)
+        {
+            _npcLocked = !IsNpcGenerated(charDir);
+            _form.SetReadOnly(_npcLocked);
+            _btnUnlock.Visible = _npcLocked;
+            _btnUnlock.Enabled = _npcLocked;
+            _btnUnlock.Text = "ロック解除";
+            if (_npcLocked) { _btnDup.Enabled = false; _btnDel.Enabled = false; }
+        }
+
+        // NPCがゲーム内で生成済みか。立ち絵(reduced_color_image.png)の有無で判定する。
+        // charDir が null（ワールドディレクトリ不明で判定不能）の場合はロックしない。
+        private static bool IsNpcGenerated(string charDir)
+            => string.IsNullOrEmpty(charDir)
+               || File.Exists(Path.Combine(charDir, "reduced_color_image.png"));
+
+        // ロック解除: 警告に同意した場合のみ、読み取り専用を解除して編集・複製・削除を可能にする。
+        private void UnlockNpc()
+        {
+            if (!_npcLocked) return;
+            if (MessageBox.Show(
+                    "このNPCはゲーム内でまだ生成されていない可能性があります（立ち絵画像が未取得）。\n" +
+                    "生成前にデータを改変すると、ゲームが正常に起動しなくなる場合があります。\n\n" +
+                    "編集を有効にしますか？",
+                    "編集ロックの解除", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+                return;
+            _npcLocked = false;
+            _form.SetReadOnly(false);
+            _btnDup.Enabled = true;
+            _btnDel.Enabled = true;
+            _btnUnlock.Enabled = false;
+            _btnUnlock.Text = "解除済み";
+        }
+
+        // relationship の対象キーを NPC 名へ解決する。キーが NPC ID（または name）に一致すれば名前を返す。
+        // 見つからなければ null（呼び出し側でキーをそのまま表示）。
+        private string ResolveNpcName(string key)
+        {
+            var npcs = _root?["npcs"]?.AsObject();
+            if (npcs == null || string.IsNullOrEmpty(key)) return null;
+            if (npcs[key] is JsonObject byId) return J.Str(byId, "name");
+            foreach (var kv in npcs)
+                if (kv.Value is JsonObject o && J.Str(o, "name") == key) return key;
+            return null;
+        }
 
         // NPC の current_area / current_location をエリア/ノードのプルダウンにする。
         private void RegisterNpcCombos(JsonObject npcObj)

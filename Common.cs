@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization.Metadata;
 
 namespace InstantaleSaveEditor
 {
@@ -16,10 +17,10 @@ namespace InstantaleSaveEditor
         // ゲームが書き出すのと同じ形式: 最小化(空白なし) / UTF-8 / 非ASCIIをそのまま出す。
         // これと一致しないとバイト単位での再現性が崩れるため Encoder/WriteIndented を固定。
         public static readonly JsonSerializerOptions Compact = new()
-        { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping, WriteIndented = false };
+        { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping, WriteIndented = false, TypeInfoResolver = new DefaultJsonTypeInfoResolver() };
         // 確認用エクスポート向けの整形(インデント付き)出力。ゲームには使わない。
         public static readonly JsonSerializerOptions Pretty = new()
-        { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping, WriteIndented = true };
+        { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping, WriteIndented = true, TypeInfoResolver = new DefaultJsonTypeInfoResolver() };
 
         // バイト列を相互変換する（同じ処理を二度かければ元に戻る）。
         private static byte[] Transform(byte[] data)
@@ -162,8 +163,9 @@ namespace InstantaleSaveEditor
     }
 
     // フォーム上の1項目とその編集ウィジェットの対応。Kind により使うウィジェットが決まる:
-    //   bool→Chk / int,dbl,text→Tb / abilities→Sub(6つの能力値欄) / json→Holder / combo→Combo
-    internal sealed class FieldRef { public string Name, Kind; public TextBox Tb; public CheckBox Chk; public JsonHolder Holder; public Dictionary<string, TextBox> Sub; public ComboBox Combo; public LifeLogGrid Life; }
+    //   bool→Chk / int,dbl,text,strlist→Tb / abilities→Sub(6つの能力値欄) /
+    //   json→Holder / combo→Combo / lifelog→Life / relationship→Rel
+    internal sealed class FieldRef { public string Name, Kind; public TextBox Tb; public CheckBox Chk; public JsonHolder Holder; public Dictionary<string, TextBox> Sub; public ComboBox Combo; public LifeLogGrid Life; public RelationshipGrid Rel; }
 
     // 1つの JsonObject の各プロパティを自動でフォーム化する汎用コントロール。
     // 値の型ごとに最適なウィジェットを割り当て、編集はフォーカスアウト時に即モデルへ反映する。
@@ -194,6 +196,10 @@ namespace InstantaleSaveEditor
         // フィールド名 → ComboBox ファクトリ。Bind 前に RegisterComboField で登録し Bind 後にクリアしないこと。
         private readonly Dictionary<string, Func<string, ComboBox>> _comboFactories = new();
 
+        // relationship の対象キー（"player" 以外は NPC ID 等）を見出し表示名へ変換する任意のフック。
+        // 未設定/空文字を返す場合はキーをそのまま表示する。WorldTab が NPC 一覧を引いて名前を返す。
+        public Func<string, string> RelationshipTargetNamer { get; set; }
+
         public ObjectForm() { Controls.Add(_host); }
 
         // 表示をクリアし、バインドを解除する。
@@ -211,13 +217,44 @@ namespace InstantaleSaveEditor
         public ComboBox GetCombo(string field)
             => _fields.FirstOrDefault(f => f.Kind == "combo" && f.Name == field)?.Combo;
 
+        // フォーム全体の読み取り専用を切り替える（未生成NPCの誤編集防止に使う）。
+        // 入力系ウィジェットのみ無効化し、画像クリック等の閲覧操作は残す。
+        // Bind でウィジェットは作り直されるため、Bind 後に毎回呼び直すこと。
+        public void SetReadOnly(bool ro) => ApplyReadOnly(_host, ro);
+
+        private static void ApplyReadOnly(Control parent, bool ro)
+        {
+            foreach (Control c in parent.Controls)
+            {
+                switch (c)
+                {
+                    case TextBox tb:
+                        tb.ReadOnly = ro;
+                        tb.BackColor = ro ? SystemColors.Control : SystemColors.Window;
+                        break;
+                    case ComboBox cb: cb.Enabled = !ro; break;
+                    case CheckBox ck: ck.Enabled = !ro; break;
+                    case Button bt: bt.Enabled = !ro; break;
+                    case DataGridView dg: dg.ReadOnly = ro; break;
+                }
+                if (c.HasChildren) ApplyReadOnly(c, ro);
+            }
+        }
+
         // 指定オブジェクトの各プロパティをフォーム化して表示する。
         // injectControl / injectAfterKey を指定すると、該当フィールドの直後にコントロールを差し込む。
+        // reorder を指定すると、モデルの並びは変えずに表示順だけ move を after の直後へ移動する。
         // WinForms の DockStyle.Top は後から追加したコントロールが上に来るため、逆順で追加する。
-        public void Bind(JsonObject obj, Control injectControl = null, string injectAfterKey = null)
+        public void Bind(JsonObject obj, Control injectControl = null, string injectAfterKey = null,
+                         (string move, string after)? reorder = null)
         {
             _obj = obj; _host.Controls.Clear(); _fields.Clear();
             if (obj == null) return;
+
+            // 表示するキーの並び。reorder 指定時はモデルを変えずに表示順だけ入れ替える。
+            var keys = obj.Select(p => p.Key).ToList();
+            if (reorder is { } rr && keys.Contains(rr.after) && keys.Remove(rr.move))
+                keys.Insert(keys.IndexOf(rr.after) + 1, rr.move);
 
             bool useInject = injectControl != null && injectAfterKey != null;
 
@@ -225,7 +262,7 @@ namespace InstantaleSaveEditor
             {
                 var t = NewTable();
                 int row = 0;
-                foreach (var kv in obj) AddRow(t, row++, kv.Key, kv.Value);
+                foreach (var k in keys) AddRow(t, row++, k, obj[k]);
                 _host.Controls.Add(t);
                 return;
             }
@@ -236,16 +273,16 @@ namespace InstantaleSaveEditor
             int r1 = 0, r2 = 0;
             bool past = false;
 
-            foreach (var kv in obj)
+            foreach (var k in keys)
             {
                 if (!past)
                 {
-                    AddRow(t1, r1++, kv.Key, kv.Value);
-                    if (kv.Key == injectAfterKey) past = true;
+                    AddRow(t1, r1++, k, obj[k]);
+                    if (k == injectAfterKey) past = true;
                 }
                 else
                 {
-                    AddRow(t2, r2++, kv.Key, kv.Value);
+                    AddRow(t2, r2++, k, obj[k]);
                 }
             }
 
@@ -274,11 +311,13 @@ namespace InstantaleSaveEditor
                         if (!double.TryParse(f.Tb.Text, out double dv)) return Fail(f.Name, "数値");
                         _obj[f.Name] = dv; break;
                     case "text": _obj[f.Name] = f.Tb.Text; break;
+                    case "strlist": _obj[f.Name] = ToStringArray(f.Tb.Text); break;
                     case "abilities":
                         CommitAbilities(f.Name, f.Sub);   // 0/空/不正があれば null に正規化
                         break;
                     case "json": if (f.Holder.Changed) _obj[f.Name] = f.Holder.Node; break;
                     case "lifelog": _obj[f.Name] = f.Life.ToArray(); break;
+                    case "relationship": _obj[f.Name] = f.Rel.ToObject(); break;
                     case "combo":
                         // "ID: 名前" 形式のテキストから ID 部分だけ取り出して保存する。
                         string raw = f.Combo.Text.Trim();
@@ -304,12 +343,20 @@ namespace InstantaleSaveEditor
             return t;
         }
 
-        // 1プロパティ分の行を生成する。値の型に応じてウィジェットを振り分ける:
-        //   能力値オブジェクト→6欄 / bool→チェック / 整数・小数→数値欄 / 文字列→(長文はリサイズ枠)
+        // 1プロパティ分の行を生成する。値の型・フィールド名に応じてウィジェットを振り分ける:
+        //   能力値オブジェクト→6欄 / life_log→グリッド / relationship→グリッド / look→1行1タグ欄 /
+        //   登録済みコンボ→プルダウン / bool→チェック / 整数・小数→数値欄 / 文字列→(長文はリサイズ枠) /
         //   文字列だけの辞書→キーごとの枠 / それ以外(配列・複雑な辞書・null)→JSON編集ボタン
+        // フィールド名に対する表示用ラベル。未登録のフィールドはキー名をそのまま表示する。
+        private static string LabelOf(string field) => field switch
+        {
+            "look" => "look(画像生成時のプロンプト)",
+            _ => field,
+        };
+
         private void AddRow(TableLayoutPanel t, int row, string field, JsonNode val)
         {
-            t.Controls.Add(new Label { Text = field, AutoSize = true, Font = new Font(Font, FontStyle.Bold) }, 0, row);
+            t.Controls.Add(new Label { Text = LabelOf(field), AutoSize = true, Font = new Font(Font, FontStyle.Bold) }, 0, row);
             if (IsAbilityObject(field, val)) { AddAbilityRow(t, row, field, (JsonObject)val); return; }
             // life_log は配列だが専用グリッドで表示・編集する。
             if (field == "life_log" && val is JsonArray la)
@@ -320,6 +367,12 @@ namespace InstantaleSaveEditor
                 _fields.Add(new FieldRef { Name = field, Kind = "lifelog", Life = grid });
                 return;
             }
+            // relationship（対象→{好感度/状態/関係/会話回数}の辞書）は専用の見やすい欄で表示する。
+            if (field == "relationship" && IsRelationshipObject(val))
+            { AddRelationshipRow(t, row, (JsonObject)val); return; }
+            // look（外見タグの文字列配列）は「1行1タグ」の複数行欄で編集する。
+            if (field == "look" && IsStringArray(val))
+            { AddStringListRow(t, row, field, (JsonArray)val); return; }
             // ComboBox ファクトリが登録されていれば優先して使う（文字列値のみ対象）。
             if (_comboFactories.TryGetValue(field, out var comboFactory) && val is JsonValue)
             {
@@ -404,6 +457,65 @@ namespace InstantaleSaveEditor
                 r++;
             }
             t.Controls.Add(inner, 1, row);
+        }
+
+        // 値がすべて文字列の配列か（= 1行1タグの複数行欄で表示できるか）。空配列も対象とする。
+        private static bool IsStringArray(JsonNode val)
+        {
+            if (val is not JsonArray a) return false;
+            foreach (var n in a)
+                if (n is not JsonValue v || !v.TryGetValue<string>(out _)) return false;
+            return true;
+        }
+
+        // 文字列配列(look)を「1行1タグ」のリサイズ枠で表示する。保存は ToStringArray で配列へ戻す。
+        private void AddStringListRow(TableLayoutPanel t, int row, string field, JsonArray arr)
+        {
+            var rtb = new ResizableTextBox(520, 110) { Dock = DockStyle.Top, Margin = new Padding(3, 3, 3, 8) };
+            rtb.Box.Text = string.Join(Environment.NewLine, arr.Select(n => n?.ToString() ?? ""));
+            var fr = new FieldRef { Name = field, Kind = "strlist", Tb = rtb.Box };
+            rtb.Box.Leave += (_, _) => { if (_obj != null) { _obj[field] = ToStringArray(rtb.Box.Text); Ok(rtb.Box); } };
+            t.Controls.Add(rtb, 1, row);
+            _fields.Add(fr);
+        }
+
+        // 複数行テキストを「1行1要素・前後空白除去・空行除外」で文字列配列へ変換する。
+        private static JsonArray ToStringArray(string text)
+        {
+            var a = new JsonArray();
+            foreach (var line in text.Split('\n'))
+            {
+                string s = line.Trim();
+                if (s.Length > 0) a.Add(s);
+            }
+            return a;
+        }
+
+        // relationship の各対象が持つ既知のキー。これ以外を含む場合は専用表示せず JSON 編集に回す。
+        private static readonly HashSet<string> RelInnerKeys = new()
+        { "affinity", "affinity_text", "relationship", "conversation_count" };
+
+        // relationship が「対象→既知キーだけの辞書」の形か判定する。未知の形は false（JSON編集にフォールバック）。
+        private static bool IsRelationshipObject(JsonNode val)
+        {
+            if (val is not JsonObject o || o.Count == 0) return false;
+            foreach (var kv in o)
+            {
+                if (kv.Value is not JsonObject inner) return false;
+                foreach (var ik in inner)
+                    if (!RelInnerKeys.Contains(ik.Key)) return false;
+            }
+            return true;
+        }
+
+        // relationship を対象1行ずつのグリッドで表示する。player を先頭固定、対象が増えても自動で増える。
+        // life_log と同様に編集はグリッド内に保持し、保存直前の Apply() で辞書へ書き戻す。
+        private void AddRelationshipRow(TableLayoutPanel t, int row, JsonObject rel)
+        {
+            var grid = new RelationshipGrid { Dock = DockStyle.Top, TargetNamer = RelationshipTargetNamer };
+            grid.Bind(rel);
+            t.Controls.Add(grid, 1, row);
+            _fields.Add(new FieldRef { Name = "relationship", Kind = "relationship", Rel = grid });
         }
 
         // フォーカスが外れた時点で 1 項目だけ検証して即反映する。

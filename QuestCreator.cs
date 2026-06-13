@@ -115,7 +115,7 @@ namespace InstantaleSaveEditor
             RefreshBgm();
         }
 
-        // ---- テンプレ素案生成 ----
+        // ---------------- テンプレ素案生成 ----------------
         // 選択中の種別・雰囲気・名称・対象を組み合わせ、各テキスト欄に素案を流し込む（後から手直し可）。
         private void Generate()
         {
@@ -139,7 +139,7 @@ namespace InstantaleSaveEditor
         private static string Fill(string pat, string place, string target)
             => pat.Replace("{place}", place).Replace("{target}", target);
 
-        // ---- 実際の挿入 ----
+        // ---------------- 実際の挿入 ----------------
         // ダンジョン area と quest を生成して相互に紐付け、発注拠点の quests/connections も更新する。
         private void Create()
         {
@@ -269,7 +269,7 @@ namespace InstantaleSaveEditor
             return (max + 1).ToString();
         }
 
-        // ---- UI ヘルパ（ラベル＋入力の1行を表に追加して、その入力部品を返す） ----
+        // ---------------- UI ヘルパ（ラベル＋入力の1行を表に追加して、その入力部品を返す） ----------------
         private ComboBox Combo(TableLayoutPanel t, ref int r, string label, IEnumerable<string> items)
         {
             t.Controls.Add(L(label), 0, r);

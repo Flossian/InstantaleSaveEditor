@@ -1,10 +1,9 @@
 // プレイヤータブ: player_data 専用の編集UI。
-// 基本値 / 説明 / 能力値(6) / 身体部位(6×4) / 特性 / インベントリ / 装備 / その他ログ
+// 基本値 / 説明 / キャラクター画像 / 能力値 / 身体部位 / 特性 / インベントリ・装備 / 生涯ログ / その他(JSON編集)
 using System.Text.Json.Nodes;
 
 namespace InstantaleSaveEditor
 {
-    // プレイヤータブ。player_data の各データを専用ウィジェットで編集する。
     // 編集対象の構造定義（Spec 群）を先頭に置き、UI 生成と反映はそれらを回して行う。
     internal sealed class PlayerTab : UserControl
     {
@@ -349,7 +348,7 @@ namespace InstantaleSaveEditor
             eqPanel.Controls.Add(_cbWearable, 1, 1);
             RefreshEquipCombos();
 
-            // 上から: 装備コンボ → ボタン → 一覧 (Dock=Top は逆順に積まれるため追加順に注意)
+            // Dock=Top は後から追加したものが上に来る（ResizableTextBox/LifeLogGrid と同規則）。
 
             g.Controls.Add(eqPanel);
             g.Controls.Add(bar);
