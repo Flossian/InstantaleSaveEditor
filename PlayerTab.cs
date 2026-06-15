@@ -50,7 +50,6 @@ namespace InstantaleSaveEditor
             ("skills","スキル"),
             ("memory","記憶(memory)"),
             ("current_log","現在ログ(current_log)"),
-            ("area_history","エリア履歴"),
             ("image_src","画像パス(image_src)"),
             ("story_achievements","ストーリー実績"),
         };
@@ -67,6 +66,7 @@ namespace InstantaleSaveEditor
         private ListBox _traitList, _invList;                             // 特性 / インベントリ一覧
         private ComboBox _cbWeapon, _cbWearable;                          // 装備(アイテムID参照)
         private LifeLogGrid _lifeLog;                                      // 生涯ログ(life_log)のグリッド
+        private AreaHistoryGrid _areaHistory;                             // エリア履歴(area_history)のグリッド
 
         // current_area=エリア / current_node=ノード / location=施設 をプルダウンで表示する。
         private static readonly HashSet<string> ComboKeys = new() { "current_area", "current_node", "location" };
@@ -93,7 +93,7 @@ namespace InstantaleSaveEditor
             var sections = new Control[]
             {
                 BuildBasic(), BuildDescriptions(), BuildImages(), BuildAbilities(), BuildBody(),
-                BuildTraits(), BuildInventoryAndEquip(), BuildLifeLog(), BuildOpaque(),
+                BuildTraits(), BuildInventoryAndEquip(), BuildLifeLog(), BuildAreaHistory(), BuildOpaque(),
             };
             for (int i = 0; i < sections.Length; i++)
             {
@@ -189,6 +189,9 @@ namespace InstantaleSaveEditor
 
             // 生涯ログ: グリッドの行内容を life_log 配列へ反映。
             if (_lifeLog != null) _pd["life_log"] = _lifeLog.ToArray();
+
+            // エリア履歴: グリッドの行内容を area_history 辞書へ反映。
+            if (_areaHistory != null) _pd["area_history"] = _areaHistory.ToObject();
 
             return true;
         }
@@ -364,6 +367,16 @@ namespace InstantaleSaveEditor
             _lifeLog = new LifeLogGrid(250) { Dock = DockStyle.Top };
             _lifeLog.Bind(J.Arr(_pd, "life_log"));
             g.Controls.Add(_lifeLog);
+            return g;
+        }
+
+        private GroupBox BuildAreaHistory()
+        {
+            // グリップで高さを変えられるよう、枠はグリッド高に追従する AutoSize にする。
+            var g = new GroupBox { Text = "エリア履歴 (area_history)", AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Width = 760, Margin = new Padding(4), Padding = new Padding(8) };
+            _areaHistory = new AreaHistoryGrid(250) { Dock = DockStyle.Top };
+            _areaHistory.Bind(J.Obj(_pd, "area_history"), _areas);
+            g.Controls.Add(_areaHistory);
             return g;
         }
 

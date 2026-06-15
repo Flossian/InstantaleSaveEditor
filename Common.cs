@@ -70,6 +70,11 @@ namespace InstantaleSaveEditor
         // 整数を取得（無ければ def）。
         public static long Int(JsonObject o, string k, long def = 0)
             => o != null && o.TryGetPropertyValue(k, out var n) && n is JsonValue v && v.TryGetValue<long>(out var l) ? l : def;
+        // 真偽値を取得（無ければ def）。
+        public static bool Bool(JsonObject o, string k, bool def = false)
+            => o != null && o.TryGetPropertyValue(k, out var n) && n is JsonValue v && v.TryGetValue<bool>(out var b) ? b : def;
+        // NPC が死亡扱いか（config.is_dead == true）。
+        public static bool NpcIsDead(JsonObject npc) => Bool(Obj(npc, "config"), "is_dead");
         // 数値を取得（整数で入っていても double として返す。無ければ def）。
         public static double Dbl(JsonObject o, string k, double def = 0)
         {
@@ -87,6 +92,35 @@ namespace InstantaleSaveEditor
              : v is JsonArray a ? $"[配列 {a.Count}件]"
              : v is JsonObject ob ? $"{{辞書 {ob.Count}キー}}"
              : v.ToString();
+    }
+
+    // ---------------- 画像の原寸表示 ----------------
+    // PictureBox にクリックハンドラを登録し、画像を別ウィンドウで原寸（スクロール付き）表示する。
+    // NpcImagePanel / BackgroundImagePanel など複数のパネルから共通で使う。
+    internal static class ImageViewer
+    {
+        public static void RegisterClickViewer(PictureBox pb, string title)
+        {
+            pb.Click += (_, _) =>
+            {
+                if (pb.Image == null) return;
+                var img = (Image)pb.Image.Clone();
+                var area = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1200, 800);
+                var f = new Form
+                {
+                    Text = title + "  （原寸）",
+                    StartPosition = FormStartPosition.CenterScreen,
+                    Width = Math.Min(img.Width + 40, area.Width - 40),
+                    Height = Math.Min(img.Height + 60, area.Height - 40),
+                };
+                f.FormClosed += (_, _) => img.Dispose();
+                var inner = new PictureBox { SizeMode = PictureBoxSizeMode.AutoSize, Image = img };
+                var scroll = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
+                scroll.Controls.Add(inner);
+                f.Controls.Add(scroll);
+                f.Show();
+            };
+        }
     }
 
     // JSON編集ダイアログで編集中の値を保持する箱。Changed=編集されたか、Preview=一覧の表示ラベル。
@@ -162,6 +196,43 @@ namespace InstantaleSaveEditor
         }
     }
 
+    // ---------------- 折りたたみグループ ----------------
+    // 見出しボタンを押すと中身(Content)の表示/非表示を切り替えるパネル。
+    // AutoSize なので中身の高さに追従し、Dock=Top で縦に積むと折りたたみで自動的に詰まる。
+    internal sealed class CollapsibleGroup : Panel
+    {
+        private readonly Button _header;
+        private readonly Panel _content;
+        private readonly string _title;
+        private bool _open;
+
+        public Control Content => _content;   // 呼び出し側はここに中身コントロールを追加する
+
+        public CollapsibleGroup(string title, bool open)
+        {
+            _title = title;
+            Dock = DockStyle.Top; AutoSize = true; AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            Margin = new Padding(0, 0, 0, 4);
+
+            _content = new Panel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Visible = open };
+            _header = new Button
+            {
+                Dock = DockStyle.Top, Height = 30, FlatStyle = FlatStyle.Flat,
+                TextAlign = ContentAlignment.MiddleLeft, BackColor = SystemColors.ControlLight,
+            };
+            _header.Font = new Font(_header.Font, FontStyle.Bold);
+            _open = open;
+            _header.Click += (_, _) => { _open = !_open; _content.Visible = _open; UpdateHeader(); };
+
+            // Dock=Top は後から追加した方が上に来る。見出しを上、中身を下にする。
+            Controls.Add(_content);
+            Controls.Add(_header);
+            UpdateHeader();
+        }
+
+        private void UpdateHeader() => _header.Text = (_open ? "▼ " : "▶ ") + _title;
+    }
+
     // フォーム上の1項目とその編集ウィジェットの対応。Kind により使うウィジェットが決まる:
     //   bool→Chk / int,dbl,text,strlist→Tb / abilities→Sub(6つの能力値欄) /
     //   json→Holder / combo→Combo / lifelog→Life / relationship→Rel
@@ -200,7 +271,27 @@ namespace InstantaleSaveEditor
         // 未設定/空文字を返す場合はキーをそのまま表示する。WorldTab が NPC 一覧を引いて名前を返す。
         public Func<string, string> RelationshipTargetNamer { get; set; }
 
+        // party（["player", NPC ID...]）専用 GUI のためのフック。PartyNpcCandidates が設定されている時のみ有効。
+        // PartyNpcNamer: NPC ID → 表示名（未解決なら null）。PartyNpcIsDead: その NPC が死亡扱いか。
+        // PartyNpcCandidates: 追加候補に出す全 NPC の (ID, 名前, 死亡フラグ) 一覧。
+        public Func<string, string> PartyNpcNamer { get; set; }
+        public Func<string, bool> PartyNpcIsDead { get; set; }
+        public Func<IEnumerable<(string id, string name, bool dead)>> PartyNpcCandidates { get; set; }
+
         public ObjectForm() { Controls.Add(_host); }
+
+        // autoSize=true: 自身を内容に合わせて伸縮させる（外側でスクロールを用意する前提）。
+        // 折りたたみグループの中身として複数並べる用途で使う。
+        public ObjectForm(bool autoSize)
+        {
+            if (autoSize)
+            {
+                AutoSize = true; AutoSizeMode = AutoSizeMode.GrowAndShrink;
+                _host.Dock = DockStyle.Top; _host.AutoScroll = false;
+                _host.AutoSize = true; _host.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            }
+            Controls.Add(_host);
+        }
 
         // 表示をクリアし、バインドを解除する。
         public void Clear() { _obj = null; _host.Controls.Clear(); _fields.Clear(); }
@@ -245,14 +336,19 @@ namespace InstantaleSaveEditor
         // injectControl / injectAfterKey を指定すると、該当フィールドの直後にコントロールを差し込む。
         // reorder を指定すると、モデルの並びは変えずに表示順だけ move を after の直後へ移動する。
         // WinForms の DockStyle.Top は後から追加したコントロールが上に来るため、逆順で追加する。
+        // keyOrder を指定すると、その順序・その集合のキーだけを表示する（obj に無いキーは無視）。
+        // 同じ obj を別々のキー集合で複数のフォームに分割表示する（カテゴリ分け）用途で使う。
         public void Bind(JsonObject obj, Control injectControl = null, string injectAfterKey = null,
-                         (string move, string after)? reorder = null)
+                         (string move, string after)? reorder = null, IEnumerable<string> keyOrder = null)
         {
             _obj = obj; _host.Controls.Clear(); _fields.Clear();
             if (obj == null) return;
 
-            // 表示するキーの並び。reorder 指定時はモデルを変えずに表示順だけ入れ替える。
-            var keys = obj.Select(p => p.Key).ToList();
+            // 表示するキーの並び。keyOrder 指定時はその集合・順序、未指定なら obj の全キー。
+            // reorder 指定時はモデルを変えずに表示順だけ入れ替える。
+            var keys = keyOrder != null
+                ? keyOrder.Where(obj.ContainsKey).ToList()
+                : obj.Select(p => p.Key).ToList();
             if (reorder is { } rr && keys.Contains(rr.after) && keys.Remove(rr.move))
                 keys.Insert(keys.IndexOf(rr.after) + 1, rr.move);
 
@@ -373,6 +469,9 @@ namespace InstantaleSaveEditor
             // look（外見タグの文字列配列）は「1行1タグ」の複数行欄で編集する。
             if (field == "look" && IsStringArray(val))
             { AddStringListRow(t, row, field, (JsonArray)val); return; }
+            // party（メンバーID配列）はメンバーの追加/削除を GUI で行う専用欄で表示する。
+            if (field == "party" && PartyNpcCandidates != null && val is JsonArray pa)
+            { AddPartyRow(t, row, pa); return; }
             // ComboBox ファクトリが登録されていれば優先して使う（文字列値のみ対象）。
             if (_comboFactories.TryGetValue(field, out var comboFactory) && val is JsonValue)
             {
@@ -579,6 +678,95 @@ namespace InstantaleSaveEditor
                 if (!ok) allOk = false;
             }
             _obj[field] = allOk ? (JsonNode)result : null;   // 0/空/不正があれば ability_scores は null
+        }
+
+        // party（["player", NPC ID...]）のメンバーを GUI で追加/削除する。
+        // 各メンバーは1行で "ID: 名前" と「削除」ボタン（player は固定で削除不可）。
+        // 末尾に未参加 NPC のプルダウン＋「追加」ボタンを置く。編集は即 _obj["party"] へ反映し一覧を作り直す。
+        // 値は即反映のため FieldRef は登録せず、Apply() の対象にしない。
+        private void AddPartyRow(TableLayoutPanel t, int row, JsonArray arr)
+        {
+            var outer = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, Dock = DockStyle.Fill, WrapContents = false };
+
+            // 現在の party 配列（無ければ作って _obj に差し込む）。
+            JsonArray Party() => (_obj?["party"] as JsonArray) ?? (JsonArray)(_obj != null ? (_obj["party"] = new JsonArray()) : new JsonArray());
+
+            void Fill()
+            {
+                outer.Controls.Clear();
+                var party = Party();
+                var members = party.Select(n => n?.ToString() ?? "").ToList();
+
+                foreach (var id in members)
+                {
+                    var line = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0, 0, 0, 2) };
+                    if (id == "player")
+                    {
+                        line.Controls.Add(new Label { Text = "player（プレイヤー）", AutoSize = true, Padding = new Padding(2, 6, 8, 0) });
+                    }
+                    else
+                    {
+                        string name = PartyNpcNamer?.Invoke(id);
+                        bool dead = PartyNpcIsDead?.Invoke(id) ?? false;
+                        string txt = (name != null ? $"{id}: {name}" : $"{id}（不明なNPC）") + (dead ? "（死亡）" : "");
+                        line.Controls.Add(new Label
+                        { Text = txt, AutoSize = true, ForeColor = dead ? Color.Firebrick : SystemColors.ControlText, Padding = new Padding(2, 6, 8, 0) });
+                        string cid = id;
+                        var del = new Button { Text = "削除", AutoSize = true };
+                        del.Click += (_, _) =>
+                        {
+                            int idx = FindIndex(Party(), cid);
+                            if (idx >= 0) Party().RemoveAt(idx);
+                            Fill();
+                        };
+                        line.Controls.Add(del);
+                    }
+                    outer.Controls.Add(line);
+                }
+
+                // 追加行: まだ party にいない NPC をプルダウンで選んで「追加」。死亡 NPC は「（死亡）」付き。
+                var addLine = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0, 6, 0, 0) };
+                var combo = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 240 };
+                var candidates = (PartyNpcCandidates?.Invoke() ?? Enumerable.Empty<(string, string, bool)>())
+                    .Where(c => !members.Contains(c.Item1))
+                    .OrderBy(c => c.Item1.Length).ThenBy(c => c.Item1)
+                    .ToList();
+                foreach (var (cid, cname, dead) in candidates)
+                    combo.Items.Add($"{cid}: {cname}" + (dead ? "（死亡）" : ""));
+                if (combo.Items.Count > 0) combo.SelectedIndex = 0;
+
+                var add = new Button { Text = "追加", AutoSize = true, Enabled = combo.Items.Count > 0 };
+                add.Click += (_, _) =>
+                {
+                    int idx = combo.SelectedIndex;
+                    if (idx < 0 || idx >= candidates.Count) return;
+                    var (id, cname, dead) = candidates[idx];
+                    // 死亡 NPC の追加はゲームが壊れる恐れがあるため確認する。
+                    if (dead && MessageBox.Show(this,
+                            $"「{cname}」は死亡したキャラクターです。\n" +
+                            "死亡したキャラをパーティに追加すると不整合が発生し、ゲームが壊れる可能性があります。\n\n" +
+                            "追加しますか？",
+                            "死亡キャラの追加", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+                        return;
+                    if (FindIndex(Party(), id) < 0) Party().Add(id);
+                    Fill();
+                };
+                addLine.Controls.Add(new Label { Text = "追加:", AutoSize = true, Padding = new Padding(2, 6, 4, 0) });
+                addLine.Controls.Add(combo);
+                addLine.Controls.Add(add);
+                outer.Controls.Add(addLine);
+            }
+
+            Fill();
+            t.Controls.Add(outer, 1, row);
+        }
+
+        // JsonArray 内で文字列値が id に一致する最初の位置を返す（無ければ -1）。
+        private static int FindIndex(JsonArray arr, string id)
+        {
+            for (int i = 0; i < arr.Count; i++)
+                if ((arr[i]?.ToString() ?? "") == id) return i;
+            return -1;
         }
 
         // 配列・複雑な辞書・null など、フォーム化しにくい値は「JSON編集...」ボタンで開く。

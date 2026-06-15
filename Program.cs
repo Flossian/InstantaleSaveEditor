@@ -71,9 +71,14 @@ namespace InstantaleSaveEditor
         // ファイルを開いて3タブにバインドする。失敗時はエラー表示。
         private void OpenFile()
         {
+            // OpenFileDialog.InitialDirectory は環境変数を展開しないため、実パスに解決してから渡す。
+            // 実際のセーブ位置は LocalAppData 側（%AppData% ではない）。存在する場合のみ指定する。
+            string savesDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Darmabeko", "Instantale", "saves");
             using var dlg = new OpenFileDialog
             {
-                InitialDirectory = @"%LocalAppData%\Darmabeko\Instantale\saves\",
+                InitialDirectory = Directory.Exists(savesDir) ? savesDir : "",
                 Filter = "セーブ/JSON|*.json|すべて|*.*"
             };
             if (dlg.ShowDialog(this) != DialogResult.OK) return;

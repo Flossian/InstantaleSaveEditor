@@ -26,7 +26,7 @@ namespace InstantaleSaveEditor
             _caption.Text = "背景画像";
             Controls.Add(_caption);
             Controls.Add(_pb);
-            RegisterClickViewer(_pb, "背景画像");
+            ImageViewer.RegisterClickViewer(_pb, "背景画像");
         }
 
         // facility 名から backgrounds/{名前}/image.png を探して表示する。
@@ -46,30 +46,6 @@ namespace InstantaleSaveEditor
                 try { _pb.Image = Image.FromStream(new MemoryStream(File.ReadAllBytes(path))); } catch { }
             }
             _caption.Text = _pb.Image != null ? "背景画像" : "背景画像 (なし)";
-        }
-
-        // クリックで原寸表示するハンドラを登録する（NpcImagePanel と同じ挙動）。
-        private static void RegisterClickViewer(PictureBox pb, string title)
-        {
-            pb.Click += (_, _) =>
-            {
-                if (pb.Image == null) return;
-                var img = (Image)pb.Image.Clone();
-                var area = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1200, 800);
-                var f = new Form
-                {
-                    Text = title + "  （原寸）",
-                    StartPosition = FormStartPosition.CenterScreen,
-                    Width = Math.Min(img.Width + 40, area.Width - 40),
-                    Height = Math.Min(img.Height + 60, area.Height - 40),
-                };
-                f.FormClosed += (_, _) => img.Dispose();
-                var inner = new PictureBox { SizeMode = PictureBoxSizeMode.AutoSize, Image = img };
-                var scroll = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
-                scroll.Controls.Add(inner);
-                f.Controls.Add(scroll);
-                f.Show();
-            };
         }
     }
 }

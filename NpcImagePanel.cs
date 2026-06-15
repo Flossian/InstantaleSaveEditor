@@ -74,7 +74,7 @@ namespace InstantaleSaveEditor
             };
             p.Controls.Add(new Label { Text = "顔画像", AutoSize = true, Location = new Point(0, 2) });
             _pbFace.Location = new Point(0, 22);
-            RegisterClickViewer(_pbFace, "顔画像");
+            ImageViewer.RegisterClickViewer(_pbFace, "顔画像");
             p.Controls.Add(_pbFace);
 
             var btnImport = new Button { Text = "画像取込み", Width = FaceW, Height = 26, Location = new Point(0, btnY) };
@@ -100,7 +100,7 @@ namespace InstantaleSaveEditor
             p.Controls.Add(new Label { Text = StandLabels[idx], AutoSize = true, Location = new Point(0, 2) });
             _pbStand[idx].Location = new Point(0, 22);
             int cap = idx;
-            RegisterClickViewer(_pbStand[idx], StandLabels[idx]);
+            ImageViewer.RegisterClickViewer(_pbStand[idx], StandLabels[idx]);
             p.Controls.Add(_pbStand[idx]);
 
             var btn = new Button { Text = "使用する", Width = StandW, Height = 26, Location = new Point(0, btnY) };
@@ -109,30 +109,6 @@ namespace InstantaleSaveEditor
             p.Controls.Add(btn);
 
             return p;
-        }
-
-        // PictureBox にクリックで原寸表示するハンドラを登録する。
-        private static void RegisterClickViewer(PictureBox pb, string title)
-        {
-            pb.Click += (_, _) =>
-            {
-                if (pb.Image == null) return;
-                var img = (Image)pb.Image.Clone();
-                var area = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1200, 800);
-                var f = new Form
-                {
-                    Text = title + "  （原寸）",
-                    StartPosition = FormStartPosition.CenterScreen,
-                    Width = Math.Min(img.Width + 40, area.Width - 40),
-                    Height = Math.Min(img.Height + 60, area.Height - 40),
-                };
-                f.FormClosed += (_, _) => img.Dispose();
-                var inner = new PictureBox { SizeMode = PictureBoxSizeMode.AutoSize, Image = img };
-                var scroll = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
-                scroll.Controls.Add(inner);
-                f.Controls.Add(scroll);
-                f.Show();
-            };
         }
 
         // アクティブな立ち絵を切り替え、ボタン外観で示す。

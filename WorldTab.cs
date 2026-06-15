@@ -123,7 +123,10 @@ namespace InstantaleSaveEditor
                 var node = new TreeNode($"{sec} ({so.Count})") { Tag = new[] { "sec", sec } };
                 foreach (var k in so.Select(p => p.Key).OrderBy(k => k.Length).ThenBy(k => k))
                 {
-                    var itemNode = new TreeNode($"{k}: {Label(so[k])}") { Tag = new[] { "item", sec, k } };
+                    // NPC は死亡扱い(config.is_dead)なら名前の横に「（死亡）」を付ける。
+                    string label = Label(so[k]);
+                    if (sec == "npcs" && so[k] is JsonObject npcO && J.NpcIsDead(npcO)) label += "（死亡）";
+                    var itemNode = new TreeNode($"{k}: {label}") { Tag = new[] { "item", sec, k } };
                     node.Nodes.Add(itemNode);
                 }
                 _tree.Nodes.Add(node);
