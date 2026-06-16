@@ -11,23 +11,9 @@ namespace InstantaleSaveEditor
     // area_history を DataGridView で編集する。数値3列はセル直接編集、
     // achievements（長文配列）はダブルクリックで複数行ダイアログ（1行＝1実績）を開いて編集する。
     // エリア列は areas から名前を解決して表示する読み取り専用の参照列。
-    internal sealed class AreaHistoryGrid : Panel
+    internal sealed class AreaHistoryGrid : ResizableGridPanel
     {
         private const int ColArea = 0, ColTotalDays = 1, ColLastStayEnd = 2, ColLawfulness = 3, ColAchievements = 4;
-
-        private readonly DataGridView _grid = new()
-        {
-            Dock = DockStyle.Fill,
-            AllowUserToAddRows = false,
-            AllowUserToDeleteRows = false,
-            RowHeadersVisible = false,
-            AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
-            MultiSelect = false,
-            SelectionMode = DataGridViewSelectionMode.FullRowSelect,
-        };
-
-        private bool _drag;             // グリップをドラッグ中か
-        private int _startY, _startH;   // ドラッグ開始時のカーソルY座標と高さ
 
         public AreaHistoryGrid(int height = 250)
         {
@@ -37,16 +23,7 @@ namespace InstantaleSaveEditor
             _grid.CellDoubleClick += OnCellDoubleClick;
 
             // 下端のグリップ。上下にドラッグしてグリッド全体の高さを変える。
-            var grip = new Panel { Dock = DockStyle.Bottom, Height = 8, Cursor = Cursors.SizeNS, BackColor = SystemColors.ControlDark };
-            grip.MouseDown += (_, _) => { _drag = true; _startY = Cursor.Position.Y; _startH = Height; };
-            grip.MouseMove += (_, _) =>
-            {
-                if (!_drag) return;
-                Height = Math.Max(120, _startH + (Cursor.Position.Y - _startY));
-                Parent?.PerformLayout();
-                Parent?.Parent?.PerformLayout();
-            };
-            grip.MouseUp += (_, _) => { _drag = false; Parent?.PerformLayout(); Parent?.Parent?.PerformLayout(); };
+            var grip = CreateGrip();
 
             // 追加順: Fill を先に、Bottom を後に。最後に追加した grip が最下端を確保する。
             Controls.Add(_grid);   // Fill
@@ -67,9 +44,6 @@ namespace InstantaleSaveEditor
                 FillWeight = 60,
             });
         }
-
-        private static DataGridViewTextBoxColumn IntCol(string h)
-            => new() { HeaderText = h, FillWeight = 20 };
 
         // achievements セルのダブルクリックで実績リスト編集ダイアログを開く（1実績＝1項目）。
         private void OnCellDoubleClick(object sender, DataGridViewCellEventArgs e)
@@ -136,9 +110,6 @@ namespace InstantaleSaveEditor
             }
             return obj;
         }
-
-        private static long ParseLong(DataGridViewRow r, int col)
-            => long.TryParse(r.Cells[col].Value?.ToString(), out long v) ? v : 0;
     }
 
     // 実績(achievements)のリストを編集するダイアログ。1実績＝1行のグリッドで表示し、

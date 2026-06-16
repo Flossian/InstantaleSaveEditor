@@ -12,6 +12,8 @@ namespace InstantaleSaveEditor
         private static readonly string[] Sections = { "areas", "npcs", "quests", "story_quests" };
         // 項目の表示名に使うフィールドの優先順位（最初に見つかったものを使う）。
         private static readonly string[] NameFields = { "name", "quest_title", "title", "id" };
+        // 死亡 NPC をまとめる擬似グループキー（area id は数値文字列のため衝突しない）。
+        private const string DeadKey = "__dead__";
 
         private JsonObject _root;
         private string _worldDir;  // worlds/{スロット}/ のパス。NPC画像フォルダの解決に使う。
@@ -21,7 +23,7 @@ namespace InstantaleSaveEditor
         private readonly BackgroundImagePanel _bgPanel = new();   // facility選択時にフォームへ注入する背景画像パネル
         private Button _btnDup, _btnDel, _btnUnlock;
         private bool _npcLocked;            // 現在のNPCが未生成（立ち絵未取得）で閲覧のみか
-        private string _curKind;            // obj / item / node / facility
+        private string _curKind;            // obj / sec / item / facility（node 階層はツリーに出さない）
         private JsonObject _curContainer;   // 選択レコードを保持する辞書（複製/削除の対象）
         private string _curKey;             // _curContainer 内のキー
 
@@ -86,6 +88,7 @@ namespace InstantaleSaveEditor
         public bool ApplyCurrent() => _form.Apply();
 
         // ツリーを再構築する。world_data / index は単一ノード、areas 等はセクション→項目で展開。
+        // dungeon / npcs / quests は、紐づく area（拠点）ごとの見出しノードでグループ化する。
         private void Populate()
         {
             _tree.BeginUpdate();
@@ -95,6 +98,10 @@ namespace InstantaleSaveEditor
 
             if (_root["world_data"] is JsonObject)
                 _tree.Nodes.Add(new TreeNode("world_data") { Tag = new[] { "obj", "world_data" } });
+
+            // ダンジョン area → 紐づく拠点 id。各ダンジョンを quest_area_id で参照するクエストの
+            // neighboring_settlement_id から逆引きする（最初に見つかった拠点を採用）。
+            var dungeonTown = BuildDungeonTownMap();
 
             foreach (var sec in Sections)
             {
@@ -115,26 +122,107 @@ namespace InstantaleSaveEditor
                     if (dungeon.Count > 0)
                     {
                         var dunNode = new TreeNode($"dungeon ({dungeon.Count})") { Tag = new[] { "sec", "areas" } };
-                        foreach (var k in dungeon) dunNode.Nodes.Add(BuildAreaItem(so, k));
+                        AddGroups(dunNode, dungeon,
+                            k => dungeonTown.TryGetValue(k, out var t) ? t : null,
+                            k => BuildAreaItem(so, k));
                         _tree.Nodes.Add(dunNode);
                     }
                     continue;
                 }
+
                 var node = new TreeNode($"{sec} ({so.Count})") { Tag = new[] { "sec", sec } };
-                foreach (var k in so.Select(p => p.Key).OrderBy(k => k.Length).ThenBy(k => k))
-                {
-                    // NPC は死亡扱い(config.is_dead)なら名前の横に「（死亡）」を付ける。
-                    string label = Label(so[k]);
-                    if (sec == "npcs" && so[k] is JsonObject npcO && J.NpcIsDead(npcO)) label += "（死亡）";
-                    var itemNode = new TreeNode($"{k}: {label}") { Tag = new[] { "item", sec, k } };
-                    node.Nodes.Add(itemNode);
-                }
+                var itemKeys = so.Select(p => p.Key).OrderBy(k => k.Length).ThenBy(k => k).ToList();
+                if (sec == "npcs")
+                    AddGroups(node, itemKeys,
+                        // 死亡 NPC は area で分けず「死者」グループへ一括りにする。
+                        k => so[k] is JsonObject npc && J.NpcIsDead(npc) ? DeadKey : IdStr(so[k]?["current_area"]),
+                        k => SectionItemNode(sec, so, k));
+                else if (sec == "quests")
+                    AddGroups(node, itemKeys,
+                        k => IdStr(so[k]?["neighboring_settlement_id"]),
+                        k => SectionItemNode(sec, so, k));
+                else  // story_quests など area で区分けしないセクションは従来通りフラット
+                    foreach (var k in itemKeys) node.Nodes.Add(SectionItemNode(sec, so, k));
                 _tree.Nodes.Add(node);
             }
             if (_root["index"] is JsonObject)
                 _tree.Nodes.Add(new TreeNode("index") { Tag = new[] { "obj", "index" } });
             _tree.EndUpdate();
         }
+
+        // セクション内の1レコードを項目ノード化する。NPC は死亡扱い(config.is_dead)なら「（死亡）」を付ける。
+        private static TreeNode SectionItemNode(string sec, JsonObject so, string k)
+        {
+            string label = Label(so[k]);
+            if (sec == "npcs" && so[k] is JsonObject npcO && J.NpcIsDead(npcO)) label += "（死亡）";
+            return new TreeNode($"{k}: {label}") { Tag = new[] { "item", sec, k } };
+        }
+
+        // 項目を area（拠点）ごとの見出しノードに振り分けて parent 配下に積む。
+        // groupKeyOf: 項目キー→所属 area id（空/null なら「（エリアなし）」へ）。見出しは選択不可（Tag=null）。
+        private void AddGroups(TreeNode parent, List<string> itemKeys, Func<string, string> groupKeyOf, Func<string, TreeNode> itemNodeOf)
+        {
+            var byArea = new Dictionary<string, List<string>>();
+            foreach (var k in itemKeys)
+            {
+                string a = groupKeyOf(k) ?? "";
+                if (!byArea.TryGetValue(a, out var lst)) byArea[a] = lst = new List<string>();
+                lst.Add(k);
+            }
+            foreach (var areaId in OrderGroups(byArea.Keys))
+            {
+                var grp = new TreeNode(GroupLabel(areaId, byArea[areaId].Count));   // Tag=null → 見出し（選択時はフォームをクリア）
+                foreach (var k in byArea[areaId]) grp.Nodes.Add(itemNodeOf(k));
+                parent.Nodes.Add(grp);
+            }
+        }
+
+        // グループ見出しの並び順。areas のキー順（長さ→辞書順）を尊重し、areas に無い id を続け、
+        // 「（エリアなし）」（空文字キー）は末尾に置く。
+        private IEnumerable<string> OrderGroups(IEnumerable<string> areaIds)
+        {
+            var set = new HashSet<string>(areaIds);
+            bool hasDead = set.Remove(DeadKey);   // 「死者」は末尾に固定
+            var ordered = new List<string>();
+            if (_root?["areas"] is JsonObject areas)
+                foreach (var k in areas.Select(p => p.Key).OrderBy(k => k.Length).ThenBy(k => k))
+                    if (set.Remove(k)) ordered.Add(k);
+            foreach (var r in set.Where(s => s.Length > 0).OrderBy(s => s.Length).ThenBy(s => s)) ordered.Add(r);
+            if (set.Contains("")) ordered.Add("");
+            if (hasDead) ordered.Add(DeadKey);
+            return ordered;
+        }
+
+        // グループ見出しのラベル（"id: 名前 (件数)"）。空文字は未所属、areas に無い id は不明扱い。
+        private string GroupLabel(string areaId, int count)
+        {
+            if (areaId == DeadKey) return $"死者 ({count})";
+            if (string.IsNullOrEmpty(areaId)) return $"（エリアなし） ({count})";
+            if (_root?["areas"]?[areaId] is JsonObject ao)
+            {
+                string nm = J.Str(ao, "name");
+                return nm.Length > 0 ? $"{areaId}: {nm} ({count})" : $"{areaId} ({count})";
+            }
+            return $"{areaId}（不明） ({count})";
+        }
+
+        // ダンジョン area id → 紐づく拠点 id のマップ。quest_area_id で参照するクエストから逆引きする。
+        private Dictionary<string, string> BuildDungeonTownMap()
+        {
+            var map = new Dictionary<string, string>();
+            if (_root?["quests"] is JsonObject quests)
+                foreach (var kv in quests)
+                    if (kv.Value is JsonObject q)
+                    {
+                        string da = IdStr(q["quest_area_id"]);
+                        if (!string.IsNullOrEmpty(da) && !map.ContainsKey(da))
+                            map[da] = IdStr(q["neighboring_settlement_id"]) ?? "";
+                    }
+            return map;
+        }
+
+        // JsonNode を id 文字列にする（数値・文字列いずれの id でも統一して扱う。null は null）。
+        private static string IdStr(JsonNode n) => n?.ToString();
 
         // areas の1レコードを項目ノード化する。配下の facilities を接続グラフで階層展開する
         // （中間の node 階層は隠す）。areas/dungeon の両ツリーから共通で使う。
@@ -236,7 +324,7 @@ namespace InstantaleSaveEditor
             }
         }
 
-        // 複製/削除ボタンはレコード（item/node/facility）選択時のみ有効。
+        // 複製/削除ボタンはレコード（item/facility）選択時のみ有効。
         private void SetBtns(bool on) { _btnDup.Enabled = on; _btnDel.Enabled = on; }
 
         // 未生成NPC（立ち絵未取得）はゲームが落ちる恐れがあるため、既定でフォームを読み取り専用にし
@@ -331,7 +419,7 @@ namespace InstantaleSaveEditor
             return (max + 1).ToString();
         }
 
-        // 選択レコード（item/node/facility）を確認の上で複製する。表示中の編集を反映してからディープコピーし、新IDを振る。
+        // 選択レコード（item/facility）を確認の上で複製する。表示中の編集を反映してからディープコピーし、新IDを振る。
         private void Duplicate()
         {
             if (_curContainer == null || _curKey == null) return;
@@ -346,7 +434,7 @@ namespace InstantaleSaveEditor
             Populate();
         }
 
-        // 選択レコード（item/node/facility）を確認の上で削除する。
+        // 選択レコード（item/facility）を確認の上で削除する。
         private void Delete()
         {
             if (_curContainer == null || _curKey == null) return;

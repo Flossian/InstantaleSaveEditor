@@ -163,6 +163,54 @@ namespace InstantaleSaveEditor
         }
     }
 
+    // ---------------- グリッド系コントロールの共通基底 ----------------
+    // life_log / area_history / relationship の各 Grid が共有する部分をまとめる:
+    //   ・DataGridView の生成設定（行追加削除なし・行ヘッダなし・Fill・単一選択・行選択）
+    //   ・下端グリップによる高さリサイズ（CreateGrip）
+    //   ・列・セル値のヘルパ（IntCol / ParseLong）
+    // 各派生クラスは列定義・ダブルクリック編集・Bind/ToArray(ToObject) など固有処理だけを持つ。
+    internal abstract class ResizableGridPanel : Panel
+    {
+        protected readonly DataGridView _grid = new()
+        {
+            Dock = DockStyle.Fill,
+            AllowUserToAddRows = false,
+            AllowUserToDeleteRows = false,
+            RowHeadersVisible = false,
+            AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
+            MultiSelect = false,
+            SelectionMode = DataGridViewSelectionMode.FullRowSelect,
+        };
+
+        private bool _drag;             // グリップをドラッグ中か
+        private int _startY, _startH;   // ドラッグ開始時のカーソルY座標と高さ
+
+        // 下端グリップを生成して返す。上下ドラッグでパネル全体の高さを変える。
+        // Controls への追加順は呼び出し側が制御する（最後に追加すると最下端を確保する）。
+        protected Panel CreateGrip(int minHeight = 120)
+        {
+            var grip = new Panel { Dock = DockStyle.Bottom, Height = 8, Cursor = Cursors.SizeNS, BackColor = SystemColors.ControlDark };
+            grip.MouseDown += (_, _) => { _drag = true; _startY = Cursor.Position.Y; _startH = Height; };
+            grip.MouseMove += (_, _) =>
+            {
+                if (!_drag) return;
+                Height = Math.Max(minHeight, _startH + (Cursor.Position.Y - _startY));
+                Parent?.PerformLayout();
+                Parent?.Parent?.PerformLayout();
+            };
+            grip.MouseUp += (_, _) => { _drag = false; Parent?.PerformLayout(); Parent?.Parent?.PerformLayout(); };
+            return grip;
+        }
+
+        // 整数欄向けの狭い列。
+        protected static DataGridViewTextBoxColumn IntCol(string h, int weight = 20)
+            => new() { HeaderText = h, FillWeight = weight };
+
+        // セル値を long として読む。空・不正は 0。
+        protected static long ParseLong(DataGridViewRow r, int col)
+            => long.TryParse(r.Cells[col].Value?.ToString(), out long v) ? v : 0;
+    }
+
     // ---------------- 高さをドラッグで変えられるテキスト欄（幅はコンテナ幅に追従） ----------------
     // 呼び出し側で Dock=Top を指定すると幅は親いっぱいになり、ウィンドウ幅に連動する。
     // 下端のグリップを上下にドラッグすると高さが変わる。
@@ -439,10 +487,6 @@ namespace InstantaleSaveEditor
             return t;
         }
 
-        // 1プロパティ分の行を生成する。値の型・フィールド名に応じてウィジェットを振り分ける:
-        //   能力値オブジェクト→6欄 / life_log→グリッド / relationship→グリッド / look→1行1タグ欄 /
-        //   登録済みコンボ→プルダウン / bool→チェック / 整数・小数→数値欄 / 文字列→(長文はリサイズ枠) /
-        //   文字列だけの辞書→キーごとの枠 / それ以外(配列・複雑な辞書・null)→JSON編集ボタン
         // フィールド名に対する表示用ラベル。未登録のフィールドはキー名をそのまま表示する。
         private static string LabelOf(string field) => field switch
         {
@@ -450,6 +494,10 @@ namespace InstantaleSaveEditor
             _ => field,
         };
 
+        // 1プロパティ分の行を生成する。値の型・フィールド名に応じてウィジェットを振り分ける:
+        //   能力値オブジェクト→6欄 / life_log→グリッド / relationship→グリッド / look→1行1タグ欄 /
+        //   登録済みコンボ→プルダウン / bool→チェック / 整数・小数→数値欄 / 文字列→(長文はリサイズ枠) /
+        //   文字列だけの辞書→キーごとの枠 / それ以外(配列・複雑な辞書・null)→JSON編集ボタン
         private void AddRow(TableLayoutPanel t, int row, string field, JsonNode val)
         {
             t.Controls.Add(new Label { Text = LabelOf(field), AutoSize = true, Font = new Font(Font, FontStyle.Bold) }, 0, row);

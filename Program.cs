@@ -56,7 +56,8 @@ namespace InstantaleSaveEditor
             file.DropDownItems.Add("終了", null, (_, _) => Close());
 
             var tools = new ToolStripMenuItem("ツール(&T)");
-            tools.DropDownItems.Add("クエスト作成...(作成中)", null, (_, _) => CreateQuest());
+            tools.DropDownItems.Add("クエスト作成（テンプレから）...", null, (_, _) => CreateQuest());
+            tools.DropDownItems.Add("クエストをテンプレ化...", null, (_, _) => ExtractTemplates());
             tools.DropDownItems.Add("全体をJSONで編集...", null, (_, _) => EditRaw());
 
             menu.Items.Add(file); menu.Items.Add(tools);
@@ -136,19 +137,61 @@ namespace InstantaleSaveEditor
         // クエスト作成ダイアログを開き、OK ならワールドタブを再構築して結果を通知する。
         private void CreateQuest()
         {
-            MessageBox.Show(this, "作成中"); return;
-
-            /*
             if (_root == null) { MessageBox.Show(this, "先にファイルを開いてください。"); return; }
             if (J.Obj(_root, "areas") == null || J.Obj(_root, "quests") == null)
             { MessageBox.Show(this, "このファイルには areas / quests がありません。"); return; }
             using var dlg = new QuestCreator(_root);
             if (dlg.ShowDialog(this) == DialogResult.OK)
             {
-                _world.Bind(_root);   // ツリー更新
+                _world.Bind(_root, _path);   // ツリー更新
                 Status("クエストを作成しました");
                 MessageBox.Show(this, dlg.CreatedSummary, "作成完了", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            }*/
+            }
+        }
+
+        // 指定した world_data / savedata からクエストを抽出し、テンプレ JSON として書き出す。
+        private void ExtractTemplates()
+        {
+            string instantaleDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Darmabeko", "Instantale");
+            using var dlg = new OpenFileDialog
+            {
+                InitialDirectory = Directory.Exists(instantaleDir) ? instantaleDir : "",
+                Filter = "world_data / savedata|*.json|すべて|*.*",
+                Title = "テンプレ化するファイルを選択（world_data または savedata）"
+            };
+            if (dlg.ShowDialog(this) != DialogResult.OK) return;
+
+            JsonObject root;
+            try { root = Codec.Load(dlg.FileName); }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "読み込みに失敗しました。\n\n" + ex.Message, "失敗", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+            if (J.Obj(root, "quests") == null)
+            { MessageBox.Show(this, "このファイルには quests がありません。"); return; }
+
+            // 出典名: world_data.name → 無ければファイル所在のフォルダ名
+            string source = J.Str(J.Obj(root, "world_data"), "name");
+            if (string.IsNullOrWhiteSpace(source))
+                source = Path.GetFileName(Path.GetDirectoryName(dlg.FileName));
+
+            (int quests, int enemies, int bosses, int events, int skipped) res;
+            try { res = QuestCreator.ExtractAll(root, source); }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "書き出しに失敗しました。\n\n" + ex.Message, "失敗", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+            MessageBox.Show(this,
+                $"「{source}」から抽出しました。\n\n" +
+                $"クエスト: {res.quests} 件" + (res.skipped > 0 ? $"（ダンジョン area が無い {res.skipped} 件は除外）" : "") + "\n" +
+                $"敵: {res.enemies} 種 / ボス: {res.bosses} 種 / イベント: {res.events} 件\n\n" +
+                $"出力先:\n{QuestCreator.TemplatesRoot()}",
+                "テンプレ化", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            Status($"テンプレ抽出: クエスト{res.quests} 敵{res.enemies} ボス{res.bosses} イベント{res.events}");
         }
 
         // データ全体を生 JSON で編集する（上級者向け）。OK なら差し替えて全タブ再バインド。

@@ -7,29 +7,15 @@ using System.Text.Json.Nodes;
 
 namespace InstantaleSaveEditor
 {
-    internal sealed class RelationshipGrid : Panel
+    internal sealed class RelationshipGrid : ResizableGridPanel
     {
         private const int ColTarget = 0, ColAffinity = 1, ColAffText = 2, ColRel = 3, ColConv = 4;
 
         // 行ごとに、元の対象キーと affinity_text が配列だったかを保持する（書き戻し時の型維持に使う）。
         private sealed class RowMeta { public string Key; public bool AffTextArray; }
 
-        private readonly DataGridView _grid = new()
-        {
-            Dock = DockStyle.Fill,
-            AllowUserToAddRows = false,
-            AllowUserToDeleteRows = false,
-            RowHeadersVisible = false,
-            AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
-            MultiSelect = false,
-            SelectionMode = DataGridViewSelectionMode.FullRowSelect,
-        };
-
         // 対象キー → 表示名の解決フック（player は内部で固定処理）。未設定/空ならキーをそのまま表示。
         public Func<string, string> TargetNamer { get; set; }
-
-        private bool _drag;
-        private int _startY, _startH;
 
         public RelationshipGrid(int height = 220)
         {
@@ -44,16 +30,7 @@ namespace InstantaleSaveEditor
             del.Click += (_, _) => DeleteSelected();
             bar.Controls.Add(add); bar.Controls.Add(del);
 
-            var grip = new Panel { Dock = DockStyle.Bottom, Height = 8, Cursor = Cursors.SizeNS, BackColor = SystemColors.ControlDark };
-            grip.MouseDown += (_, _) => { _drag = true; _startY = Cursor.Position.Y; _startH = Height; };
-            grip.MouseMove += (_, _) =>
-            {
-                if (!_drag) return;
-                Height = Math.Max(100, _startH + (Cursor.Position.Y - _startY));
-                Parent?.PerformLayout();
-                Parent?.Parent?.PerformLayout();
-            };
-            grip.MouseUp += (_, _) => { _drag = false; Parent?.PerformLayout(); Parent?.Parent?.PerformLayout(); };
+            var grip = CreateGrip(100);
 
             Controls.Add(_grid);   // Fill
             Controls.Add(bar);     // Bottom（grip の上）
@@ -168,8 +145,5 @@ namespace InstantaleSaveEditor
             }
             return arr;
         }
-
-        private static long ParseLong(DataGridViewRow r, int col)
-            => long.TryParse(r.Cells[col].Value?.ToString(), out long v) ? v : 0;
     }
 }

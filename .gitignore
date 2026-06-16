@@ -12,6 +12,9 @@ world_data*
 savedata*
 *_decoded.json
 *_plain.json
+data/
+templates/
+
 
 # ---- その他 ----
 *.log

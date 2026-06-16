@@ -8,23 +8,9 @@ namespace InstantaleSaveEditor
 {
     // life_log 配列を DataGridView で編集する。日付3列はセル直接編集、
     // content（長文）はダブルクリックで複数行ダイアログを開いて編集する。
-    internal sealed class LifeLogGrid : Panel
+    internal sealed class LifeLogGrid : ResizableGridPanel
     {
         private const int ColDayStart = 0, ColDayEnd = 1, ColCount = 2, ColContent = 3;
-
-        private readonly DataGridView _grid = new()
-        {
-            Dock = DockStyle.Fill,
-            AllowUserToAddRows = false,
-            AllowUserToDeleteRows = false,
-            RowHeadersVisible = false,
-            AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
-            MultiSelect = false,
-            SelectionMode = DataGridViewSelectionMode.FullRowSelect,
-        };
-
-        private bool _drag;             // グリップをドラッグ中か
-        private int _startY, _startH;   // ドラッグ開始時のカーソルY座標と高さ
 
         public LifeLogGrid(int height = 280)
         {
@@ -41,16 +27,7 @@ namespace InstantaleSaveEditor
             bar.Controls.Add(add); bar.Controls.Add(del);
 
             // 下端のグリップ。上下にドラッグしてグリッド全体の高さを変える。
-            var grip = new Panel { Dock = DockStyle.Bottom, Height = 8, Cursor = Cursors.SizeNS, BackColor = SystemColors.ControlDark };
-            grip.MouseDown += (_, _) => { _drag = true; _startY = Cursor.Position.Y; _startH = Height; };
-            grip.MouseMove += (_, _) =>
-            {
-                if (!_drag) return;
-                Height = Math.Max(120, _startH + (Cursor.Position.Y - _startY));
-                Parent?.PerformLayout();
-                Parent?.Parent?.PerformLayout();
-            };
-            grip.MouseUp += (_, _) => { _drag = false; Parent?.PerformLayout(); Parent?.Parent?.PerformLayout(); };
+            var grip = CreateGrip();
 
             // 追加順: Fill を先に、Bottom 系を後に。最後に追加した grip が最下端を確保する。
             Controls.Add(_grid);   // Fill
@@ -61,9 +38,9 @@ namespace InstantaleSaveEditor
         // 日付3列(固定幅寄り) + content(残り幅・読み取り専用/ダイアログ編集)。
         private void BuildColumns()
         {
-            _grid.Columns.Add(IntCol("開始日(day_start)"));
-            _grid.Columns.Add(IntCol("終了日(day_end)"));
-            _grid.Columns.Add(IntCol("要約回数(summarized_count)"));
+            _grid.Columns.Add(IntCol("開始日(day_start)", 18));
+            _grid.Columns.Add(IntCol("終了日(day_end)", 18));
+            _grid.Columns.Add(IntCol("要約回数(summarized_count)", 18));
             _grid.Columns.Add(new DataGridViewTextBoxColumn
             {
                 HeaderText = "内容(content) ※ダブルクリックで編集",
@@ -72,9 +49,6 @@ namespace InstantaleSaveEditor
                 DefaultCellStyle = { WrapMode = DataGridViewTriState.True },
             });
         }
-
-        private static DataGridViewTextBoxColumn IntCol(string h)
-            => new() { HeaderText = h, FillWeight = 18 };
 
         // content セルのダブルクリックで複数行ダイアログを開く。
         private void OnCellDoubleClick(object sender, DataGridViewCellEventArgs e)
@@ -121,9 +95,6 @@ namespace InstantaleSaveEditor
                 });
             return arr;
         }
-
-        private static long ParseLong(DataGridViewRow r, int col)
-            => long.TryParse(r.Cells[col].Value?.ToString(), out long v) ? v : 0;
     }
 
     // 単純な複数行テキスト編集ダイアログ。content のような長文の編集に使う。
