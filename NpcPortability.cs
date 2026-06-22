@@ -178,8 +178,7 @@ namespace InstantaleSaveEditor
 
         private readonly ComboBox _cbArea = new() { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill };
         private readonly ComboBox _cbFac = new() { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill };
-        private readonly RadioButton _rbResident = new() { Text = I18n.T("npcimport.resident"), AutoSize = true, Checked = true };
-        private readonly RadioButton _rbAdventurer = new() { Text = I18n.T("npcimport.adventurer"), AutoSize = true };
+        private readonly CheckBox _chkAdventurer = new() { Text = I18n.T("npcimport.adventurer"), AutoSize = true, Checked = true };
         private readonly CheckBox _chkRelationship = new() { Text = I18n.T("npcimport.inheritRel"), AutoSize = true, Checked = true };
         private readonly CheckBox _chkLifeLog = new() { Text = I18n.T("npcimport.inheritLog"), AutoSize = true, Checked = true };
 
@@ -278,7 +277,7 @@ namespace InstantaleSaveEditor
             t.Controls.Add(Lbl(I18n.T("npcimport.facility")), 0, r); t.Controls.Add(_cbFac, 1, r++);
 
             var regPanel = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true };
-            regPanel.Controls.Add(_rbResident); regPanel.Controls.Add(_rbAdventurer);
+            regPanel.Controls.Add(_chkAdventurer);
             t.Controls.Add(Lbl(I18n.T("npcimport.register")), 0, r); t.Controls.Add(regPanel, 1, r++);
 
             var inheritPanel = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, FlowDirection = FlowDirection.TopDown };
@@ -430,13 +429,15 @@ namespace InstantaleSaveEditor
 
             _npcs[newId] = npc;
 
-            // 登録先の配列へ id を追加
-            string listKey = _rbResident.Checked ? "resident_npcs" : "adventurer_npcs";
-            var arr = J.Arr(area, listKey);
-            if (arr == null) { arr = new JsonArray(); area[listKey] = arr; }
-            if (!arr.Any(x => x?.ToString() == newId)) arr.Add(newId);
+            // 冒険者として登録する場合のみ adventurer_npcs へ id を追加
+            if (_chkAdventurer.Checked)
+            {
+                var arr = J.Arr(area, "adventurer_npcs");
+                if (arr == null) { arr = new JsonArray(); area["adventurer_npcs"] = arr; }
+                if (!arr.Any(x => x?.ToString() == newId)) arr.Add(newId);
+            }
 
-            string role = _rbResident.Checked ? I18n.T("npcimport.roleResident") : I18n.T("npcimport.roleAdventurer");
+            string role = _chkAdventurer.Checked ? I18n.T("npcimport.roleAdventurer") : I18n.T("npcimport.roleNone");
             ResultSummary = (overwrite ? I18n.T("npcimport.summary.overwritePrefix", newId, incomingName)
                                        : I18n.T("npcimport.summary.newPrefix", newId, incomingName))
                           + I18n.T("npcimport.summary.area", areaId, J.Str(area, "name", areaId))
