@@ -88,23 +88,21 @@ namespace InstantaleSaveEditor
                 byte[] existing = File.ReadAllBytes(savePath);
                 if (newBytes != null && existing.AsSpan().SequenceEqual(newBytes)) return;   // 内容が同一ならスキップ
 
-                // ワールド名 / プレイヤー名はディスク上の（上書き前の）内容から取得する。
-                string world = "unknown", player = "unknown";
+                // プレイヤー名（＝キャラ名）はディスク上の（上書き前の）内容から取得する。
+                string player = "unknown";
                 try
                 {
                     var root = Codec.Load(savePath);
-                    string w = J.Str(J.Obj(root, "world_data"), "name");
                     string p = J.Str(J.Obj(root, "player_data"), "name");
-                    if (!string.IsNullOrWhiteSpace(w)) world = Sanitize(w);
                     if (!string.IsNullOrWhiteSpace(p)) player = Sanitize(p);
                 }
                 catch { /* 解析できなくても unknown で続行 */ }
 
-                // 出力先 = ベース\<ワールド名>\ 。ベースは設定の上書き先か、無ければセーブと同じ場所の backups\。
-                string baseDir = string.IsNullOrWhiteSpace(s.BackupBaseFolderOverride)
+                // 出力先 = backups\ 直下。ベースは設定の上書き先か、無ければセーブと同じ場所の backups\。
+                // 親フォルダ（スロット名）に既にワールド名があるため、ワールド名のサブフォルダは作らない。
+                string destDir = string.IsNullOrWhiteSpace(s.BackupBaseFolderOverride)
                     ? Path.Combine(Path.GetDirectoryName(savePath) ?? ".", "backups")
                     : s.BackupBaseFolderOverride;
-                string destDir = Path.Combine(baseDir, world);
                 Directory.CreateDirectory(destDir);
 
                 // 出力ファイル名 = <プレイヤー名>_savedata_yyyyMMdd_HHmmss.zip
