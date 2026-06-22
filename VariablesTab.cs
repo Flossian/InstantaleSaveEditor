@@ -8,25 +8,26 @@ namespace InstantaleSaveEditor
     {
         // カテゴリ定義: 見出し / 含めるキー（この順で表示）/ 既定で開くか。
         // ここに無いキーは末尾の「その他」グループへ自動的に集約する（取りこぼし防止）。
+        // title は表示名の i18n キー。
         private static readonly (string title, string[] keys, bool open)[] Groups =
         {
-            ("パーティ・進行", new[]
+            ("vars.group.party", new[]
             { "party", "original_party", "exp_to_gain", "highest_cleared_quest_difficulty", "current_period" }, true),
 
-            ("戦闘状態", new[]
+            ("vars.group.battle", new[]
             { "in_battle", "in_colosseum_battle", "in_boss_battle", "generating_enemy_count",
               "escaped_member_in_battle", "surrendered_characters", "combat_log", "current_enemy_data", "loot_container" }, false),
 
-            ("会話・入力状態", new[]
+            ("vars.group.conversation", new[]
             { "in_conversation", "in_action_in_conversation", "in_free_input", "in_shopping",
               "text_input_disabled", "is_party_member_talk_enabled", "current_conversation_history",
               "current_situation", "player_attempt_text" }, false),
 
-            ("UI退避", new[]
+            ("vars.group.uiBackup", new[]
             { "buttons", "buttons_backup", "buttons_backup_for_shopping", "function_dict_correspond_to_input",
               "input_backup", "input_backup_for_shopping", "hud_top_info_label", "hud_top_info_texts", "location_image" }, false),
 
-            ("ログ・テキスト", new[]
+            ("vars.group.logText", new[]
             { "to_save_texts", "quest_log", "quest_event_log", "quest_party_accompany_backgrounds",
               "current_narration_log", "vacation_hobby_log", "master_process_log", "current_quest_data" }, false),
         };
@@ -36,22 +37,37 @@ namespace InstantaleSaveEditor
         private readonly List<ObjectForm> _forms = new();   // 各グループのフォーム（保存時に全て Apply する）
         private JsonObject _root;   // NPC ID→名前の解決・追加候補の列挙に使う（party のメンバー編集用）
 
+        private readonly Label _warn = new()   // 上部に常時表示する注意書き（実行時状態を含むため）。
+        {
+            Dock = DockStyle.Top,
+            Height = 48,
+            ForeColor = Color.Firebrick,
+            Padding = new Padding(8, 6, 8, 6),
+            AutoSize = false,
+        };
+
         public VariablesTab()
         {
-            // 上部に常時表示する注意書き（実行時状態を含むため）。
-            var warn = new Label
-            {
-                Dock = DockStyle.Top,
-                Height = 48,
-                ForeColor = Color.Firebrick,
-                Padding = new Padding(8, 6, 8, 6),
-                AutoSize = false,
-                Text = "注意: ここはバトル中フラグ・会話状態・UI退避情報など実行時の一時状態を多く含みます。\n不用意な変更はゲーム進行と不整合を起こす可能性があります。",
-            };
             // Fill(本体/案内) を先に、Top(注意) を後に追加して重なりを防ぐ。
             Controls.Add(_scroll);
             Controls.Add(_empty);
-            Controls.Add(warn);
+            Controls.Add(_warn);
+
+            Localize();
+            // 言語切替で注意書きとグループ見出しを更新する。Dispose で解除。
+            I18n.LanguageChanged += OnLanguageChanged;
+        }
+
+        // 言語に依存する文言を適用する。
+        private void Localize() => _warn.Text = I18n.T("vars.warning");
+
+        // 言語切替時に注意書きとグループを作り直す。
+        private void OnLanguageChanged() { Localize(); if (_root != null) Bind(_root); }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) I18n.LanguageChanged -= OnLanguageChanged;
+            base.Dispose(disposing);
         }
 
         // game_variables をバインド。無ければグループを隠して案内を出す。
@@ -64,7 +80,7 @@ namespace InstantaleSaveEditor
             if (gv == null)
             {
                 _scroll.Visible = false; _empty.Visible = true;
-                _empty.Text = "このファイルには game_variables がありません。";
+                _empty.Text = I18n.T("msg.noGameVariables");
                 return;
             }
             _empty.Visible = false; _scroll.Visible = true;
@@ -74,18 +90,18 @@ namespace InstantaleSaveEditor
             var others = gv.Select(p => p.Key).Where(k => !known.Contains(k)).ToList();
 
             // Dock=Top は後から追加した方が上に来るため、表示順と逆（下のグループから）追加する。
-            if (others.Count > 0) AddGroup(gv, "その他", others, false);
+            if (others.Count > 0) AddGroup(gv, "vars.group.other", others, false);
             for (int i = Groups.Length - 1; i >= 0; i--)
                 AddGroup(gv, Groups[i].title, Groups[i].keys, Groups[i].open);
         }
 
-        // 1カテゴリ分の折りたたみグループを作り、内部フォームに該当キーだけを表示する。
-        private void AddGroup(JsonObject gv, string title, IEnumerable<string> keys, bool open)
+        // 1カテゴリ分の折りたたみグループを作り、内部フォームに該当キーだけを表示する。titleKey は見出しの i18n キー。
+        private void AddGroup(JsonObject gv, string titleKey, IEnumerable<string> keys, bool open)
         {
             var keyList = keys.Where(gv.ContainsKey).ToList();
             if (keyList.Count == 0) return;   // 対象キーが1つも無ければグループ自体を出さない
 
-            var group = new CollapsibleGroup(title, open);
+            var group = new CollapsibleGroup(I18n.T(titleKey), open);
             var form = new ObjectForm(autoSize: true) { Dock = DockStyle.Top };
             // party のメンバー編集フック（party を含むグループでのみ使われる）。
             form.PartyNpcNamer = ResolveNpcName;

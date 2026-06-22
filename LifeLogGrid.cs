@@ -20,8 +20,8 @@ namespace InstantaleSaveEditor
             _grid.CellDoubleClick += OnCellDoubleClick;
 
             var bar = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 32, Padding = new Padding(0, 4, 0, 0) };
-            var add = new Button { Text = "追加", Width = 70 };
-            var del = new Button { Text = "削除", Width = 70 };
+            var add = new Button { Text = I18n.T("btn.add"), Width = 70 };
+            var del = new Button { Text = I18n.T("btn.delete"), Width = 70 };
             add.Click += (_, _) => { int i = AddRow(0, 0, 0, ""); if (i >= 0) { _grid.ClearSelection(); _grid.Rows[i].Selected = true; } };
             del.Click += (_, _) => DeleteSelected();
             bar.Controls.Add(add); bar.Controls.Add(del);
@@ -38,12 +38,12 @@ namespace InstantaleSaveEditor
         // 日付3列(固定幅寄り) + content(残り幅・読み取り専用/ダイアログ編集)。
         private void BuildColumns()
         {
-            _grid.Columns.Add(IntCol("開始日(day_start)", 18));
-            _grid.Columns.Add(IntCol("終了日(day_end)", 18));
-            _grid.Columns.Add(IntCol("要約回数(summarized_count)", 18));
+            _grid.Columns.Add(IntCol(I18n.T("lifelog.col.dayStart"), 18));
+            _grid.Columns.Add(IntCol(I18n.T("lifelog.col.dayEnd"), 18));
+            _grid.Columns.Add(IntCol(I18n.T("lifelog.col.count"), 18));
             _grid.Columns.Add(new DataGridViewTextBoxColumn
             {
-                HeaderText = "内容(content) ※ダブルクリックで編集",
+                HeaderText = I18n.T("lifelog.col.content"),
                 ReadOnly = true,
                 FillWeight = 110,
                 DefaultCellStyle = { WrapMode = DataGridViewTriState.True },
@@ -55,7 +55,7 @@ namespace InstantaleSaveEditor
         {
             if (e.RowIndex < 0 || e.ColumnIndex != ColContent) return;
             var cell = _grid.Rows[e.RowIndex].Cells[ColContent];
-            using var d = new TextEditDialog("内容(content) を編集", cell.Value?.ToString() ?? "");
+            using var d = new TextEditDialog(I18n.T("lifelog.editContent"), cell.Value?.ToString() ?? "");
             if (d.ShowDialog(FindForm()) == DialogResult.OK) cell.Value = d.Value;
         }
 
@@ -65,7 +65,7 @@ namespace InstantaleSaveEditor
         private void DeleteSelected()
         {
             if (_grid.CurrentRow == null) return;
-            if (MessageBox.Show("この行を削除しますか？", "確認", MessageBoxButtons.YesNo) != DialogResult.Yes) return;
+            if (MessageBox.Show(I18n.T("msg.confirmDeleteRow"), I18n.T("title.confirm"), MessageBoxButtons.YesNo) != DialogResult.Yes) return;
             _grid.Rows.Remove(_grid.CurrentRow);
         }
 
@@ -115,8 +115,8 @@ namespace InstantaleSaveEditor
                 AcceptsReturn = true,
                 Text = value,
             };
-            var ok = new Button { Text = "OK", Dock = DockStyle.Right, Width = 90, DialogResult = DialogResult.OK };
-            var cancel = new Button { Text = "キャンセル", Dock = DockStyle.Right, Width = 90, DialogResult = DialogResult.Cancel };
+            var ok = new Button { Text = I18n.T("btn.ok"), Dock = DockStyle.Right, Width = 90, DialogResult = DialogResult.OK };
+            var cancel = new Button { Text = I18n.T("btn.cancel"), Dock = DockStyle.Right, Width = 90, DialogResult = DialogResult.Cancel };
             var bar = new Panel { Dock = DockStyle.Bottom, Height = 40 };
             bar.Controls.Add(ok); bar.Controls.Add(cancel);
             Controls.Add(_t); Controls.Add(bar);

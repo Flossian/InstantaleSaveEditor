@@ -45,7 +45,7 @@ namespace InstantaleSaveEditor
         public QuestCreator(JsonObject root)
         {
             _root = root;
-            Text = "クエスト作成（合成ビルダー）";
+            Text = I18n.T("quest.title");
             Width = 860; Height = 1000; StartPosition = FormStartPosition.CenterScreen;
 
             // 発注先になり得る拠点（町・村・都市）を一覧化
@@ -65,39 +65,39 @@ namespace InstantaleSaveEditor
             int r = 0;
 
             // 発注先・難易度・一括読込（一括読込ボタンは難易度行の右端に置く）
-            _cbSettlement = Combo(t, ref r, "発注拠点", _settlements.Select(s => $"{s.id}: {s.name}"));
+            _cbSettlement = Combo(t, ref r, I18n.T("quest.settlement"), _settlements.Select(s => $"{s.id}: {s.name}"));
             int diffRow = r;
-            _numDiff = Num(t, ref r, "難易度", 1, 99, 4);
-            var btnBulkLoad = new Button { Text = "テンプレ一括読込", Dock = DockStyle.Fill, AutoEllipsis = true, Margin = new Padding(3, 2, 3, 2) };
+            _numDiff = Num(t, ref r, I18n.T("quest.difficulty"), 1, 99, 4);
+            var btnBulkLoad = new Button { Text = I18n.T("quest.bulkLoad"), Dock = DockStyle.Fill, AutoEllipsis = true, Margin = new Padding(3, 2, 3, 2) };
             btnBulkLoad.Click += (_, _) => BulkLoad();
             t.Controls.Add(btnBulkLoad, 2, diffRow);
-            AddSectionHeader(t, ref r, "── 基本情報 ──");
-            _tbTitle = TextRow(t, ref r, "タイトル", q => J.Str(q, "quest_title"));
-            _tbClient = TextRow(t, ref r, "依頼主名", q => J.Str(q, "client_name"));
-            _summary = MultiRow(t, ref r, "依頼概要", q => J.Str(q, "request_summary"));
-            _statement = MultiRow(t, ref r, "依頼主の発言", q => J.Str(q, "client_statement"));
+            AddSectionHeader(t, ref r, I18n.T("quest.section.basic"));
+            _tbTitle = TextRow(t, ref r, I18n.T("quest.fieldTitle"), q => J.Str(q, "quest_title"));
+            _tbClient = TextRow(t, ref r, I18n.T("quest.clientName"), q => J.Str(q, "client_name"));
+            _summary = MultiRow(t, ref r, I18n.T("quest.summary"), q => J.Str(q, "request_summary"));
+            _statement = MultiRow(t, ref r, I18n.T("quest.statement"), q => J.Str(q, "client_statement"));
 
-            AddSectionHeader(t, ref r, "── 舞台（ダンジョン） ──");
-            _tbDungeon = TextRow(t, ref r, "ダンジョン名", q => J.Str(J.Obj(q, "area"), "name"));
-            _layout = MultiRow(t, ref r, "舞台の描写", q => J.Str(J.Obj(q, "area"), "layout_description"));
-            _tbLocations = TextRow(t, ref r, "場所(カンマ区切り)", q => LocationsCsv(J.Obj(q, "area")));
-            _cbAtmo = Combo(t, ref r, "雰囲気", Atmospheres());
+            AddSectionHeader(t, ref r, I18n.T("quest.section.stage"));
+            _tbDungeon = TextRow(t, ref r, I18n.T("quest.dungeonName"), q => J.Str(J.Obj(q, "area"), "name"));
+            _layout = MultiRow(t, ref r, I18n.T("quest.layout"), q => J.Str(J.Obj(q, "area"), "layout_description"));
+            _tbLocations = TextRow(t, ref r, I18n.T("quest.locations"), q => LocationsCsv(J.Obj(q, "area")));
+            _cbAtmo = Combo(t, ref r, I18n.T("quest.atmosphere"), Atmospheres());
             _cbAtmo.DropDownStyle = ComboBoxStyle.DropDown;
             _cbAtmo.SelectedIndexChanged += (_, _) => RefreshBgm();
             _cbAtmo.TextChanged += (_, _) => RefreshBgm();
-            _cbBgm = Combo(t, ref r, "BGM", Enumerable.Empty<string>());  // 候補は雰囲気に応じて RefreshBgm が絞り込む
+            _cbBgm = Combo(t, ref r, I18n.T("quest.bgm"), Enumerable.Empty<string>());  // 候補は雰囲気に応じて RefreshBgm が絞り込む
             _cbBgm.DropDownStyle = ComboBoxStyle.DropDown;
 
             // 部品セクション
-            AddComponentSection(t, ref r, "敵 (enemies)", out _lstEnemies, _enemies, _enemyLib);
+            AddComponentSection(t, ref r, I18n.T("quest.section.enemies"), isEvent: false, out _lstEnemies, _enemies, _enemyLib);
             AddBossSection(t, ref r);
-            AddComponentSection(t, ref r, "イベント (events)", out _lstEvents, _events, _eventLib);
+            AddComponentSection(t, ref r, I18n.T("quest.section.events"), isEvent: true, out _lstEvents, _events, _eventLib);
 
             scroll.Controls.Add(t);
 
             var bar = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 48, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(8) };
-            var btnCreate = new Button { Text = "作成", Width = 100 };
-            var btnCancel = new Button { Text = "キャンセル", Width = 100 };
+            var btnCreate = new Button { Text = I18n.T("quest.create"), Width = 100 };
+            var btnCancel = new Button { Text = I18n.T("btn.cancel"), Width = 100 };
             btnCreate.Click += (_, _) => Create();
             btnCancel.Click += (_, _) => { DialogResult = DialogResult.Cancel; Close(); };
             bar.Controls.AddRange(new Control[] { btnCreate, btnCancel });
@@ -275,10 +275,10 @@ namespace InstantaleSaveEditor
         // 選んだクエスト・テンプレの全項目（文章・舞台・敵/ボス/イベント）を各欄へ一気に流し込む。
         private void BulkLoad()
         {
-            if (_templates.Count == 0) { MessageBox.Show("クエスト・テンプレがありません。"); return; }
-            var labels = _templates.Select(t => $"[{t.Source}] {t.Name} (難{t.Difficulty})").ToList();
+            if (_templates.Count == 0) { MessageBox.Show(I18n.T("quest.noTemplates")); return; }
+            var labels = _templates.Select(t => I18n.T("quest.bulkLabel", t.Source, t.Name, t.Difficulty)).ToList();
             var previews = _templates.Select(t => BuildPreview(t.Quest)).ToList();
-            int i = ListPicker.PickOne(this, "テンプレを選んで一括読込", labels, previews);
+            int i = ListPicker.PickOne(this, I18n.T("quest.bulkPickTitle"), labels, previews);
             if (i < 0) return;
             var q = _templates[i].Quest;
             var area = J.Obj(q, "area");
@@ -300,7 +300,7 @@ namespace InstantaleSaveEditor
             _boss = J.Obj(q, "boss")?.DeepClone() as JsonObject;
             if (_boss != null && J.Obj(_boss, "data") == null) _boss = null;
             RefreshList(_lstEnemies, _enemies, e => EnemyName(e));
-            RefreshList(_lstEvents, _events, e => J.Str(e as JsonObject, "event_name", "(無名)"));
+            RefreshList(_lstEvents, _events, e => J.Str(e as JsonObject, "event_name", I18n.T("label.unnamed")));
             RefreshBoss();
         }
 
@@ -309,13 +309,13 @@ namespace InstantaleSaveEditor
         private void Create()
         {
             // 必須項目の検証
-            if (_cbSettlement.SelectedIndex < 0) { MessageBox.Show("発注拠点を選んでください。"); return; }
-            if (string.IsNullOrWhiteSpace(_tbTitle.Text)) { MessageBox.Show("タイトルを入力してください。"); return; }
-            if (string.IsNullOrWhiteSpace(_tbDungeon.Text)) { MessageBox.Show("ダンジョン名を入力してください。"); return; }
+            if (_cbSettlement.SelectedIndex < 0) { MessageBox.Show(I18n.T("quest.errSettlement")); return; }
+            if (string.IsNullOrWhiteSpace(_tbTitle.Text)) { MessageBox.Show(I18n.T("quest.errTitle")); return; }
+            if (string.IsNullOrWhiteSpace(_tbDungeon.Text)) { MessageBox.Show(I18n.T("quest.errDungeon")); return; }
 
             var areas = J.Obj(_root, "areas"); var quests = J.Obj(_root, "quests"); var index = J.Obj(_root, "index");
-            if (areas == null || quests == null) { MessageBox.Show("areas / quests が見つかりません。"); return; }
-            if (index == null) { MessageBox.Show("index（ID採番）が見つかりません。"); return; }
+            if (areas == null || quests == null) { MessageBox.Show(I18n.T("quest.errNoAreasQuests")); return; }
+            if (index == null) { MessageBox.Show(I18n.T("quest.errNoIndex")); return; }
 
             string sid = _settlements[_cbSettlement.SelectedIndex].id;   // 発注拠点 area の ID
             string areaId = NextId(index, "area", areas.ContainsKey);
@@ -363,8 +363,8 @@ namespace InstantaleSaveEditor
 
             SaveAsTemplate(quest, area);   // 作成したクエストをテンプレとしても保存（次回以降の流用元になる）
 
-            CreatedSummary = $"quest[{questId}]「{_tbTitle.Text}」と ダンジョン area[{areaId}]「{_tbDungeon.Text.Trim()}」を作成し、"
-                           + $"拠点 area[{sid}] に紐付けました。\n敵 {_enemies.Count} 体 / イベント {_events.Count} 件 / ボス {(_boss != null ? "あり" : "なし")}。";
+            CreatedSummary = I18n.T("quest.createdSummary", questId, _tbTitle.Text, areaId, _tbDungeon.Text.Trim(), sid,
+                                    _enemies.Count, _events.Count, _boss != null ? I18n.T("quest.bossYes") : I18n.T("quest.bossNo"));
             DialogResult = DialogResult.OK;
             Close();
         }
@@ -487,21 +487,21 @@ namespace InstantaleSaveEditor
 
         // ---------------- 部品セクション UI ----------------
         // 追加（ライブラリ）/ 削除 / JSON編集 ボタン付きのリスト欄を1ブロック追加する。
-        private void AddComponentSection(TableLayoutPanel t, ref int r, string title, out ListBox list, JsonArray model, List<JsonObject> lib)
+        // isEvent はイベント/敵の種別を明示する（表示名の翻訳に依存しない）。
+        private void AddComponentSection(TableLayoutPanel t, ref int r, string title, bool isEvent, out ListBox list, JsonArray model, List<JsonObject> lib)
         {
             AddSectionHeader(t, ref r, "── " + title + " ──");
             var lst = new ListBox { Dock = DockStyle.Fill, Height = 90, IntegralHeight = false };
             list = lst;
             t.Controls.Add(lst, 0, r); t.SetColumnSpan(lst, 2);
             var btns = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false };
-            var add = new Button { Text = "追加", Width = 92 };
-            var del = new Button { Text = "削除", Width = 92 };
-            var edit = new Button { Text = "JSON編集", Width = 92 };
-            bool ev = title.StartsWith("イベント");
-            Func<JsonObject, string> namer = ev ? (e => J.Str(e, "event_name", "(無名)")) : (e => EnemyName(e));
+            var add = new Button { Text = I18n.T("btn.add"), Width = 92 };
+            var del = new Button { Text = I18n.T("btn.delete"), Width = 92 };
+            var edit = new Button { Text = I18n.T("quest.btnJsonEdit"), Width = 92 };
+            Func<JsonObject, string> namer = isEvent ? (e => J.Str(e, "event_name", I18n.T("label.unnamed"))) : (e => EnemyName(e));
             add.Click += (_, _) =>
             {
-                foreach (var sel in PickComponents(title, lib, ev)) model.Add(sel);
+                foreach (var sel in PickComponents(title, lib, isEvent, multi: true)) model.Add(sel);
                 RefreshList(lst, model, namer);
             };
             del.Click += (_, _) =>
@@ -513,7 +513,7 @@ namespace InstantaleSaveEditor
             {
                 int i = lst.SelectedIndex;
                 if (i < 0 || i >= model.Count) return;
-                using var d = new JsonEditDialog($"{title} を編集", model[i]);
+                using var d = new JsonEditDialog(I18n.T("title.editField", title), model[i]);
                 if (d.ShowDialog(this) == DialogResult.OK && d.ResultNode != null)
                 { model[i] = d.ResultNode; RefreshList(lst, model, namer); }
             };
@@ -523,30 +523,30 @@ namespace InstantaleSaveEditor
 
         private void AddBossSection(TableLayoutPanel t, ref int r)
         {
-            AddSectionHeader(t, ref r, "── ボス (boss) ──");
-            _lblBoss = new Label { Dock = DockStyle.Fill, Text = "(なし)", AutoEllipsis = true, Padding = new Padding(4, 6, 0, 0), BorderStyle = BorderStyle.FixedSingle };
+            AddSectionHeader(t, ref r, "── " + I18n.T("quest.section.boss") + " ──");
+            _lblBoss = new Label { Dock = DockStyle.Fill, Text = I18n.T("label.none"), AutoEllipsis = true, Padding = new Padding(4, 6, 0, 0), BorderStyle = BorderStyle.FixedSingle };
             t.Controls.Add(_lblBoss, 0, r); t.SetColumnSpan(_lblBoss, 2);
             var btns = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false };
-            var sel = new Button { Text = "選択", Width = 92 };
-            var none = new Button { Text = "なし", Width = 92 };
-            var edit = new Button { Text = "JSON編集", Width = 92 };
+            var sel = new Button { Text = I18n.T("quest.select"), Width = 92 };
+            var none = new Button { Text = I18n.T("quest.none"), Width = 92 };
+            var edit = new Button { Text = I18n.T("quest.btnJsonEdit"), Width = 92 };
             sel.Click += (_, _) =>
             {
-                var picked = PickComponents("ボス", _bossLib, multi: false).FirstOrDefault();
+                var picked = PickComponents(I18n.T("quest.section.boss"), _bossLib, isEvent: false, multi: false).FirstOrDefault();
                 if (picked != null) { _boss = picked; RefreshBoss(); }
             };
             none.Click += (_, _) => { _boss = null; RefreshBoss(); };
             edit.Click += (_, _) =>
             {
-                using var d = new JsonEditDialog("ボスを編集", _boss ?? new JsonObject());
+                using var d = new JsonEditDialog(I18n.T("quest.editBoss"), _boss ?? new JsonObject());
                 if (d.ShowDialog(this) == DialogResult.OK && d.ResultNode is JsonObject o) { _boss = o; RefreshBoss(); }
             };
             btns.Controls.AddRange(new Control[] { sel, none, edit });
             t.Controls.Add(btns, 2, r); r++;
         }
 
-        private void RefreshBoss() => _lblBoss.Text = _boss != null ? EnemyName(_boss) : "(なし)";
-        private static string EnemyName(JsonNode el) => J.Str(J.Obj(el as JsonObject, "data"), "name", "(無名)");
+        private void RefreshBoss() => _lblBoss.Text = _boss != null ? EnemyName(_boss) : I18n.T("label.none");
+        private static string EnemyName(JsonNode el) => J.Str(J.Obj(el as JsonObject, "data"), "name", I18n.T("label.unnamed"));
         private static void RefreshList(ListBox lst, JsonArray model, Func<JsonObject, string> namer)
         {
             lst.Items.Clear();
@@ -554,14 +554,14 @@ namespace InstantaleSaveEditor
         }
 
         // ライブラリから要素を選ぶ（multi=true なら複数選択）。選んだ要素はクローンして返す。
-        private List<JsonObject> PickComponents(string title, List<JsonObject> lib, bool multi)
+        // isEvent はイベント/敵の種別を明示する（表示名の翻訳に依存しない）。
+        private List<JsonObject> PickComponents(string title, List<JsonObject> lib, bool isEvent, bool multi)
         {
             var result = new List<JsonObject>();
-            if (lib.Count == 0) { MessageBox.Show($"{title} のライブラリが空です。\n「ツール → クエストをテンプレ化」で部品を抽出してください。"); return result; }
-            bool ev = title.StartsWith("イベント");
-            var labels = lib.Select(e => ev ? J.Str(e, "event_name", "(無名)") : EnemyName(e)).ToList();
+            if (lib.Count == 0) { MessageBox.Show(I18n.T("quest.libEmpty", title)); return result; }
+            var labels = lib.Select(e => isEvent ? J.Str(e, "event_name", I18n.T("label.unnamed")) : EnemyName(e)).ToList();
             var previews = lib.Select(e => e.ToJsonString(Codec.Pretty)).ToList();
-            foreach (int i in ListPicker.Pick(this, $"{title} を選択", labels, previews, multi))
+            foreach (int i in ListPicker.Pick(this, I18n.T("quest.pickTitle", title), labels, previews, multi))
                 if (i >= 0 && i < lib.Count) result.Add((JsonObject)lib[i].DeepClone());
             return result;
         }
@@ -605,24 +605,24 @@ namespace InstantaleSaveEditor
         {
             var sb = new System.Text.StringBuilder();
             sb.AppendLine("■ " + J.Str(q, "quest_title"));
-            sb.AppendLine("依頼主: " + J.Str(q, "client_name"));
+            sb.AppendLine(I18n.T("quest.preview.client") + J.Str(q, "client_name"));
             sb.AppendLine();
             sb.AppendLine(J.Str(q, "request_summary"));
             sb.AppendLine();
             if (J.Obj(q, "area") is JsonObject area)
             {
-                sb.AppendLine("【舞台】" + J.Str(area, "name"));
+                sb.AppendLine(I18n.T("quest.preview.stage") + J.Str(area, "name"));
                 sb.AppendLine(J.Str(area, "layout_description"));
                 if (J.Arr(area, "locations") is JsonArray locs && locs.Count > 0)
-                    sb.AppendLine("場所: " + LocationsCsv(area));
+                    sb.AppendLine(I18n.T("quest.preview.locations") + LocationsCsv(area));
                 sb.AppendLine();
             }
             if (J.Arr(q, "enemies") is JsonArray en && en.Count > 0)
-                sb.AppendLine("敵: " + string.Join(", ", en.Select(EnemyName)));
+                sb.AppendLine(I18n.T("quest.preview.enemies") + string.Join(", ", en.Select(EnemyName)));
             if (J.Obj(q, "boss") is JsonObject boss && J.Obj(boss, "data") != null)
-                sb.AppendLine("ボス: " + EnemyName(boss));
+                sb.AppendLine(I18n.T("quest.preview.boss") + EnemyName(boss));
             if (J.Arr(q, "events") is JsonArray evs && evs.Count > 0)
-                sb.AppendLine("イベント: " + string.Join(", ", evs.Select(e => J.Str(e as JsonObject, "event_name"))));
+                sb.AppendLine(I18n.T("quest.preview.events") + string.Join(", ", evs.Select(e => J.Str(e as JsonObject, "event_name"))));
             return sb.ToString();
         }
 
@@ -666,13 +666,13 @@ namespace InstantaleSaveEditor
         }
         private Button TemplateBtn(string label, Func<JsonObject, string> getter, Action<string> setter)
         {
-            var b = new Button { Text = "テンプレ", Width = 92, Margin = new Padding(3, 2, 3, 2) };
+            var b = new Button { Text = I18n.T("quest.templateBtn"), Width = 92, Margin = new Padding(3, 2, 3, 2) };
             b.Click += (_, _) =>
             {
-                if (_templates.Count == 0) { MessageBox.Show("クエスト・テンプレがありません。"); return; }
+                if (_templates.Count == 0) { MessageBox.Show(I18n.T("quest.noTemplates")); return; }
                 var labels = _templates.Select(t => $"[{t.Source}] {t.Name}").ToList();
                 var vals = _templates.Select(t => getter(t.Quest) ?? "").ToList();
-                int i = ListPicker.PickOne(this, $"{label} をテンプレから選択", labels, vals);
+                int i = ListPicker.PickOne(this, I18n.T("quest.templatePickTitle", label), labels, vals);
                 if (i >= 0) setter(vals[i]);
             };
             return b;
@@ -716,8 +716,8 @@ namespace InstantaleSaveEditor
             split.Panel2.Controls.Add(_prev);
 
             var bar = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 44, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(8) };
-            var ok = new Button { Text = "OK", Width = 90, DialogResult = DialogResult.OK };
-            var cancel = new Button { Text = "キャンセル", Width = 90, DialogResult = DialogResult.Cancel };
+            var ok = new Button { Text = I18n.T("btn.ok"), Width = 90, DialogResult = DialogResult.OK };
+            var cancel = new Button { Text = I18n.T("btn.cancel"), Width = 90, DialogResult = DialogResult.Cancel };
             bar.Controls.AddRange(new Control[] { ok, cancel });
             AcceptButton = ok; CancelButton = cancel;
 

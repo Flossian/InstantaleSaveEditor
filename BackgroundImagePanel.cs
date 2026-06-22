@@ -23,10 +23,10 @@ namespace InstantaleSaveEditor
             Height = 22 + ThumbH + 8;
             BackColor = SystemColors.Control;
             Padding = new Padding(8, 6, 8, 6);
-            _caption.Text = "背景画像";
+            _caption.Text = I18n.T("bg.caption");
             Controls.Add(_caption);
             Controls.Add(_pb);
-            ImageViewer.RegisterClickViewer(_pb, "背景画像");
+            ImageViewer.RegisterClickViewer(_pb, I18n.T("bg.caption"));
         }
 
         // facility 名から backgrounds/{名前}/image.png を探して表示する。
@@ -45,7 +45,7 @@ namespace InstantaleSaveEditor
             {
                 try { _pb.Image = Image.FromStream(new MemoryStream(File.ReadAllBytes(path))); } catch { }
             }
-            _caption.Text = _pb.Image != null ? "背景画像" : "背景画像 (なし)";
+            _caption.Text = _pb.Image != null ? I18n.T("bg.caption") : I18n.T("bg.captionNone");
         }
     }
 }

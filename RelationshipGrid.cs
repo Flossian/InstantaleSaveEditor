@@ -24,8 +24,8 @@ namespace InstantaleSaveEditor
             BuildColumns();
 
             var bar = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 32, Padding = new Padding(0, 4, 0, 0) };
-            var add = new Button { Text = "追加", Width = 70 };
-            var del = new Button { Text = "削除", Width = 70 };
+            var add = new Button { Text = I18n.T("btn.add"), Width = 70 };
+            var del = new Button { Text = I18n.T("btn.delete"), Width = 70 };
             add.Click += (_, _) => AddNewTargetRow();
             del.Click += (_, _) => DeleteSelected();
             bar.Controls.Add(add); bar.Controls.Add(del);
@@ -40,11 +40,11 @@ namespace InstantaleSaveEditor
         // 対象 / 好感度 / 状態 / 関係 / 会話回数。状態・関係は「、」区切りで複数値を表示する。
         private void BuildColumns()
         {
-            _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "対象", FillWeight = 22 });
-            _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "好感度", FillWeight = 12 });
-            _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "状態(affinity_text)", FillWeight = 28 });
-            _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "関係(relationship)", FillWeight = 26 });
-            _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "会話回数", FillWeight = 12 });
+            _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = I18n.T("rel.col.target"), FillWeight = 22 });
+            _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = I18n.T("rel.col.affinity"), FillWeight = 12 });
+            _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = I18n.T("rel.col.affText"), FillWeight = 28 });
+            _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = I18n.T("rel.col.relationship"), FillWeight = 26 });
+            _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = I18n.T("rel.col.convCount"), FillWeight = 12 });
         }
 
         // relationship 辞書を読み込んで行を作る。player を常に先頭、以降はキー順。
@@ -103,7 +103,7 @@ namespace InstantaleSaveEditor
         private void DeleteSelected()
         {
             if (_grid.CurrentRow == null) return;
-            if (MessageBox.Show("この対象との関係を削除しますか？", "確認", MessageBoxButtons.YesNo) != DialogResult.Yes) return;
+            if (MessageBox.Show(I18n.T("msg.confirmDeleteRelationship"), I18n.T("title.confirm"), MessageBoxButtons.YesNo) != DialogResult.Yes) return;
             _grid.Rows.Remove(_grid.CurrentRow);
         }
 
@@ -125,7 +125,7 @@ namespace InstantaleSaveEditor
 
         private string ResolveName(string key)
         {
-            if (key == "player") return "プレイヤー";
+            if (key == "player") return I18n.T("rel.player");
             string name = TargetNamer?.Invoke(key);
             return string.IsNullOrEmpty(name) ? key : $"{name} ({key})";
         }

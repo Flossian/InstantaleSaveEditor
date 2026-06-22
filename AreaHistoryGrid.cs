@@ -33,13 +33,13 @@ namespace InstantaleSaveEditor
         // エリア(参照・読み取り専用) + 数値3列 + achievements(残り幅・読み取り専用/ダイアログ編集)。
         private void BuildColumns()
         {
-            _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "エリア(ID: 名前)", ReadOnly = true, FillWeight = 40 });
-            _grid.Columns.Add(IntCol("滞在日数(total_days)"));
-            _grid.Columns.Add(IntCol("最終滞在終了(last_stay_end)"));
-            _grid.Columns.Add(IntCol("秩序度(lawfulness)"));
+            _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = I18n.T("areahist.col.area"), ReadOnly = true, FillWeight = 40 });
+            _grid.Columns.Add(IntCol(I18n.T("areahist.col.totalDays")));
+            _grid.Columns.Add(IntCol(I18n.T("areahist.col.lastStayEnd")));
+            _grid.Columns.Add(IntCol(I18n.T("areahist.col.lawfulness")));
             _grid.Columns.Add(new DataGridViewTextBoxColumn
             {
-                HeaderText = "実績(achievements) ※ダブルクリックで編集",
+                HeaderText = I18n.T("areahist.col.achievements"),
                 ReadOnly = true,
                 FillWeight = 60,
             });
@@ -57,7 +57,7 @@ namespace InstantaleSaveEditor
             cell.Value = AchSummary(d.Result);
         }
 
-        private static string AchSummary(List<string> list) => $"{list.Count}件";
+        private static string AchSummary(List<string> list) => I18n.T("areahist.countSuffix", list.Count);
 
         // area_history 辞書を読み込んで行を作る。areas からエリア名を解決して表示する。
         // 元オブジェクトは行 Tag に複製して保持し、未知のフィールドを書き戻し時に温存する。
@@ -69,7 +69,7 @@ namespace InstantaleSaveEditor
             {
                 var o = kv.Value as JsonObject ?? new JsonObject();
                 var res = J.Obj(o, "residency");
-                string name = areas?[kv.Key] is JsonObject ao ? J.Str(ao, "name", "(不明)") : "(不明)";
+                string name = areas?[kv.Key] is JsonObject ao ? J.Str(ao, "name", I18n.T("label.unknown")) : I18n.T("label.unknown");
                 var list = new List<string>();
                 foreach (var a in J.Arr(o, "achievements") ?? new JsonArray()) list.Add(a?.ToString() ?? "");
 
@@ -137,7 +137,7 @@ namespace InstantaleSaveEditor
 
         public AchievementsDialog(List<string> items)
         {
-            Text = "実績(achievements) を編集";
+            Text = I18n.T("areahist.editAchievements");
             Width = 720; Height = 480; StartPosition = FormStartPosition.CenterParent;
 
             _grid.Columns.Add(new DataGridViewTextBoxColumn
@@ -150,12 +150,12 @@ namespace InstantaleSaveEditor
             _grid.CellDoubleClick += (_, e) => { if (e.RowIndex >= 0) EditRow(e.RowIndex); };
 
             var bar = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 36, Padding = new Padding(0, 4, 0, 4) };
-            var add = new Button { Text = "追加", Width = 80 };
-            var edit = new Button { Text = "編集", Width = 80 };
-            var del = new Button { Text = "削除", Width = 80 };
+            var add = new Button { Text = I18n.T("btn.add"), Width = 80 };
+            var edit = new Button { Text = I18n.T("btn.edit"), Width = 80 };
+            var del = new Button { Text = I18n.T("btn.delete"), Width = 80 };
             add.Click += (_, _) =>
             {
-                using var d = new TextEditDialog("実績を追加", "");
+                using var d = new TextEditDialog(I18n.T("areahist.addAchievement"), "");
                 if (d.ShowDialog(this) == DialogResult.OK && d.Value.Trim().Length > 0)
                 {
                     int i = _grid.Rows.Add(d.Value.Trim());
@@ -166,13 +166,13 @@ namespace InstantaleSaveEditor
             del.Click += (_, _) =>
             {
                 if (_grid.CurrentRow == null) return;
-                if (MessageBox.Show("この実績を削除しますか？", "確認", MessageBoxButtons.YesNo) == DialogResult.Yes)
+                if (MessageBox.Show(I18n.T("msg.confirmDeleteAchievement"), I18n.T("title.confirm"), MessageBoxButtons.YesNo) == DialogResult.Yes)
                     _grid.Rows.Remove(_grid.CurrentRow);
             };
             bar.Controls.Add(add); bar.Controls.Add(edit); bar.Controls.Add(del);
 
-            var ok = new Button { Text = "OK", Dock = DockStyle.Right, Width = 90, DialogResult = DialogResult.OK };
-            var cancel = new Button { Text = "キャンセル", Dock = DockStyle.Right, Width = 90, DialogResult = DialogResult.Cancel };
+            var ok = new Button { Text = I18n.T("btn.ok"), Dock = DockStyle.Right, Width = 90, DialogResult = DialogResult.OK };
+            var cancel = new Button { Text = I18n.T("btn.cancel"), Dock = DockStyle.Right, Width = 90, DialogResult = DialogResult.Cancel };
             var btnBar = new Panel { Dock = DockStyle.Bottom, Height = 40 };
             btnBar.Controls.Add(ok); btnBar.Controls.Add(cancel);
 
@@ -187,7 +187,7 @@ namespace InstantaleSaveEditor
         private void EditRow(int index)
         {
             var cell = _grid.Rows[index].Cells[0];
-            using var d = new TextEditDialog("実績を編集", cell.Value?.ToString() ?? "");
+            using var d = new TextEditDialog(I18n.T("areahist.editAchievement"), cell.Value?.ToString() ?? "");
             if (d.ShowDialog(this) == DialogResult.OK) cell.Value = d.Value.Trim();
         }
     }

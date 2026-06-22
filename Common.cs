@@ -54,9 +54,13 @@ namespace InstantaleSaveEditor
         }
 
         private static string StripBom(string s) => s.Length > 0 && s[0] == '﻿' ? s.Substring(1) : s;
+        // JSON を最小化 UTF-8 にし、ゲームが読める形式（XOR 難読化）のバイト列へ変換する。
+        // 保存とバックアップ前の差分判定で同じ出力を使うため、Save から分離している。
+        public static byte[] Encode(JsonNode root)
+            => Transform(Encoding.UTF8.GetBytes(root.ToJsonString(Compact)));
         // JSON を最小化 UTF-8 にしてファイルへ書き出す（ゲームが読める形式）。
         public static void Save(string path, JsonNode root)
-            => File.WriteAllBytes(path, Transform(Encoding.UTF8.GetBytes(root.ToJsonString(Compact))));
+            => File.WriteAllBytes(path, Encode(root));
     }
 
     // ---------------- JSON 値の安全な取得 ----------------
@@ -89,8 +93,8 @@ namespace InstantaleSaveEditor
         // JSON編集ボタン横などに出す短い要約表示（"null" / "[配列 n件]" / "{辞書 nキー}" / スカラ値）。
         public static string Preview(JsonNode v)
             => v is null ? "null"
-             : v is JsonArray a ? $"[配列 {a.Count}件]"
-             : v is JsonObject ob ? $"{{辞書 {ob.Count}キー}}"
+             : v is JsonArray a ? I18n.T("preview.array", a.Count)
+             : v is JsonObject ob ? I18n.T("preview.dict", ob.Count)
              : v.ToString();
     }
 
@@ -108,7 +112,7 @@ namespace InstantaleSaveEditor
                 var area = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1200, 800);
                 var f = new Form
                 {
-                    Text = title + "  （原寸）",
+                    Text = title + I18n.T("viewer.actualSizeSuffix"),
                     StartPosition = FormStartPosition.CenterScreen,
                     Width = Math.Min(img.Width + 40, area.Width - 40),
                     Height = Math.Min(img.Height + 60, area.Height - 40),
@@ -148,13 +152,13 @@ namespace InstantaleSaveEditor
                 AcceptsTab = true,
                 Text = value is null ? "null" : value.ToJsonString(Codec.Pretty),
             };
-            var ok = new Button { Text = "OK", Dock = DockStyle.Right, Width = 90 };
-            var cancel = new Button { Text = "キャンセル", Dock = DockStyle.Right, Width = 90 };
+            var ok = new Button { Text = I18n.T("btn.ok"), Dock = DockStyle.Right, Width = 90 };
+            var cancel = new Button { Text = I18n.T("btn.cancel"), Dock = DockStyle.Right, Width = 90 };
             ok.Click += (_, _) =>
             {
                 // 入力テキストを JSON としてパース。成功すれば確定、失敗すれば閉じずにエラー表示。
                 try { ResultNode = JsonNode.Parse(_t.Text); DialogResult = DialogResult.OK; Close(); }
-                catch (JsonException ex) { MessageBox.Show(this, "JSON エラー:\n" + ex.Message, "エラー", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+                catch (JsonException ex) { MessageBox.Show(this, I18n.T("msg.jsonError") + "\n" + ex.Message, I18n.T("title.error"), MessageBoxButtons.OK, MessageBoxIcon.Error); }
             };
             cancel.Click += (_, _) => { DialogResult = DialogResult.Cancel; Close(); };
             var bar = new Panel { Dock = DockStyle.Bottom, Height = 40 };
@@ -449,10 +453,10 @@ namespace InstantaleSaveEditor
                 {
                     case "bool": _obj[f.Name] = f.Chk.Checked; break;
                     case "int":
-                        if (!long.TryParse(f.Tb.Text, out long lv)) return Fail(f.Name, "整数");
+                        if (!long.TryParse(f.Tb.Text, out long lv)) return Fail(f.Name, I18n.T("type.integer"));
                         _obj[f.Name] = lv; break;
                     case "dbl":
-                        if (!double.TryParse(f.Tb.Text, out double dv)) return Fail(f.Name, "数値");
+                        if (!double.TryParse(f.Tb.Text, out double dv)) return Fail(f.Name, I18n.T("type.number"));
                         _obj[f.Name] = dv; break;
                     case "text": _obj[f.Name] = f.Tb.Text; break;
                     case "strlist": _obj[f.Name] = ToStringArray(f.Tb.Text); break;
@@ -475,7 +479,7 @@ namespace InstantaleSaveEditor
 
         // 型エラー時の共通メッセージ表示（false を返して呼び出し側で中断させる）。
         private static bool Fail(string field, string type)
-        { MessageBox.Show(field + " は" + type + "で入力してください。", "型エラー", MessageBoxButtons.OK, MessageBoxIcon.Warning); return false; }
+        { MessageBox.Show(I18n.T("msg.typeError", field, type), I18n.T("title.typeError"), MessageBoxButtons.OK, MessageBoxIcon.Warning); return false; }
 
         // 2列(ラベル / 入力)の表を作る。左列は固定幅、右列は残り全部=ウィンドウ幅に追従。
         private TableLayoutPanel NewTable()
@@ -490,7 +494,7 @@ namespace InstantaleSaveEditor
         // フィールド名に対する表示用ラベル。未登録のフィールドはキー名をそのまま表示する。
         private static string LabelOf(string field) => field switch
         {
-            "look" => "look(画像生成時のプロンプト)",
+            "look" => I18n.T("label.look"),
             _ => field,
         };
 
@@ -693,9 +697,9 @@ namespace InstantaleSaveEditor
             var inner = new TableLayoutPanel { AutoSize = true, ColumnCount = 4, Dock = DockStyle.Fill }; // ラベル,欄,ラベル,欄
             var boxes = new Dictionary<string, TextBox>();
             int c = 0, r = 0;
-            foreach (var (key, jp) in AbilityKeys)
+            foreach (var (key, _) in AbilityKeys)
             {
-                inner.Controls.Add(new Label { Text = $"{jp} ({key})", AutoSize = true, Padding = new Padding(2, 6, 4, 0) }, c, r);
+                inner.Controls.Add(new Label { Text = $"{I18n.T("ability." + key)} ({key})", AutoSize = true, Padding = new Padding(2, 6, 4, 0) }, c, r);
                 double dv = J.Dbl(abil, key);
                 bool isInt = abil[key] is JsonValue v && v.TryGetValue<long>(out _);   // 整数で入っているか
                 var tb = new TextBox { Width = 64, Text = isInt ? ((long)dv).ToString() : dv.ToString() };
@@ -750,17 +754,17 @@ namespace InstantaleSaveEditor
                     var line = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0, 0, 0, 2) };
                     if (id == "player")
                     {
-                        line.Controls.Add(new Label { Text = "player（プレイヤー）", AutoSize = true, Padding = new Padding(2, 6, 8, 0) });
+                        line.Controls.Add(new Label { Text = I18n.T("party.player"), AutoSize = true, Padding = new Padding(2, 6, 8, 0) });
                     }
                     else
                     {
                         string name = PartyNpcNamer?.Invoke(id);
                         bool dead = PartyNpcIsDead?.Invoke(id) ?? false;
-                        string txt = (name != null ? $"{id}: {name}" : $"{id}（不明なNPC）") + (dead ? "（死亡）" : "");
+                        string txt = (name != null ? $"{id}: {name}" : I18n.T("party.unknownNpc", id)) + (dead ? I18n.T("suffix.dead") : "");
                         line.Controls.Add(new Label
                         { Text = txt, AutoSize = true, ForeColor = dead ? Color.Firebrick : SystemColors.ControlText, Padding = new Padding(2, 6, 8, 0) });
                         string cid = id;
-                        var del = new Button { Text = "削除", AutoSize = true };
+                        var del = new Button { Text = I18n.T("btn.delete"), AutoSize = true };
                         del.Click += (_, _) =>
                         {
                             int idx = FindIndex(Party(), cid);
@@ -780,10 +784,10 @@ namespace InstantaleSaveEditor
                     .OrderBy(c => c.Item1.Length).ThenBy(c => c.Item1)
                     .ToList();
                 foreach (var (cid, cname, dead) in candidates)
-                    combo.Items.Add($"{cid}: {cname}" + (dead ? "（死亡）" : ""));
+                    combo.Items.Add($"{cid}: {cname}" + (dead ? I18n.T("suffix.dead") : ""));
                 if (combo.Items.Count > 0) combo.SelectedIndex = 0;
 
-                var add = new Button { Text = "追加", AutoSize = true, Enabled = combo.Items.Count > 0 };
+                var add = new Button { Text = I18n.T("btn.add"), AutoSize = true, Enabled = combo.Items.Count > 0 };
                 add.Click += (_, _) =>
                 {
                     int idx = combo.SelectedIndex;
@@ -791,15 +795,13 @@ namespace InstantaleSaveEditor
                     var (id, cname, dead) = candidates[idx];
                     // 死亡 NPC の追加はゲームが壊れる恐れがあるため確認する。
                     if (dead && MessageBox.Show(this,
-                            $"「{cname}」は死亡したキャラクターです。\n" +
-                            "死亡したキャラをパーティに追加すると不整合が発生し、ゲームが壊れる可能性があります。\n\n" +
-                            "追加しますか？",
-                            "死亡キャラの追加", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+                            I18n.T("msg.addDeadConfirm", cname),
+                            I18n.T("title.addDead"), MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
                         return;
                     if (FindIndex(Party(), id) < 0) Party().Add(id);
                     Fill();
                 };
-                addLine.Controls.Add(new Label { Text = "追加:", AutoSize = true, Padding = new Padding(2, 6, 4, 0) });
+                addLine.Controls.Add(new Label { Text = I18n.T("label.addColon"), AutoSize = true, Padding = new Padding(2, 6, 4, 0) });
                 addLine.Controls.Add(combo);
                 addLine.Controls.Add(add);
                 outer.Controls.Add(addLine);
@@ -825,11 +827,11 @@ namespace InstantaleSaveEditor
             var panel = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill };
             var lbl = new Label { Text = J.Preview(val), AutoSize = true, ForeColor = Color.DimGray, Padding = new Padding(0, 6, 8, 0) };
             holder.Preview = lbl;
-            var btn = new Button { Text = "JSON編集...", Width = 100 };
+            var btn = new Button { Text = I18n.T("btn.jsonEdit"), Width = 100 };
             string captured = field;
             btn.Click += (_, _) =>
             {
-                using var d = new JsonEditDialog(captured + " を編集", holder.Node);
+                using var d = new JsonEditDialog(I18n.T("title.editField", captured), holder.Node);
                 if (d.ShowDialog(this) == DialogResult.OK)
                 {
                     holder.Node = d.ResultNode; holder.Changed = true; lbl.Text = J.Preview(holder.Node);

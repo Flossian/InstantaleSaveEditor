@@ -21,7 +21,7 @@ namespace InstantaleSaveEditor
         private readonly ObjectForm _form = new() { Dock = DockStyle.Fill };
         private readonly NpcImagePanel _npcPanel = new();         // NPC選択時にフォームへ注入する画像パネル
         private readonly BackgroundImagePanel _bgPanel = new();   // facility選択時にフォームへ注入する背景画像パネル
-        private Button _btnDup, _btnDel, _btnUnlock;
+        private Button _btnDup, _btnDel, _btnUnlock, _btnExport;
         private bool _npcLocked;            // 現在のNPCが未生成（立ち絵未取得）で閲覧のみか
         private string _curKind;            // obj / sec / item / facility（node 階層はツリーに出さない）
         private JsonObject _curContainer;   // 選択レコードを保持する辞書（複製/削除の対象）
@@ -39,19 +39,43 @@ namespace InstantaleSaveEditor
             right.RowStyles.Add(new RowStyle(SizeType.Absolute, 40));
             right.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             var ops = new FlowLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(4) };
-            _btnDup = new Button { Text = "複製", Width = 70, Enabled = false };
-            _btnDel = new Button { Text = "削除", Width = 70, Enabled = false };
-            _btnUnlock = new Button { Text = "ロック解除", Width = 90, Visible = false };
+            _btnDup = new Button { Width = 70, Enabled = false };
+            _btnDel = new Button { Width = 70, Enabled = false };
+            _btnUnlock = new Button { Width = 90, Visible = false };
+            _btnExport = new Button { Width = 100, Visible = false };
             _btnDup.Click += (_, _) => Duplicate();
             _btnDel.Click += (_, _) => Delete();
             _btnUnlock.Click += (_, _) => UnlockNpc();
-            ops.Controls.AddRange(new Control[] { _btnDup, _btnDel, _btnUnlock });
+            _btnExport.Click += (_, _) => ExportNpc();
+            ops.Controls.AddRange(new Control[] { _btnDup, _btnDel, _btnUnlock, _btnExport });
             right.Controls.Add(ops, 0, 0);
             right.Controls.Add(_form, 0, 1);
             split.Panel2.Controls.Add(right);
 
             Controls.Add(split);
             _tree.AfterSelect += (_, e) => OnSelect(e.Node);
+
+            Localize();
+            // 言語切替で操作ボタンとツリーの見出し（死者/エリアなし等）を再構築する。Dispose で解除。
+            I18n.LanguageChanged += OnLanguageChanged;
+        }
+
+        // 操作ボタンの文言を現在言語で適用する。
+        private void Localize()
+        {
+            _btnDup.Text = I18n.T("btn.duplicate");
+            _btnDel.Text = I18n.T("btn.delete");
+            _btnUnlock.Text = I18n.T("btn.unlock");
+            _btnExport.Text = I18n.T("btn.export");
+        }
+
+        // 言語切替時にボタン文言を更新し、ツリー見出しの翻訳を反映するため作り直す。
+        private void OnLanguageChanged() { Localize(); if (_root != null) Populate(); }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) I18n.LanguageChanged -= OnLanguageChanged;
+            base.Dispose(disposing);
         }
 
         // ルートをバインドしてツリーを構築する。filePath はワールドディレクトリの解決に使う。
@@ -154,7 +178,7 @@ namespace InstantaleSaveEditor
         private static TreeNode SectionItemNode(string sec, JsonObject so, string k)
         {
             string label = Label(so[k]);
-            if (sec == "npcs" && so[k] is JsonObject npcO && J.NpcIsDead(npcO)) label += "（死亡）";
+            if (sec == "npcs" && so[k] is JsonObject npcO && J.NpcIsDead(npcO)) label += I18n.T("suffix.dead");
             return new TreeNode($"{k}: {label}") { Tag = new[] { "item", sec, k } };
         }
 
@@ -196,14 +220,14 @@ namespace InstantaleSaveEditor
         // グループ見出しのラベル（"id: 名前 (件数)"）。空文字は未所属、areas に無い id は不明扱い。
         private string GroupLabel(string areaId, int count)
         {
-            if (areaId == DeadKey) return $"死者 ({count})";
-            if (string.IsNullOrEmpty(areaId)) return $"（エリアなし） ({count})";
+            if (areaId == DeadKey) return I18n.T("world.group.dead", count);
+            if (string.IsNullOrEmpty(areaId)) return I18n.T("world.group.noArea", count);
             if (_root?["areas"]?[areaId] is JsonObject ao)
             {
                 string nm = J.Str(ao, "name");
                 return nm.Length > 0 ? $"{areaId}: {nm} ({count})" : $"{areaId} ({count})";
             }
-            return $"{areaId}（不明） ({count})";
+            return I18n.T("world.group.unknownArea", areaId, count);
         }
 
         // ダンジョン area id → 紐づく拠点 id のマップ。quest_area_id で参照するクエストから逆引きする。
@@ -267,13 +291,13 @@ namespace InstantaleSaveEditor
                 foreach (var f in NameFields)
                     if (o.TryGetPropertyValue(f, out var v) && v != null && v.ToString().Length > 0)
                         return v.ToString();
-            return "(項目)";
+            return I18n.T("label.item");
         }
 
         // ツリー選択に応じて対象オブジェクトをフォームへバインドし、操作ボタンの有効/無効を切り替える。
         private void OnSelect(TreeNode node)
         {
-            _btnUnlock.Visible = false; _npcLocked = false;
+            _btnUnlock.Visible = false; _npcLocked = false; _btnExport.Visible = false;
             if (node?.Tag is not string[] tag) { _form.Clear(); SetBtns(false); return; }
             _curKind = tag[0];
             switch (tag[0])
@@ -303,6 +327,8 @@ namespace InstantaleSaveEditor
                         _form.Bind(itemObj, _npcPanel, injectAfter, ("look", "look_description"));
                         LinkAreaLocation();
                         ApplyNpcLock(charDir);
+                        _btnExport.Visible = true;   // NPC はロック状態に関わらずエクスポート可
+                        _btnExport.Enabled = true;
                     }
                     else
                     {
@@ -335,7 +361,7 @@ namespace InstantaleSaveEditor
             _form.SetReadOnly(_npcLocked);
             _btnUnlock.Visible = _npcLocked;
             _btnUnlock.Enabled = _npcLocked;
-            _btnUnlock.Text = "ロック解除";
+            _btnUnlock.Text = I18n.T("btn.unlock");
             if (_npcLocked) { _btnDup.Enabled = false; _btnDel.Enabled = false; }
         }
 
@@ -350,17 +376,15 @@ namespace InstantaleSaveEditor
         {
             if (!_npcLocked) return;
             if (MessageBox.Show(
-                    "このNPCはゲーム内でまだ生成されていない可能性があります（立ち絵画像が未取得）。\n" +
-                    "生成前にデータを改変すると、ゲームが正常に起動しなくなる場合があります。\n\n" +
-                    "編集を有効にしますか？",
-                    "編集ロックの解除", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+                    I18n.T("msg.npcUnlockConfirm"),
+                    I18n.T("title.npcUnlock"), MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
                 return;
             _npcLocked = false;
             _form.SetReadOnly(false);
             _btnDup.Enabled = true;
             _btnDel.Enabled = true;
             _btnUnlock.Enabled = false;
-            _btnUnlock.Text = "解除済み";
+            _btnUnlock.Text = I18n.T("btn.unlocked");
         }
 
         // relationship の対象キーを NPC 名へ解決する。キーが NPC ID（または name）に一致すれば名前を返す。
@@ -424,7 +448,7 @@ namespace InstantaleSaveEditor
         {
             if (_curContainer == null || _curKey == null) return;
             string name = Label(_curContainer[_curKey]);
-            if (MessageBox.Show($"「{name}」({_curKind}[{_curKey}]) を複製しますか？", "複製の確認",
+            if (MessageBox.Show(I18n.T("msg.duplicateConfirm", name, _curKind, _curKey), I18n.T("title.duplicateConfirm"),
                     MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
             if (!_form.Apply()) return;   // 表示中の編集を反映してから複製
             string nk = NextKey(_curContainer);
@@ -434,11 +458,43 @@ namespace InstantaleSaveEditor
             Populate();
         }
 
+        // 選択中の NPC を JSON＋画像の zip としてエクスポートする。
+        private void ExportNpc()
+        {
+            if (_curContainer == null || _curKey == null || _curContainer[_curKey] is not JsonObject npc) return;
+            if (!_form.Apply()) return;   // 表示中の編集を反映してから書き出す
+            string name = J.Str(npc, "name", "npc");
+            string source = J.Str(J.Obj(_root, "world_data"), "name");
+            if (string.IsNullOrEmpty(source) && _worldDir != null) source = Path.GetFileName(_worldDir);
+
+            using var dlg = new SaveFileDialog
+            {
+                Filter = I18n.T("filter.npcPackageSave"),
+                DefaultExt = "zip",
+                FileName = SafeFileName(name) + ".zip",
+            };
+            if (dlg.ShowDialog(FindForm()) != DialogResult.OK) return;
+            try { NpcPortability.Export(npc, _worldDir, source, _curKey, dlg.FileName); }
+            catch (Exception ex)
+            {
+                MessageBox.Show(I18n.T("msg.exportFailed") + "\n" + ex.Message, I18n.T("title.error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+            MessageBox.Show(I18n.T("msg.npcExported", name, dlg.FileName), I18n.T("title.export"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        // ファイル名に使えない文字を '_' に置き換える。
+        private static string SafeFileName(string s)
+        {
+            foreach (var c in Path.GetInvalidFileNameChars()) s = s.Replace(c, '_');
+            return string.IsNullOrWhiteSpace(s) ? "npc" : s;
+        }
+
         // 選択レコード（item/facility）を確認の上で削除する。
         private void Delete()
         {
             if (_curContainer == null || _curKey == null) return;
-            if (MessageBox.Show($"{_curKind}[{_curKey}] を削除しますか？", "確認", MessageBoxButtons.YesNo) != DialogResult.Yes) return;
+            if (MessageBox.Show(I18n.T("msg.deleteConfirm", _curKind, _curKey), I18n.T("title.confirm"), MessageBoxButtons.YesNo) != DialogResult.Yes) return;
             _curContainer.Remove(_curKey);
             _form.Clear(); Populate();
         }

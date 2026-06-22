@@ -15,8 +15,9 @@ namespace InstantaleSaveEditor
         // 立ち絵の定義。インデックス0がゲーム使用ファイル(reduced_color_image.png)。
         private static readonly string[] StandFiles =
             { "reduced_color_image.png", "pixelated_image_original.png", "no_bg_image.png" };
-        private static readonly string[] StandLabels =
-            { "立ち絵（縮小色）", "立ち絵（ピクセル化）", "立ち絵（原本）" };
+        // 立ち絵ラベルの i18n キー（表示時に T() で解決する）。
+        private static readonly string[] StandLabelKeys =
+            { "npc.stand.reduced", "npc.stand.pixelated", "npc.stand.original" };
 
         // 元の縮小色を退避する固定バックアップ名。縮小色枠はこれを参照する。
         private const string BackupFile = "reduced_color_image_bk.png";
@@ -72,16 +73,16 @@ namespace InstantaleSaveEditor
                 Height = btnY + 62,
                 Margin = new Padding(0, 0, ColGap, 0),
             };
-            p.Controls.Add(new Label { Text = "顔画像", AutoSize = true, Location = new Point(0, 2) });
+            p.Controls.Add(new Label { Text = I18n.T("npc.face"), AutoSize = true, Location = new Point(0, 2) });
             _pbFace.Location = new Point(0, 22);
-            ImageViewer.RegisterClickViewer(_pbFace, "顔画像");
+            ImageViewer.RegisterClickViewer(_pbFace, I18n.T("npc.face"));
             p.Controls.Add(_pbFace);
 
-            var btnImport = new Button { Text = "画像取込み", Width = FaceW, Height = 26, Location = new Point(0, btnY) };
+            var btnImport = new Button { Text = I18n.T("npc.import"), Width = FaceW, Height = 26, Location = new Point(0, btnY) };
             btnImport.Click += (_, _) => ImportFace();
             p.Controls.Add(btnImport);
 
-            var btnCrop = new Button { Text = "顔画像指定", Width = FaceW, Height = 26, Location = new Point(0, btnY + 30) };
+            var btnCrop = new Button { Text = I18n.T("npc.cropFace"), Width = FaceW, Height = 26, Location = new Point(0, btnY + 30) };
             btnCrop.Click += (_, _) => CropFace();
             p.Controls.Add(btnCrop);
 
@@ -97,13 +98,13 @@ namespace InstantaleSaveEditor
                 Height = btnY + 30,
                 Margin = new Padding(0, 0, ColGap, 0),
             };
-            p.Controls.Add(new Label { Text = StandLabels[idx], AutoSize = true, Location = new Point(0, 2) });
+            p.Controls.Add(new Label { Text = I18n.T(StandLabelKeys[idx]), AutoSize = true, Location = new Point(0, 2) });
             _pbStand[idx].Location = new Point(0, 22);
             int cap = idx;
-            ImageViewer.RegisterClickViewer(_pbStand[idx], StandLabels[idx]);
+            ImageViewer.RegisterClickViewer(_pbStand[idx], I18n.T(StandLabelKeys[idx]));
             p.Controls.Add(_pbStand[idx]);
 
-            var btn = new Button { Text = "使用する", Width = StandW, Height = 26, Location = new Point(0, btnY) };
+            var btn = new Button { Text = I18n.T("npc.use"), Width = StandW, Height = 26, Location = new Point(0, btnY) };
             btn.Click += (_, _) => SetActive(cap);
             _useBtns[idx] = btn;
             p.Controls.Add(btn);
@@ -140,7 +141,7 @@ namespace InstantaleSaveEditor
             string reduced = Path.Combine(_charDir, "reduced_color_image.png");
             string backup  = Path.Combine(_charDir, BackupFile);
             string source  = Path.Combine(_charDir, StandFiles[idx]);
-            if (!File.Exists(source)) { MessageBox.Show("対象画像が見つかりません。", "エラー", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+            if (!File.Exists(source)) { MessageBox.Show(I18n.T("msg.imageNotFound"), I18n.T("title.error"), MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
             try
             {
                 // 元の縮小色を一度だけ退避（既にバックアップがあれば上書きしない）
@@ -152,7 +153,7 @@ namespace InstantaleSaveEditor
             }
             catch (Exception ex)
             {
-                MessageBox.Show("反映失敗: " + ex.Message, "エラー", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show(I18n.T("msg.applyFailed") + ex.Message, I18n.T("title.error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
@@ -169,7 +170,7 @@ namespace InstantaleSaveEditor
             }
             catch (Exception ex)
             {
-                MessageBox.Show("復元失敗: " + ex.Message, "エラー", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show(I18n.T("msg.restoreFailed") + ex.Message, I18n.T("title.error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
@@ -233,8 +234,8 @@ namespace InstantaleSaveEditor
             if (string.IsNullOrEmpty(_charDir)) return;
             using var dlg = new OpenFileDialog
             {
-                Title = "顔画像を選択",
-                Filter = "画像|*.png;*.jpg;*.jpeg;*.bmp|すべて|*.*",
+                Title = I18n.T("npc.selectFace"),
+                Filter = I18n.T("filter.image"),
             };
             if (dlg.ShowDialog() != DialogResult.OK) return;
             string dest = Path.Combine(_charDir, "face_image.png");
@@ -246,7 +247,7 @@ namespace InstantaleSaveEditor
             }
             catch (Exception ex)
             {
-                MessageBox.Show("取込み失敗: " + ex.Message, "エラー", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show(I18n.T("msg.importFailed") + ex.Message, I18n.T("title.error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
@@ -254,7 +255,7 @@ namespace InstantaleSaveEditor
         {
             if (string.IsNullOrEmpty(_charDir)) return;
             string src  = Path.Combine(_charDir, StandFiles[_activeIdx]);
-            if (!File.Exists(src)) { MessageBox.Show("「使用する」の立ち絵が見つかりません。", "エラー", MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+            if (!File.Exists(src)) { MessageBox.Show(I18n.T("msg.standNotFound"), I18n.T("title.error"), MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
             string dest = Path.Combine(_charDir, "face_image.png");
             try
             {
@@ -269,7 +270,7 @@ namespace InstantaleSaveEditor
             }
             catch (Exception ex)
             {
-                MessageBox.Show("切り抜き保存失敗: " + ex.Message, "エラー", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show(I18n.T("msg.cropSaveFailed") + ex.Message, I18n.T("title.error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
     }
@@ -289,7 +290,7 @@ namespace InstantaleSaveEditor
         public FaceCropDialog(Bitmap src)
         {
             _src = src;
-            Text = "顔部分をドラッグで選択 → OK";
+            Text = I18n.T("npc.cropTitle");
             MinimizeBox = false; MaximizeBox = false;
             StartPosition = FormStartPosition.CenterParent;
 
@@ -307,8 +308,8 @@ namespace InstantaleSaveEditor
             var scrollArea = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
             scrollArea.Controls.Add(_canvas);
 
-            var btnOk     = new Button { Text = "OK",         Width = 80,  Dock = DockStyle.Right, DialogResult = DialogResult.OK };
-            var btnCancel = new Button { Text = "キャンセル", Width = 90, Dock = DockStyle.Right, DialogResult = DialogResult.Cancel };
+            var btnOk     = new Button { Text = I18n.T("btn.ok"),     Width = 80,  Dock = DockStyle.Right, DialogResult = DialogResult.OK };
+            var btnCancel = new Button { Text = I18n.T("btn.cancel"), Width = 90, Dock = DockStyle.Right, DialogResult = DialogResult.Cancel };
             btnOk.Click += (_, _) =>
             {
                 if (_sel.Width > 0 && _sel.Height > 0)

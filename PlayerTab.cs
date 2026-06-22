@@ -7,52 +7,32 @@ namespace InstantaleSaveEditor
     // 編集対象の構造定義（Spec 群）を先頭に置き、UI 生成と反映はそれらを回して行う。
     internal sealed class PlayerTab : UserControl
     {
-        // 基本値の定義: (JSONキー, 画面表示名, 整数として扱うか)。整数欄は保存時に数値検証する。
+        // 基本値の定義: (JSONキー, 表示名のi18nキー, 整数として扱うか)。整数欄は保存時に数値検証する。
         private static readonly (string key, string label, bool isInt)[] BasicSpec =
         {
-            ("name","名前",false),
-            ("category","区分",false),
-            ("age","年齢",true),
-            ("experience_level","レベル",true),
-            ("experience_point","経験値",true),
-            ("gold","所持金",true),
-            ("current_hp","現在HP",true),
-            ("physical_integrity","スタミナ(現在)",true),
-            ("max_physical_integrity","スタミナ(最大)",true),
-            ("original_max_physical_integrity","スタミナ(基礎)",true),
-            ("location","現在地ID",false),
-            ("current_area","エリアID",false),
-            ("current_node","ノードID",false),
+            ("name","player.basic.name",false),
+            ("category","player.basic.category",false),
+            ("age","player.basic.age",true),
+            ("experience_level","player.basic.level",true),
+            ("experience_point","player.basic.exp",true),
+            ("gold","player.basic.gold",true),
+            ("current_hp","player.basic.hp",true),
+            ("physical_integrity","player.basic.stamina",true),
+            ("max_physical_integrity","player.basic.staminaMax",true),
+            ("original_max_physical_integrity","player.basic.staminaBase",true),
+            ("location","player.basic.locationId",false),
+            ("current_area","player.basic.areaId",false),
+            ("current_node","player.basic.nodeId",false),
         };
-        // 能力値6項目: (JSONキー, 日本語名)。プレイヤーは original_ability_scores(小数)を編集する。
-        private static readonly (string key, string jp)[] AbilitySpec =
-        {
-            ("strength","筋力"),
-            ("dexterity","敏捷"),
-            ("constitution","耐久"),
-            ("intelligence","知力"),
-            ("wisdom","判断力"),
-            ("charisma","魅力"),
-        };
-        // 身体部位6つ: (JSONキー, 日本語名)。各部位は injury/stage/state/description を持つ。
-        private static readonly (string key, string jp)[] BodySpec =
-        {
-            ("head","頭部"),
-            ("body","胴体"),
-            ("arms","腕"),
-            ("legs","脚"),
-            ("organs","内臓"),
-            ("sanity","正気"),
-        };
-        // ログ・記憶など構造が複雑な項目は専用UIを作らず JSON 編集ボタンで扱う。
-        private static readonly (string key, string label)[] OpaqueSpec =
-        {
-            ("skills","スキル"),
-            ("memory","記憶(memory)"),
-            ("current_log","現在ログ(current_log)"),
-            ("image_src","画像パス(image_src)"),
-            ("story_achievements","ストーリー実績"),
-        };
+        // 能力値6項目: JSONキー。表示名は ability.<key>（Common.cs と共通）。
+        private static readonly string[] AbilityKeys =
+        { "strength", "dexterity", "constitution", "intelligence", "wisdom", "charisma" };
+        // 身体部位6つ: JSONキー。表示名は player.body.<key>。各部位は injury/stage/state/description を持つ。
+        private static readonly string[] BodyKeys =
+        { "head", "body", "arms", "legs", "organs", "sanity" };
+        // ログ・記憶など構造が複雑な項目は専用UIを作らず JSON 編集ボタンで扱う。表示名は player.opaque.<key>。
+        private static readonly string[] OpaqueKeys =
+        { "skills", "memory", "current_log", "image_src", "story_achievements" };
 
         private JsonObject _pd;                                            // player_data 本体
         private JsonObject _areas;                                         // areas データ（エリアComboBox生成用）
@@ -71,18 +51,36 @@ namespace InstantaleSaveEditor
         // current_area=エリア / current_node=ノード / location=施設 をプルダウンで表示する。
         private static readonly HashSet<string> ComboKeys = new() { "current_area", "current_node", "location" };
 
-        public PlayerTab() { Controls.Add(_host); }
+        private JsonObject _root;       // 言語切替で再構築するため保持
+        private string _filePath;       // 同上
+
+        public PlayerTab()
+        {
+            Controls.Add(_host);
+            // 言語切替で開いているタブを作り直して文言を反映する。Dispose で解除する。
+            I18n.LanguageChanged += OnLanguageChanged;
+        }
+
+        // 言語切替時に同じデータで再バインドして文言を更新する。
+        private void OnLanguageChanged() { if (_root != null) Bind(_root, _filePath); }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) I18n.LanguageChanged -= OnLanguageChanged;
+            base.Dispose(disposing);
+        }
 
         // player_data を読み込み、各セクションを縦に並べて表示する。player_data 無しなら案内のみ。
         public void Bind(JsonObject root, string filePath = null)
         {
+            _root = root; _filePath = filePath;
             _areas = J.Obj(root, "areas");
             _pd = J.Obj(root, "player_data");
             _worldDir = WorldTab.ResolveWorldDir(filePath);
             _host.Controls.Clear(); _basic.Clear(); _abil.Clear(); _combos.Clear();
             if (_pd == null)
             {
-                _host.Controls.Add(new Label { Text = "このファイルには player_data がありません（ワールドデータのみ）。", AutoSize = true, Padding = new Padding(12) });
+                _host.Controls.Add(new Label { Text = I18n.T("msg.noPlayerData"), AutoSize = true, Padding = new Padding(12) });
                 return;
             }
 
@@ -149,7 +147,7 @@ namespace InstantaleSaveEditor
                 if (!_basic.TryGetValue(key, out var tb)) continue;
                 if (isInt)
                 {
-                    if (!long.TryParse(tb.Text, out long lv)) return Fail(key, "整数");
+                    if (!long.TryParse(tb.Text, out long lv)) return Fail(key, I18n.T("type.integer"));
                     _pd[key] = lv;
                 }
                 else _pd[key] = tb.Text;
@@ -161,9 +159,9 @@ namespace InstantaleSaveEditor
             // 基礎能力値（小数で保持）。無ければ作る。
             var oas = J.Obj(_pd, "original_ability_scores");
             if (oas == null) { oas = new JsonObject(); _pd["original_ability_scores"] = oas; }
-            foreach (var (key, _) in AbilitySpec)
+            foreach (var key in AbilityKeys)
             {
-                if (!double.TryParse(_abil[key].Text, out double dv)) return Fail(key, "数値");
+                if (!double.TryParse(_abil[key].Text, out double dv)) return Fail(key, I18n.T("type.number"));
                 oas[key] = dv;
             }
 
@@ -174,7 +172,7 @@ namespace InstantaleSaveEditor
                 {
                     string part = r.Cells[0].Tag as string;   // 行に保持した内部キー
                     if (part == null || bp[part] is not JsonObject po) continue;
-                    if (!long.TryParse(Cell(r, 1), out long inj)) return Fail(part + " の損傷", "整数");
+                    if (!long.TryParse(Cell(r, 1), out long inj)) return Fail(I18n.T("player.injuryOf", part), I18n.T("type.integer"));
                     po["injury"] = inj;
                     po["stage"] = Cell(r, 2);
                     po["state"] = Cell(r, 3);
@@ -201,12 +199,12 @@ namespace InstantaleSaveEditor
         // ---------------- 各セクション ----------------
         private GroupBox BuildBasic()
         {
-            var g = Group("基本値", 440);
+            var g = Group(I18n.T("player.group.basic"), 440);
             var t = Grid(2);
             int row = 0;
             foreach (var (key, label, _) in BasicSpec)
             {
-                t.Controls.Add(L(label), 0, row);
+                t.Controls.Add(L(I18n.T(label)), 0, row);
                 if (ComboKeys.Contains(key))
                 {
                     // current_area: エリア一覧 / current_node: 現在エリアのノード一覧 /
@@ -235,12 +233,12 @@ namespace InstantaleSaveEditor
 
         private GroupBox BuildDescriptions()
         {
-            var g = new GroupBox { Text = "説明", AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Margin = new Padding(4), Padding = new Padding(8) };
+            var g = new GroupBox { Text = I18n.T("player.group.descriptions"), AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Margin = new Padding(4), Padding = new Padding(8) };
             var t = Grid(1);
             int row = 0;
-            foreach (var (key, label) in new[] { ("profile", "プロフィール"), ("personality", "性格"), ("look_description", "外見") })
+            foreach (var (key, label) in new[] { ("profile", "player.desc.profile"), ("personality", "player.desc.personality"), ("look_description", "player.desc.look") })
             {
-                t.Controls.Add(L(label), 0, row++);
+                t.Controls.Add(L(I18n.T(label)), 0, row++);
                 var rtb = new ResizableTextBox(520, 90) { Dock = DockStyle.Top, Margin = new Padding(3, 3, 3, 8) };
                 rtb.Box.Text = J.Str(_pd, key);
                 t.Controls.Add(rtb, 0, row++); _descs[key] = rtb.Box;
@@ -253,7 +251,7 @@ namespace InstantaleSaveEditor
         // 画像は worlds/{スロット}/characters/{プレイヤー名}/ から読み込む。
         private GroupBox BuildImages()
         {
-            var g = new GroupBox { Text = "キャラクター画像", AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Width = 760, Margin = new Padding(4), Padding = new Padding(8) };
+            var g = new GroupBox { Text = I18n.T("player.group.images"), AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Width = 760, Margin = new Padding(4), Padding = new Padding(8) };
             _imagePanel.Dock = DockStyle.Top;
             g.Controls.Add(_imagePanel);
             string name = J.Str(_pd, "name");
@@ -266,13 +264,13 @@ namespace InstantaleSaveEditor
 
         private GroupBox BuildAbilities()
         {
-            var g = Group("基礎能力値 (original_ability_scores)", 230);
+            var g = Group(I18n.T("player.group.abilities"), 230);
             var t = Grid(2);
             int row = 0;
             var oas = J.Obj(_pd, "original_ability_scores");
-            foreach (var (key, jp) in AbilitySpec)
+            foreach (var key in AbilityKeys)
             {
-                t.Controls.Add(L($"{jp} ({key})"), 0, row);
+                t.Controls.Add(L($"{I18n.T("ability." + key)} ({key})"), 0, row);
                 var tb = new TextBox { Width = 100, Text = J.Dbl(oas, key).ToString() };
                 t.Controls.Add(tb, 1, row); _abil[key] = tb; row++;
             }
@@ -283,7 +281,7 @@ namespace InstantaleSaveEditor
         // 身体部位の表。6行固定（追加/削除不可）。1列目に内部キーを Tag で保持し読み取り専用にする。
         private GroupBox BuildBody()
         {
-            var g = Group("身体部位 (body_parts)", 250);
+            var g = Group(I18n.T("player.group.body"), 250);
             _bodyGrid = new DataGridView
             {
                 Dock = DockStyle.Top,
@@ -293,17 +291,17 @@ namespace InstantaleSaveEditor
                 RowHeadersVisible = false,
                 AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
             };
-            _bodyGrid.Columns.Add(Col("部位", true));
-            _bodyGrid.Columns.Add(Col("損傷(injury)", false));
-            _bodyGrid.Columns.Add(Col("段階(stage)", false));
-            _bodyGrid.Columns.Add(Col("状態(state)", false));
-            _bodyGrid.Columns.Add(Col("説明(description)", false));
+            _bodyGrid.Columns.Add(Col(I18n.T("player.bodyCol.part"), true));
+            _bodyGrid.Columns.Add(Col(I18n.T("player.bodyCol.injury"), false));
+            _bodyGrid.Columns.Add(Col(I18n.T("player.bodyCol.stage"), false));
+            _bodyGrid.Columns.Add(Col(I18n.T("player.bodyCol.state"), false));
+            _bodyGrid.Columns.Add(Col(I18n.T("player.bodyCol.description"), false));
             var bp = J.Obj(_pd, "body_parts");
-            foreach (var (key, jp) in BodySpec)
+            foreach (var key in BodyKeys)
             {
                 var po = bp != null ? bp[key] as JsonObject : null;
                 if (po == null) continue;
-                int idx = _bodyGrid.Rows.Add($"{jp}", J.Int(po, "injury").ToString(), J.Str(po, "stage"), J.Str(po, "state"), J.Str(po, "description"));
+                int idx = _bodyGrid.Rows.Add(I18n.T("player.body." + key), J.Int(po, "injury").ToString(), J.Str(po, "stage"), J.Str(po, "state"), J.Str(po, "description"));
                 _bodyGrid.Rows[idx].Cells[0].Tag = key;          // 内部キーを保持
                 _bodyGrid.Rows[idx].Cells[0].ReadOnly = true;
             }
@@ -315,14 +313,14 @@ namespace InstantaleSaveEditor
         // 配列を直接書き換えるため別途 Apply 不要（即反映）。
         private GroupBox BuildTraits()
         {
-            var g = Group("特性 (traits)", 190);
+            var g = Group(I18n.T("player.group.traits"), 190);
             _traitList = new ListBox { Dock = DockStyle.Top, Height = 100 };
             RefreshTraits();
             var bar = ButtonBar(
-                ("追加", () => { EnsureArr("traits").Add(new JsonObject { ["name"] = "新しい特性", ["description"] = "", ["severity"] = 0 }); RefreshTraits(); }
+                (I18n.T("btn.add"), () => { EnsureArr("traits").Add(new JsonObject { ["name"] = I18n.T("player.newTrait"), ["description"] = "", ["severity"] = 0 }); RefreshTraits(); }
             ),
-                ("編集", () => EditListItem(_traitList, J.Arr(_pd, "traits"), RefreshTraits)),
-                ("削除", () => RemoveListItem(_traitList, J.Arr(_pd, "traits"), RefreshTraits)));
+                (I18n.T("btn.edit"), () => EditListItem(_traitList, J.Arr(_pd, "traits"), RefreshTraits)),
+                (I18n.T("btn.delete"), () => RemoveListItem(_traitList, J.Arr(_pd, "traits"), RefreshTraits)));
             g.Controls.Add(bar); g.Controls.Add(_traitList);
             return g;
         }
@@ -330,23 +328,23 @@ namespace InstantaleSaveEditor
         // インベントリ一覧＋装備コンボ。装備はインベントリのアイテムIDから選ぶ（追加/削除で候補も更新）。
         private GroupBox BuildInventoryAndEquip()
         {
-            var g = Group("インベントリ / 装備", 280);
+            var g = Group(I18n.T("player.group.invEquip"), 280);
             _invList = new ListBox { Dock = DockStyle.Top, Height = 120 };
             RefreshInventory();
             var bar = ButtonBar(
-                ("追加", AddInventoryItem),
-                ("編集", () => { EditDictItem(_invList, J.Obj(_pd, "inventory")); RefreshInventory(); RefreshEquipCombos(); }
+                (I18n.T("btn.add"), AddInventoryItem),
+                (I18n.T("btn.edit"), () => { EditDictItem(_invList, J.Obj(_pd, "inventory")); RefreshInventory(); RefreshEquipCombos(); }
             ),
-                ("削除", () => { RemoveDictItem(_invList, J.Obj(_pd, "inventory")); RefreshInventory(); RefreshEquipCombos(); }
+                (I18n.T("btn.delete"), () => { RemoveDictItem(_invList, J.Obj(_pd, "inventory")); RefreshInventory(); RefreshEquipCombos(); }
             ));
 
             var eqPanel = new TableLayoutPanel { Dock = DockStyle.Top, ColumnCount = 2, AutoSize = true, Padding = new Padding(0, 6, 0, 0) };
             eqPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120));
             eqPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            eqPanel.Controls.Add(L("武器画像"), 0, 0);
+            eqPanel.Controls.Add(L(I18n.T("player.equip.weapon")), 0, 0);
             _cbWeapon = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 200 };
             eqPanel.Controls.Add(_cbWeapon, 1, 0);
-            eqPanel.Controls.Add(L("防具画像"), 0, 1);
+            eqPanel.Controls.Add(L(I18n.T("player.equip.wearable")), 0, 1);
             _cbWearable = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 200 };
             eqPanel.Controls.Add(_cbWearable, 1, 1);
             RefreshEquipCombos();
@@ -363,7 +361,7 @@ namespace InstantaleSaveEditor
         private GroupBox BuildLifeLog()
         {
             // グリップで高さを変えられるよう、枠はグリッド高に追従する AutoSize にする。
-            var g = new GroupBox { Text = "生涯ログ (life_log)", AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Width = 760, Margin = new Padding(4), Padding = new Padding(8) };
+            var g = new GroupBox { Text = I18n.T("player.group.lifeLog"), AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Width = 760, Margin = new Padding(4), Padding = new Padding(8) };
             _lifeLog = new LifeLogGrid(250) { Dock = DockStyle.Top };
             _lifeLog.Bind(J.Arr(_pd, "life_log"));
             g.Controls.Add(_lifeLog);
@@ -373,7 +371,7 @@ namespace InstantaleSaveEditor
         private GroupBox BuildAreaHistory()
         {
             // グリップで高さを変えられるよう、枠はグリッド高に追従する AutoSize にする。
-            var g = new GroupBox { Text = "エリア履歴 (area_history)", AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Width = 760, Margin = new Padding(4), Padding = new Padding(8) };
+            var g = new GroupBox { Text = I18n.T("player.group.areaHistory"), AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Width = 760, Margin = new Padding(4), Padding = new Padding(8) };
             _areaHistory = new AreaHistoryGrid(250) { Dock = DockStyle.Top };
             _areaHistory.Bind(J.Obj(_pd, "area_history"), _areas);
             g.Controls.Add(_areaHistory);
@@ -383,10 +381,11 @@ namespace InstantaleSaveEditor
         // 構造が複雑な項目（記憶・ログ等）を JSON 編集ボタンとして並べる。押すと丸ごと JSON 編集。
         private GroupBox BuildOpaque()
         {
-            var g = Group("その他データ (JSON編集)", 120);
+            var g = Group(I18n.T("player.group.opaque"), 120);
             var flow = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, Padding = new Padding(4) };
-            foreach (var (key, label) in OpaqueSpec)
+            foreach (var key in OpaqueKeys)
             {
+                string label = I18n.T("player.opaque." + key);
                 var btn = new Button { Text = label, AutoSize = true, Margin = new Padding(4) };
                 string k = key;
                 btn.Click += (_, _) =>
@@ -407,7 +406,7 @@ namespace InstantaleSaveEditor
             _traitList.Items.Clear();
             var arr = J.Arr(_pd, "traits");
             if (arr == null) return;
-            foreach (var n in arr) _traitList.Items.Add(n is JsonObject o ? J.Str(o, "name", "(無名)") + "  [severity " + J.Int(o, "severity") + "]" : n?.ToString() ?? "null");
+            foreach (var n in arr) _traitList.Items.Add(n is JsonObject o ? I18n.T("player.traitItem", J.Str(o, "name", I18n.T("label.unnamed")), J.Int(o, "severity")) : n?.ToString() ?? "null");
         }
 
         // インベントリ一覧を inventory 辞書から作り直す（"id: 名前" 表示）。
@@ -417,14 +416,14 @@ namespace InstantaleSaveEditor
             var inv = J.Obj(_pd, "inventory");
             if (inv == null) return;
             foreach (var kv in inv)
-                _invList.Items.Add($"{kv.Key}: " + (kv.Value is JsonObject o ? J.Str(o, "name", "(無名)") : ""));
+                _invList.Items.Add($"{kv.Key}: " + (kv.Value is JsonObject o ? J.Str(o, "name", I18n.T("label.unnamed")) : ""));
         }
 
         // 装備コンボの候補を現在のインベントリIDから作り直し、既存の装備値を選択状態にする。
         private void RefreshEquipCombos()
         {
             var inv = J.Obj(_pd, "inventory");
-            var ids = new List<string> { "(なし)" };
+            var ids = new List<string> { I18n.T("label.none") };
             if (inv != null) ids.AddRange(inv.Select(kv => kv.Key));
             FillCombo(_cbWeapon, ids, J.Str(_pd != null ? J.Obj(_pd, "equipments") : null, "weapon"));
             FillCombo(_cbWearable, ids, J.Str(_pd != null ? J.Obj(_pd, "equipments") : null, "wearable"));
@@ -443,7 +442,7 @@ namespace InstantaleSaveEditor
             string id = "item_" + (max + 1);
             inv[id] = new JsonObject
             {
-                ["name"] = "新しいアイテム",
+                ["name"] = I18n.T("player.newItem"),
                 ["item_type"] = "material",
                 ["attributes"] = new JsonObject(),
                 ["description"] = "",
@@ -479,26 +478,26 @@ namespace InstantaleSaveEditor
         private void EditListItem(ListBox lb, JsonArray arr, Action refresh)
         {
             int i = lb.SelectedIndex; if (arr == null || i < 0 || i >= arr.Count) return;
-            using var d = new JsonEditDialog("項目を編集", arr[i]);
+            using var d = new JsonEditDialog(I18n.T("title.editItem"), arr[i]);
             if (d.ShowDialog(this) == DialogResult.OK) { arr[i] = d.ResultNode; refresh(); }
         }
         private void RemoveListItem(ListBox lb, JsonArray arr, Action refresh)
         {
             int i = lb.SelectedIndex; if (arr == null || i < 0 || i >= arr.Count) return;
-            if (MessageBox.Show("削除しますか？", "確認", MessageBoxButtons.YesNo) == DialogResult.Yes) { arr.RemoveAt(i); refresh(); }
+            if (MessageBox.Show(I18n.T("msg.confirmDelete"), I18n.T("title.confirm"), MessageBoxButtons.YesNo) == DialogResult.Yes) { arr.RemoveAt(i); refresh(); }
         }
         private void EditDictItem(ListBox lb, JsonObject obj)
         {
             int i = lb.SelectedIndex; if (obj == null || i < 0) return;
             string id = obj.ElementAt(i).Key;
-            using var d = new JsonEditDialog(id + " を編集", obj[id]);
+            using var d = new JsonEditDialog(I18n.T("title.editField", id), obj[id]);
             if (d.ShowDialog(this) == DialogResult.OK) obj[id] = d.ResultNode;
         }
         private void RemoveDictItem(ListBox lb, JsonObject obj)
         {
             int i = lb.SelectedIndex; if (obj == null || i < 0) return;
             string id = obj.ElementAt(i).Key;
-            if (MessageBox.Show(id + " を削除しますか？", "確認", MessageBoxButtons.YesNo) == DialogResult.Yes) obj.Remove(id);
+            if (MessageBox.Show(I18n.T("msg.confirmDeleteItem", id), I18n.T("title.confirm"), MessageBoxButtons.YesNo) == DialogResult.Yes) obj.Remove(id);
         }
 
         // コンボに候補を入れ、現在値を選択。先頭は "(なし)" 想定。
@@ -518,7 +517,7 @@ namespace InstantaleSaveEditor
 
         // 型エラー表示（false を返す）。
         private static bool Fail(string f, string type)
-        { MessageBox.Show(f + " は" + type + "で入力してください。", "型エラー", MessageBoxButtons.OK, MessageBoxIcon.Warning); return false; }
+        { MessageBox.Show(I18n.T("msg.typeError", f, type), I18n.T("title.typeError"), MessageBoxButtons.OK, MessageBoxIcon.Warning); return false; }
 
         // --- UI 部品ファクトリ ---
         // 固定幅760・固定高のグループ枠（Dock=Top で実幅は窓に追従）。
