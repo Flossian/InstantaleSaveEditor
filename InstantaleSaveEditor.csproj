@@ -24,4 +24,9 @@
     <EmbeddedResource Include="lang\zh.json" LogicalName="lang.zh.json" />
   </ItemGroup>
 
+  <!-- 列挙的フィールド(category/job 等)の候補テンプレート。外部 field_options.json が無くても動く基底。 -->
+  <ItemGroup>
+    <EmbeddedResource Include="field_options.json" LogicalName="field_options.json" />
+  </ItemGroup>
+
 </Project>

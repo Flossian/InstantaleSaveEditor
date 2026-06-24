@@ -7,16 +7,17 @@ publish/
 .vs/
 
 # ---- 実データ（ゲーム本体のデータ・セーブは公開しない） ----
-*.json
+strings.txt
 world_data*
 savedata*
 *_decoded.json
 *_plain.json
 data/
 templates/
-
+lang/
 
 # ---- その他 ----
+.claude
 *.log
 Thumbs.db
 .DS_Store

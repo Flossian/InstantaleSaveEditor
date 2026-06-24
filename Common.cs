@@ -330,6 +330,22 @@ namespace InstantaleSaveEditor
         public Func<string, bool> PartyNpcIsDead { get; set; }
         public Func<IEnumerable<(string id, string name, bool dead)>> PartyNpcCandidates { get; set; }
 
+        // attributes 内の item_detail プルダウン候補を、現在の item_type から供給する任意フック。
+        // 設定時は item_detail を item_type 連動のプルダウンとして表示する（ItemEditDialog が設定）。
+        // 未設定なら item_detail は通常のテキスト欄になる。
+        public Func<string, IReadOnlyList<string>> AttributeDetailOptions { get; set; }
+
+        // attributes に表示すべき属性キー（item_detail を除く・表示順）を item_type から供給する任意フック。
+        // 設定時、item_type 変更で ApplyAttributeSchema を呼ぶと attributes をこの集合へ作り替える
+        // （既存値は保持・スキーマ外キーは削除・不足キーは 0 で追加）。空（未知の type）なら作り替えない。
+        public Func<string, IReadOnlyList<string>> AttributeStatKeys { get; set; }
+
+        private ComboBox _itemDetailCombo;   // attributes 展開時に生成した item_detail プルダウン（item_type 連動更新用）
+        private TableLayoutPanel _attrsInner;  // attributes 展開先の内側テーブル（作り替え時に差し替える）
+        private TableLayoutPanel _attrsOuter;  // _attrsInner を載せている外側テーブル
+        private int _attrsRow;                 // 外側テーブル上の attributes 行
+        private JsonObject _attrsObj;          // 現在表示中の attributes オブジェクト
+
         public ObjectForm() { Controls.Add(_host); }
 
         // autoSize=true: 自身を内容に合わせて伸縮させる（外側でスクロールを用意する前提）。
@@ -394,6 +410,7 @@ namespace InstantaleSaveEditor
                          (string move, string after)? reorder = null, IEnumerable<string> keyOrder = null)
         {
             _obj = obj; _host.Controls.Clear(); _fields.Clear();
+            _itemDetailCombo = null; _attrsInner = null; _attrsOuter = null; _attrsObj = null;
             if (obj == null) return;
 
             // 表示するキーの並び。keyOrder 指定時はその集合・順序、未指定なら obj の全キー。
@@ -495,6 +512,13 @@ namespace InstantaleSaveEditor
         private static string LabelOf(string field) => field switch
         {
             "look" => I18n.T("label.look"),
+            "status" => I18n.T("label.config.status"),
+            "level_of_detail" => I18n.T("label.config.levelOfDetail"),
+            "is_dead" => I18n.T("label.config.isDead"),
+            "is_player" => I18n.T("label.config.isPlayer"),
+            "difficulty_level" => I18n.T("label.config.difficultyLevel"),
+            "attributes" => I18n.T("label.attributes"),
+            "item_detail" => I18n.T("label.itemDetail"),
             _ => field,
         };
 
@@ -524,6 +548,14 @@ namespace InstantaleSaveEditor
             // party（メンバーID配列）はメンバーの追加/削除を GUI で行う専用欄で表示する。
             if (field == "party" && PartyNpcCandidates != null && val is JsonArray pa)
             { AddPartyRow(t, row, pa); return; }
+            // config（status / level_of_detail などのスカラ設定）は JSON 編集ボタンにせず、
+            // 中身を項目ごとの欄に展開する（quest/story_quest/NPC/area の config 共通）。
+            if (field == "config" && IsScalarMap(val))
+            { AddConfigRow(t, row, (JsonObject)val); return; }
+            // attributes（item_detail＋数値ステータス等のスカラ辞書）は config 同様に項目ごとの欄へ展開する。
+            // item_detail は現在の item_type に応じた候補のプルダウンにする（空の attributes でも欄を出す）。
+            if (field == "attributes" && val is JsonObject ao && (ao.Count == 0 || IsScalarMap(val)))
+            { AddAttributesRow(t, row, ao); return; }
             // ComboBox ファクトリが登録されていれば優先して使う（文字列値のみ対象）。
             if (_comboFactories.TryGetValue(field, out var comboFactory) && val is JsonValue)
             {
@@ -608,6 +640,182 @@ namespace InstantaleSaveEditor
                 r++;
             }
             t.Controls.Add(inner, 1, row);
+        }
+
+        // スカラ値（文字列/数値/真偽）だけの小さな辞書か（= 項目ごとの欄に展開できるか）。
+        private static bool IsScalarMap(JsonNode val)
+        {
+            if (val is not JsonObject o || o.Count == 0 || o.Count > 12) return false;
+            foreach (var kv in o) if (kv.Value is not JsonValue) return false;
+            return true;
+        }
+
+        // config（スカラ設定の辞書）を、キーごとに型に応じた欄(チェック/数値/プルダウン/テキスト)で展開する。
+        // 値は各ウィジェットの確定時に config オブジェクトへ直接書き戻すため Apply() の対象外。
+        private void AddConfigRow(TableLayoutPanel t, int row, JsonObject cfg)
+        {
+            var inner = MakeScalarMapTable();
+            int r = 0;
+            foreach (var kv in cfg)
+            {
+                string k = kv.Key;
+                inner.Controls.Add(new Label { Text = LabelOf(k), AutoSize = true, Padding = new Padding(2, 6, 4, 0) }, 0, r);
+                AddScalarValueCell(inner, r, cfg, k, v => MakeConfigStringBox(cfg, k, v));
+                r++;
+            }
+            t.Controls.Add(inner, 1, row);
+        }
+
+        // attributes（item_detail＋数値ステータス等のスカラ辞書）を項目ごとの欄に展開する。
+        // item_type 連動の作り替えに対応するため、外側テーブル・行・対象を控えて BuildAttributesInner で構築する。
+        private void AddAttributesRow(TableLayoutPanel t, int row, JsonObject attrs)
+        {
+            _attrsOuter = t; _attrsRow = row; _attrsObj = attrs; _attrsInner = null;
+            BuildAttributesInner();
+        }
+
+        // attributes 展開の内側テーブルを（再）構築する。既存があれば破棄して差し替える。
+        // item_detail は item_type 連動のプルダウン（AttributeDetailOptions 設定時。空の attributes でも先頭に出す）、
+        // 数値ステータス等は config と同じ型別の欄。値は各ウィジェットの確定時に attributes へ直接書き戻す。
+        private void BuildAttributesInner()
+        {
+            if (_attrsOuter == null || _attrsObj == null) return;
+            if (_attrsInner != null) { _attrsOuter.Controls.Remove(_attrsInner); _attrsInner.Dispose(); }
+            _itemDetailCombo = null;
+            var inner = MakeScalarMapTable();
+            int r = 0;
+            bool detailDropdown = AttributeDetailOptions != null;
+            if (detailDropdown)
+            {
+                inner.Controls.Add(new Label { Text = LabelOf("item_detail"), AutoSize = true, Padding = new Padding(2, 6, 4, 0) }, 0, r);
+                var cb = new ComboBox
+                { DropDownStyle = ComboBoxStyle.DropDown, Width = 220, AutoCompleteMode = AutoCompleteMode.SuggestAppend, AutoCompleteSource = AutoCompleteSource.ListItems };
+                cb.Text = J.Str(_attrsObj, "item_detail");
+                cb.Leave += (_, _) => { if (_obj != null) _attrsObj["item_detail"] = cb.Text.Trim(); };
+                _itemDetailCombo = cb;
+                inner.Controls.Add(cb, 1, r);
+                PopulateItemDetail();   // 初期候補を現在の item_type から流し込む
+                r++;
+            }
+            foreach (var kv in _attrsObj)
+            {
+                if (kv.Key == "item_detail" && detailDropdown) continue;   // 上で専用欄として出した
+                inner.Controls.Add(new Label { Text = LabelOf(kv.Key), AutoSize = true, Padding = new Padding(2, 6, 4, 0) }, 0, r);
+                AddScalarValueCell(inner, r, _attrsObj, kv.Key, v => MakePlainStringBox(_attrsObj, kv.Key, v));
+                r++;
+            }
+            _attrsInner = inner;
+            _attrsOuter.Controls.Add(inner, 1, _attrsRow);
+        }
+
+        // item_type 変更時に attributes をスキーマ（AttributeStatKeys）へ合わせて作り替え、表示を更新する。
+        // 既存値は保持、スキーマに無いキー（item_detail を除く）は削除、不足キーは 0 で追加する。
+        // 表示順は [item_detail, スキーマのキー…]。item_detail が新 type の候補外ならクリアする。
+        // スキーマ不明（候補が空＝未知の item_type）の場合は作り替えず、item_detail 候補のみ更新する。
+        public void ApplyAttributeSchema()
+        {
+            if (_attrsObj == null || _obj == null) return;
+            string type = J.Str(_obj, "item_type");
+            var statKeys = AttributeStatKeys?.Invoke(type) ?? Array.Empty<string>();
+            if (statKeys.Count == 0) { PopulateItemDetail(); return; }   // 未知の type は壊さない
+
+            bool detailDropdown = AttributeDetailOptions != null;
+            // item_detail が新 type の候補に無ければクリアする（旧 type 由来の不整合を残さない）。
+            string detail = J.Str(_attrsObj, "item_detail");
+            if (detailDropdown && detail.Length > 0)
+            {
+                var opts = AttributeDetailOptions(type);
+                if (opts == null || !opts.Contains(detail)) detail = "";
+            }
+
+            // 新しい attributes を [item_detail, スキーマのキー…] の順で組み直す（既存値は複製で保持）。
+            var rebuilt = new JsonObject();
+            if (detailDropdown || _attrsObj.ContainsKey("item_detail"))
+                rebuilt["item_detail"] = detail;
+            foreach (var key in statKeys)
+                rebuilt[key] = _attrsObj[key] is JsonValue v ? v.DeepClone() : JsonValue.Create(0L);
+
+            _obj["attributes"] = rebuilt;
+            _attrsObj = rebuilt;
+            BuildAttributesInner();
+        }
+
+        // ラベル列固定・値列可変の2列テーブル（config / attributes の展開で共用）。
+        private static TableLayoutPanel MakeScalarMapTable()
+        {
+            var inner = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Dock = DockStyle.Top };
+            inner.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 200));
+            inner.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            return inner;
+        }
+
+        // スカラ値1件分の編集ウィジェットを inner の値列(r行)に追加する。
+        // bool→チェック / 整数・小数→数値欄（確定時に map へ直接反映） / それ以外→stringWidget(現在値)。
+        private void AddScalarValueCell(TableLayoutPanel inner, int r, JsonObject map, string key, Func<string, Control> stringWidget)
+        {
+            var jv = map[key] as JsonValue;
+            if (jv != null && jv.TryGetValue<bool>(out bool b))
+            {
+                var c = new CheckBox { Checked = b, AutoSize = true };
+                c.CheckedChanged += (_, _) => { if (_obj != null) map[key] = c.Checked; };
+                inner.Controls.Add(c, 1, r);
+            }
+            else if (jv != null && jv.TryGetValue<long>(out long lv))
+            {
+                var tb = new TextBox { Text = lv.ToString(), Width = 160 };
+                tb.Leave += (_, _) => { if (_obj == null) return; if (long.TryParse(tb.Text, out long n)) { map[key] = n; Ok(tb); } else tb.BackColor = Color.MistyRose; };
+                inner.Controls.Add(tb, 1, r);
+            }
+            else if (jv != null && jv.TryGetValue<double>(out double dv))
+            {
+                var tb = new TextBox { Text = dv.ToString(), Width = 160 };
+                tb.Leave += (_, _) => { if (_obj == null) return; if (double.TryParse(tb.Text, out double n)) { map[key] = n; Ok(tb); } else tb.BackColor = Color.MistyRose; };
+                inner.Controls.Add(tb, 1, r);
+            }
+            else
+            {
+                inner.Controls.Add(stringWidget(jv?.ToString() ?? ""), 1, r);
+            }
+        }
+
+        // スカラ辞書の文字列値を編集する素のテキスト欄（フォーカスアウトで map へ反映）。
+        private Control MakePlainStringBox(JsonObject map, string key, string val)
+        {
+            var tb = new TextBox { Text = val, Dock = DockStyle.Fill };
+            tb.Leave += (_, _) => { if (_obj != null) map[key] = tb.Text; };
+            return tb;
+        }
+
+        // item_detail プルダウンの候補を、現在の item_type に応じて入れ替える。現在値は候補外でも保持する。
+        // item_type 変更時に ItemEditDialog から RefreshAttributeDetailOptions 経由で呼ぶ。
+        public void RefreshAttributeDetailOptions() => PopulateItemDetail();
+
+        private void PopulateItemDetail()
+        {
+            if (_itemDetailCombo == null || AttributeDetailOptions == null || _obj == null) return;
+            var opts = AttributeDetailOptions(J.Str(_obj, "item_type")) ?? Array.Empty<string>();
+            string cur = _itemDetailCombo.Text;
+            _itemDetailCombo.BeginUpdate();
+            _itemDetailCombo.Items.Clear();
+            foreach (var o in opts) _itemDetailCombo.Items.Add(o);
+            _itemDetailCombo.EndUpdate();
+            _itemDetailCombo.Text = cur;   // 既存値は保持（候補外でも消さない）
+        }
+
+        // config の文字列値の欄。status は incomplete/completed の編集可プルダウン、その他はテキスト枠。
+        private Control MakeConfigStringBox(JsonObject cfg, string key, string val)
+        {
+            if (key == "status")
+            {
+                var cb = new ComboBox { DropDownStyle = ComboBoxStyle.DropDown, Width = 200 };
+                cb.Items.AddRange(new object[] { "incomplete", "completed" });
+                cb.Text = val;
+                cb.Leave += (_, _) => { if (_obj != null) cfg[key] = cb.Text.Trim(); };
+                return cb;
+            }
+            var tb = new TextBox { Text = val, Dock = DockStyle.Fill };
+            tb.Leave += (_, _) => { if (_obj != null) cfg[key] = tb.Text; };
+            return tb;
         }
 
         // 値がすべて文字列の配列か（= 1行1タグの複数行欄で表示できるか）。空配列も対象とする。

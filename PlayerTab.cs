@@ -43,7 +43,9 @@ namespace InstantaleSaveEditor
         private readonly Dictionary<string, ComboBox> _combos = new();    // ComboBox で表示する基本値欄
         private readonly Dictionary<string, TextBox> _abil = new();        // 能力値の入力欄(キー→欄)
         private DataGridView _bodyGrid;                                    // 身体部位の表
-        private ListBox _traitList, _invList;                             // 特性 / インベントリ一覧
+        private ListBox _traitList;                                       // 特性一覧
+        private InventoryGridControl _invGrid;                            // インベントリ（グリッド式編集）
+        private Button _btnInvDelete;                                     // 選択アイテムの削除ボタン（選択連動）
         private ComboBox _cbWeapon, _cbWearable;                          // 装備(アイテムID参照)
         private LifeLogGrid _lifeLog;                                      // 生涯ログ(life_log)のグリッド
         private AreaHistoryGrid _areaHistory;                             // エリア履歴(area_history)のグリッド
@@ -325,18 +327,29 @@ namespace InstantaleSaveEditor
             return g;
         }
 
-        // インベントリ一覧＋装備コンボ。装備はインベントリのアイテムIDから選ぶ（追加/削除で候補も更新）。
+        // インベントリ（グリッド式）＋装備コンボ。
+        // グリッドはゲーム同様の格子にアイテムを配置し、ドラッグで移動/入れ替え、ダブルクリックで編集する。
+        // 追加/削除はグリッド外のボタンで行い（v1 スコープ外の機能を維持）、選択は単一クリックで行う。
         private GroupBox BuildInventoryAndEquip()
         {
-            var g = Group(I18n.T("player.group.invEquip"), 280);
-            _invList = new ListBox { Dock = DockStyle.Top, Height = 120 };
+            var g = Group(I18n.T("player.group.invEquip"), 520);
+
+            // グリッド本体（行数次第で大きくなるため AutoScroll のホストに載せる）。
+            var gridHost = new Panel { Dock = DockStyle.Top, Height = 360, AutoScroll = true };
+            _invGrid = new InventoryGridControl { Location = new Point(0, 0) };
+            _invGrid.ItemActivated += id => EditInventoryItem(id);
+            _invGrid.SelectionChanged += () => { if (_btnInvDelete != null) _btnInvDelete.Enabled = _invGrid.SelectedId != null; };
+            gridHost.Controls.Add(_invGrid);
             RefreshInventory();
+
             var bar = ButtonBar(
                 (I18n.T("btn.add"), AddInventoryItem),
-                (I18n.T("btn.edit"), () => { EditDictItem(_invList, J.Obj(_pd, "inventory")); RefreshInventory(); RefreshEquipCombos(); }
+                (I18n.T("btn.edit"), () => { if (_invGrid.SelectedId != null) EditInventoryItem(_invGrid.SelectedId); }
             ),
-                (I18n.T("btn.delete"), () => { RemoveDictItem(_invList, J.Obj(_pd, "inventory")); RefreshInventory(); RefreshEquipCombos(); }
-            ));
+                (I18n.T("btn.delete"), DeleteSelectedInventoryItem));
+            // 削除ボタンは選択時のみ有効（ButtonBar の3番目のボタン）。
+            _btnInvDelete = bar.Controls.OfType<Button>().Last();
+            _btnInvDelete.Enabled = false;
 
             var eqPanel = new TableLayoutPanel { Dock = DockStyle.Top, ColumnCount = 2, AutoSize = true, Padding = new Padding(0, 6, 0, 0) };
             eqPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120));
@@ -350,11 +363,31 @@ namespace InstantaleSaveEditor
             RefreshEquipCombos();
 
             // Dock=Top は後から追加したものが上に来る（ResizableTextBox/LifeLogGrid と同規則）。
-
             g.Controls.Add(eqPanel);
             g.Controls.Add(bar);
-            g.Controls.Add(_invList);
+            g.Controls.Add(gridHost);
             return g;
+        }
+
+        // 指定アイテムを既存の ObjectForm 編集ダイアログで開き、確定後にグリッドと装備コンボを更新する。
+        private void EditInventoryItem(string id)
+        {
+            var inv = J.Obj(_pd, "inventory");
+            if (inv == null || id == null || inv[id] is not JsonObject item) return;
+            using var dlg = new ItemEditDialog(id, item);
+            dlg.ShowDialog(this);
+            RefreshInventory(); RefreshEquipCombos();
+        }
+
+        // グリッドで選択中のアイテムを削除する（確認あり）。装備していた場合の参照は装備コンボ側で外す。
+        private void DeleteSelectedInventoryItem()
+        {
+            var inv = J.Obj(_pd, "inventory");
+            string id = _invGrid?.SelectedId;
+            if (inv == null || id == null) return;
+            if (MessageBox.Show(I18n.T("msg.confirmDeleteItem", id), I18n.T("title.confirm"), MessageBoxButtons.YesNo) != DialogResult.Yes) return;
+            inv.Remove(id);
+            RefreshInventory(); RefreshEquipCombos();
         }
 
         // 生涯ログ(life_log)をグリッドで表示・編集する。各行は開始日/終了日/要約回数/内容。
@@ -409,14 +442,11 @@ namespace InstantaleSaveEditor
             foreach (var n in arr) _traitList.Items.Add(n is JsonObject o ? I18n.T("player.traitItem", J.Str(o, "name", I18n.T("label.unnamed")), J.Int(o, "severity")) : n?.ToString() ?? "null");
         }
 
-        // インベントリ一覧を inventory 辞書から作り直す（"id: 名前" 表示）。
+        // インベントリのグリッドを inventory 辞書で作り直す。削除ボタンの有効状態も追従させる。
         private void RefreshInventory()
         {
-            _invList.Items.Clear();
-            var inv = J.Obj(_pd, "inventory");
-            if (inv == null) return;
-            foreach (var kv in inv)
-                _invList.Items.Add($"{kv.Key}: " + (kv.Value is JsonObject o ? J.Str(o, "name", I18n.T("label.unnamed")) : ""));
+            _invGrid?.Bind(J.Obj(_pd, "inventory"));
+            if (_btnInvDelete != null) _btnInvDelete.Enabled = _invGrid?.SelectedId != null;
         }
 
         // 装備コンボの候補を現在のインベントリIDから作り直し、既存の装備値を選択状態にする。
@@ -448,6 +478,10 @@ namespace InstantaleSaveEditor
                 ["description"] = "",
                 ["value"] = 0,
                 ["rarity"] = "common",
+                // グリッド配置・画像の各項目（実アイテムと同じキー順）。1×1・画像なしで開始する。
+                ["width_slots"] = 1,
+                ["height_slots"] = 1,
+                ["image_src"] = "",
             };
             RefreshInventory(); RefreshEquipCombos();
         }
@@ -486,20 +520,6 @@ namespace InstantaleSaveEditor
             int i = lb.SelectedIndex; if (arr == null || i < 0 || i >= arr.Count) return;
             if (MessageBox.Show(I18n.T("msg.confirmDelete"), I18n.T("title.confirm"), MessageBoxButtons.YesNo) == DialogResult.Yes) { arr.RemoveAt(i); refresh(); }
         }
-        private void EditDictItem(ListBox lb, JsonObject obj)
-        {
-            int i = lb.SelectedIndex; if (obj == null || i < 0) return;
-            string id = obj.ElementAt(i).Key;
-            using var d = new JsonEditDialog(I18n.T("title.editField", id), obj[id]);
-            if (d.ShowDialog(this) == DialogResult.OK) obj[id] = d.ResultNode;
-        }
-        private void RemoveDictItem(ListBox lb, JsonObject obj)
-        {
-            int i = lb.SelectedIndex; if (obj == null || i < 0) return;
-            string id = obj.ElementAt(i).Key;
-            if (MessageBox.Show(I18n.T("msg.confirmDeleteItem", id), I18n.T("title.confirm"), MessageBoxButtons.YesNo) == DialogResult.Yes) obj.Remove(id);
-        }
-
         // コンボに候補を入れ、現在値を選択。先頭は "(なし)" 想定。
         private static void FillCombo(ComboBox cb, List<string> ids, string current)
         {

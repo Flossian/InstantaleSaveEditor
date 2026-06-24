@@ -341,6 +341,11 @@ namespace InstantaleSaveEditor
                     _curKey = tag[3];
                     var facObj = _curContainer[_curKey].AsObject();
                     _form.ClearComboFields();
+                    // facility_type / tier は FieldOptions（外部 JSON 由来）のテンプレート候補のプルダウンにする。
+                    _form.RegisterComboField("facility_type", val => MakeValueCombo(FieldOptions.Get("facility_type"), val));
+                    _form.RegisterComboField("tier", val => MakeValueCombo(FieldOptions.Get("tier"), val));
+                    // owner は所有者 NPC の ID。NPC 一覧から "ID: 名前" で選べるプルダウンにする。
+                    _form.RegisterComboField("owner", val => MakeNpcCombo(val));
                     // description 直後に背景画像(backgrounds/{facility名}/image.png)を差し込む。
                     _bgPanel.LoadImage(_worldDir, J.Str(facObj, "name"));
                     _form.Bind(facObj, _bgPanel, "description");
@@ -400,6 +405,7 @@ namespace InstantaleSaveEditor
         }
 
         // NPC の current_area / current_location をエリア/ノードのプルダウンにする。
+        // category / job は FieldOptions（外部 JSON 由来のテンプレート候補）の自由入力プルダウンにする。
         private void RegisterNpcCombos(JsonObject npcObj)
         {
             var areas = _root?["areas"]?.AsObject();
@@ -409,6 +415,54 @@ namespace InstantaleSaveEditor
                 val => AreaComboHelper.MakeAreaCombo(areas, val));
             _form.RegisterComboField("current_location",
                 val => AreaComboHelper.MakeFacilityCombo(areas, curArea, val));
+            _form.RegisterComboField("category", val => MakeValueCombo(FieldOptions.Get("category"), val));
+            _form.RegisterComboField("job", val => MakeValueCombo(FieldOptions.Get("job"), val));
+        }
+
+        // テンプレート候補を持つ自由入力プルダウンを作る（category/job など列挙的フィールド用）。
+        // 候補に無い現在値も保持できるよう Text に直接設定する。
+        private static ComboBox MakeValueCombo(IEnumerable<string> options, string currentVal)
+        {
+            var cb = new ComboBox
+            {
+                DropDownStyle = ComboBoxStyle.DropDown,
+                Dock = DockStyle.Fill,
+                AutoCompleteMode = AutoCompleteMode.SuggestAppend,
+                AutoCompleteSource = AutoCompleteSource.ListItems,
+            };
+            foreach (var o in options) cb.Items.Add(o);
+            cb.Text = currentVal ?? "";
+            return cb;
+        }
+
+        // facility の owner（所有者 NPC の ID）を "ID: 名前" のプルダウンで表示・選択する。
+        // 候補に無い現在値も保持できるよう、未一致なら ID をそのまま表示する。
+        private ComboBox MakeNpcCombo(string currentVal)
+        {
+            var cb = new ComboBox
+            {
+                DropDownStyle = ComboBoxStyle.DropDown,
+                Dock = DockStyle.Fill,
+                AutoCompleteMode = AutoCompleteMode.SuggestAppend,
+                AutoCompleteSource = AutoCompleteSource.ListItems,
+            };
+            var npcs = _root?["npcs"]?.AsObject();
+            if (npcs != null)
+                foreach (var kv in npcs.OrderBy(p => p.Key.Length).ThenBy(p => p.Key))
+                {
+                    string name = kv.Value is JsonObject o ? J.Str(o, "name", kv.Key) : kv.Key;
+                    cb.Items.Add($"{kv.Key}: {name}");
+                }
+            void AutoFill(string val)
+            {
+                string id = AreaComboHelper.ExtractId(val);
+                string match = cb.Items.Cast<string>()
+                    .FirstOrDefault(it => AreaComboHelper.ExtractId(it) == id);
+                cb.Text = string.IsNullOrEmpty(val) ? "" : (match ?? val);
+            }
+            AutoFill(currentVal);
+            cb.Leave += (_, _) => AutoFill(cb.Text);
+            return cb;
         }
 
         // current_area の選択変更に追従して current_location のノード一覧を作り直す。

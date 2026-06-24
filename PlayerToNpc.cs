@@ -33,13 +33,6 @@ namespace InstantaleSaveEditor
         private static readonly string[] AbilityKeys =
         { "strength", "dexterity", "constitution", "intelligence", "wisdom", "charisma" };
 
-        // 既存データから抽出した職業候補（出現頻度の高い順）。先頭の "adventure" を既定にする。
-        private static readonly string[] JobOptions =
-        {
-            "adventure", "inn", "general_store", "administrative_office", "medical_facility", "guild",
-            "specialty_shop", "blacksmith", "underworld_office", "colosseum", "training_facility", "other", "slave_market",
-        };
-
         private readonly JsonObject _root;
         private readonly JsonObject _pd;     // player_data
         private readonly JsonObject _npcs;   // npcs（採番・追加先）
@@ -367,7 +360,7 @@ namespace InstantaleSaveEditor
         {
             t.Controls.Add(Lbl(label), 0, r);
             var cb = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDown };
-            foreach (var j in JobOptions) cb.Items.Add(j);
+            foreach (var j in FieldOptions.Get("job")) cb.Items.Add(j);
             cb.Text = def;
             t.Controls.Add(cb, 1, r); r++;
             return cb;

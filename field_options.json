@@ -1,0 +1,135 @@
+{
+  "category": [
+    "young_boy",
+    "young_girl",
+    "teenage boy",
+    "teenage girl",
+    "young man",
+    "young woman",
+    "middle-aged man",
+    "middle-aged woman",
+    "old man",
+    "old woman"
+  ],
+  "job": [
+    "adventure",
+    "inn",
+    "general_store",
+    "administrative_office",
+    "medical_facility",
+    "guild",
+    "specialty_shop",
+    "blacksmith",
+    "underworld_office",
+    "colosseum",
+    "training_facility",
+    "slave_market",
+    "other"
+  ],
+  "facility_type": [
+    "inn",
+    "general_store",
+    "administrative_office",
+    "medical_facility",
+    "guild",
+    "specialty_shop",
+    "blacksmith",
+    "underworld_office",
+    "colosseum",
+    "training_facility",
+    "slave_market",
+    "location",
+    "dungeon_location",
+    "ward",
+    "entrance",
+    "exit"
+  ],
+  "tier": [
+    "basic",
+    "standard",
+    "advanced"
+  ],
+  "item_type": [
+    "weapon",
+    "wearable",
+    "consumable",
+    "healing_item",
+    "material",
+    "utility"
+  ],
+  "item_detail.weapon": [
+    "small_weapon",
+    "medium_weapon",
+    "large_weapon",
+    "long_weapon",
+    "throwable_weapon"
+  ],
+  "item_detail.wearable": [
+    "headgear",
+    "body_armor",
+    "legwear",
+    "gauntlets",
+    "shield",
+    "accessory",
+    "clothing"
+  ],
+  "item_detail.consumable": [
+    "food",
+    "drink",
+    "herb",
+    "medicine",
+    "potion",
+    "scroll",
+    "plant",
+    "mushroom"
+  ],
+  "item_detail.healing_item": [
+    "food",
+    "drink",
+    "medicine",
+    "potion",
+    "plant"
+  ],
+  "item_detail.material": [
+    "creature_part",
+    "creature",
+    "ore",
+    "metal",
+    "gem",
+    "treasure",
+    "plant",
+    "mushroom",
+    "relic",
+    "scrap",
+    "magical_material",
+    "other_material",
+    "liquid_material"
+  ],
+  "item_detail.utility": [
+    "tool",
+    "document",
+    "scroll"
+  ],
+  "attributes.weapon": [
+    "攻撃力",
+    "売価"
+  ],
+  "attributes.wearable": [
+    "防御力",
+    "売価"
+  ],
+  "attributes.healing_item": [
+    "回復",
+    "疲労負荷",
+    "売価"
+  ],
+  "attributes.material": [
+    "売価"
+  ],
+  "attributes.consumable": [
+    "売価"
+  ],
+  "attributes.utility": [
+    "売価"
+  ]
+}

@@ -33,8 +33,18 @@ namespace InstantaleSaveEditor
         public int SavedWindowX { get; set; } = 0;
         public int SavedWindowY { get; set; } = 0;
 
+        // --- インベントリ（グリッド編集） ---
+        public string GameAssetRoot { get; set; } = "";             // ゲーム導入先。image_src の相対パス解決基準
+        public int InventoryGridColumns { get; set; } = 4;          // グリッド列数（固定値。セーブからは読まない）
+        public int InventoryGridRows { get; set; } = 6;             // グリッド行数（実容量に合わせユーザーが変更）
+
         // --- その他 ---
         public string LastOpenedFolder { get; set; } = "";          // ファイルダイアログの初期位置
+
+        // 起動時に読み込んだ現在の設定インスタンス（コントロール等から参照する）。
+        // SettingsForm は同一インスタンスを書き換えるため、設定変更も即ここへ反映される。
+        [JsonIgnore]
+        public static Settings Current { get; private set; } = new Settings();
 
         [JsonIgnore]
         private static readonly JsonSerializerOptions JsonOpts = new()
@@ -54,10 +64,12 @@ namespace InstantaleSaveEditor
             try
             {
                 string p = FilePath();
-                if (!File.Exists(p)) return new Settings();
-                return JsonSerializer.Deserialize<Settings>(File.ReadAllText(p, Encoding.UTF8), JsonOpts) ?? new Settings();
+                Current = !File.Exists(p)
+                    ? new Settings()
+                    : JsonSerializer.Deserialize<Settings>(File.ReadAllText(p, Encoding.UTF8), JsonOpts) ?? new Settings();
+                return Current;
             }
-            catch { return new Settings(); }
+            catch { return Current = new Settings(); }
         }
 
         // 設定を保存する。書込不可の場所では致命的にせず MessageBox 表示のみで継続する。
@@ -173,6 +185,11 @@ namespace InstantaleSaveEditor
         private readonly CheckBox _autoDelete = new() { AutoSize = true };
         private readonly NumericUpDown _retention = new() { Minimum = 1, Maximum = 9999, Width = 80 };
 
+        // インベントリ（グリッド編集）。
+        private readonly TextBox _assetRoot = new() { Width = 320 };
+        private readonly NumericUpDown _invCols = new() { Minimum = 1, Maximum = 64, Width = 80 };
+        private readonly NumericUpDown _invRows = new() { Minimum = 1, Maximum = 64, Width = 80 };
+
         private readonly ComboBox _lang = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 160 };
         private readonly ComboBox _sizeMode = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 160 };
         private readonly NumericUpDown _fixedW = new() { Minimum = 400, Maximum = 10000, Width = 80 };
@@ -180,9 +197,10 @@ namespace InstantaleSaveEditor
         private readonly CheckBox _rememberPos = new() { AutoSize = true };
 
         // Localize() で文言を再適用するため、可視文言を持つ要素を保持する。
-        private GroupBox _grpBackup, _grpLanguage, _grpMisc;
+        private GroupBox _grpBackup, _grpLanguage, _grpMisc, _grpInventory;
         private Label _lblBaseFolder, _lblBaseHint, _lblRetention, _lblLang, _lblSizeMode, _lblFixedSize, _lblTimes;
-        private Button _btnBrowse, _btnOk, _btnCancel;
+        private Label _lblAssetRoot, _lblAssetHint, _lblInvCols, _lblInvRows;
+        private Button _btnBrowse, _btnBrowseAsset, _btnOk, _btnCancel;
 
         private readonly SettingsSection _section;   // 表示するセクション
 
@@ -205,11 +223,12 @@ namespace InstantaleSaveEditor
             BuildBackupGroup();
             BuildLanguageGroup();
             BuildMiscGroup();
+            BuildInventoryGroup();
             switch (_section)
             {
                 case SettingsSection.Backup: root.Controls.Add(_grpBackup); Width = 460; Height = 270; break;
                 case SettingsSection.Language: root.Controls.Add(_grpLanguage); Width = 360; Height = 150; break;
-                default: root.Controls.Add(_grpMisc); Width = 460; Height = 230; break;
+                default: root.Controls.Add(_grpMisc); root.Controls.Add(_grpInventory); Width = 460; Height = 420; break;
             }
 
             Controls.Add(root);
@@ -248,6 +267,13 @@ namespace InstantaleSaveEditor
             _lblFixedSize.Text = I18n.T("settings.fixedSize");
             _lblTimes.Text = "×";
             _rememberPos.Text = I18n.T("settings.rememberPos");
+
+            _grpInventory.Text = I18n.T("settings.group.inventory");
+            _lblAssetRoot.Text = I18n.T("settings.assetRoot");
+            _btnBrowseAsset.Text = I18n.T("btn.browse");
+            _lblAssetHint.Text = I18n.T("settings.assetHint");
+            _lblInvCols.Text = I18n.T("settings.invCols");
+            _lblInvRows.Text = I18n.T("settings.invRows");
 
             // ウィンドウサイズモードのコンボ（選択は維持）。
             int sizeIdx = _sizeMode.SelectedIndex;
@@ -345,6 +371,41 @@ namespace InstantaleSaveEditor
             return _grpMisc;
         }
 
+        // 「インベントリ」グループ（ゲーム導入先・グリッド列数/行数）。
+        private GroupBox BuildInventoryGroup()
+        {
+            _grpInventory = new GroupBox { Width = 410, Height = 150, Margin = new Padding(3) };
+            var t = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, Dock = DockStyle.Fill, Padding = new Padding(8, 20, 8, 8) };
+
+            int r = 0;
+            _lblAssetRoot = new Label { AutoSize = true, Padding = new Padding(0, 6, 4, 0) };
+            t.Controls.Add(_lblAssetRoot, 0, r);
+            var folderRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
+            _btnBrowseAsset = new Button { AutoSize = true };
+            _btnBrowseAsset.Click += (_, _) =>
+            {
+                using var d = new FolderBrowserDialog { Description = I18n.T("settings.browseAssetDesc") };
+                if (Directory.Exists(_assetRoot.Text)) d.SelectedPath = _assetRoot.Text;
+                if (d.ShowDialog(this) == DialogResult.OK) _assetRoot.Text = d.SelectedPath;
+            };
+            folderRow.Controls.Add(_assetRoot); folderRow.Controls.Add(_btnBrowseAsset);
+            t.Controls.Add(folderRow, 1, r); r++;
+
+            _lblAssetHint = new Label { AutoSize = true, ForeColor = SystemColors.GrayText };
+            t.Controls.Add(_lblAssetHint, 1, r); r++;
+
+            _lblInvCols = new Label { AutoSize = true, Padding = new Padding(0, 6, 4, 0) };
+            t.Controls.Add(_lblInvCols, 0, r);
+            t.Controls.Add(_invCols, 1, r); r++;
+
+            _lblInvRows = new Label { AutoSize = true, Padding = new Padding(0, 6, 4, 0) };
+            t.Controls.Add(_lblInvRows, 0, r);
+            t.Controls.Add(_invRows, 1, r); r++;
+
+            _grpInventory.Controls.Add(t);
+            return _grpInventory;
+        }
+
         // 言語コンボを I18n.GetAvailableLanguages() で（再）構築する。現在の選択コードを維持する。
         private void PopulateLanguages()
         {
@@ -403,6 +464,10 @@ namespace InstantaleSaveEditor
             _fixedW.Value = Math.Clamp(_s.FixedWindowWidth, (int)_fixedW.Minimum, (int)_fixedW.Maximum);
             _fixedH.Value = Math.Clamp(_s.FixedWindowHeight, (int)_fixedH.Minimum, (int)_fixedH.Maximum);
             _rememberPos.Checked = _s.RememberWindowPosition;
+
+            _assetRoot.Text = _s.GameAssetRoot;
+            _invCols.Value = Math.Clamp(_s.InventoryGridColumns, (int)_invCols.Minimum, (int)_invCols.Maximum);
+            _invRows.Value = Math.Clamp(_s.InventoryGridRows, (int)_invRows.Minimum, (int)_invRows.Maximum);
         }
 
         // ウィジェットの値を設定へ書き戻す。
@@ -418,6 +483,10 @@ namespace InstantaleSaveEditor
             _s.FixedWindowWidth = (int)_fixedW.Value;
             _s.FixedWindowHeight = (int)_fixedH.Value;
             _s.RememberWindowPosition = _rememberPos.Checked;
+
+            _s.GameAssetRoot = _assetRoot.Text.Trim();
+            _s.InventoryGridColumns = (int)_invCols.Value;
+            _s.InventoryGridRows = (int)_invRows.Value;
         }
 
         // チェック状態に応じて関連ウィジェットの有効/無効を切り替える。
