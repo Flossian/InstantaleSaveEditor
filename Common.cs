@@ -340,6 +340,10 @@ namespace InstantaleSaveEditor
         // （既存値は保持・スキーマ外キーは削除・不足キーは 0 で追加）。空（未知の type）なら作り替えない。
         public Func<string, IReadOnlyList<string>> AttributeStatKeys { get; set; }
 
+        // inventory（アイテム辞書）をグリッド＋ボタンの InventoryPanel で表示するか。
+        // 既定は false（従来通り JSON 編集ボタン）。WorldTab が NPC 編集時に true にする。
+        public bool InventoryGridEnabled { get; set; }
+
         private ComboBox _itemDetailCombo;   // attributes 展開時に生成した item_detail プルダウン（item_type 連動更新用）
         private TableLayoutPanel _attrsInner;  // attributes 展開先の内側テーブル（作り替え時に差し替える）
         private TableLayoutPanel _attrsOuter;  // _attrsInner を載せている外側テーブル
@@ -395,6 +399,8 @@ namespace InstantaleSaveEditor
                     case CheckBox ck: ck.Enabled = !ro; break;
                     case Button bt: bt.Enabled = !ro; break;
                     case DataGridView dg: dg.ReadOnly = ro; break;
+                    // インベントリのグリッドは独自描画のため、無効化でドラッグ移動・ダブルクリック編集を止める。
+                    case InventoryGridControl ig: ig.Enabled = !ro; break;
                 }
                 if (c.HasChildren) ApplyReadOnly(c, ro);
             }
@@ -556,6 +562,10 @@ namespace InstantaleSaveEditor
             // item_detail は現在の item_type に応じた候補のプルダウンにする（空の attributes でも欄を出す）。
             if (field == "attributes" && val is JsonObject ao && (ao.Count == 0 || IsScalarMap(val)))
             { AddAttributesRow(t, row, ao); return; }
+            // inventory（アイテム辞書）は専用のグリッド＋ボタン（プレイヤーと共通の InventoryPanel）で表示・編集する。
+            // 有効時のみ。値は InventoryPanel が即時に辞書へ反映するため Apply() の対象外。
+            if (field == "inventory" && InventoryGridEnabled && val is JsonObject invObj)
+            { AddInventoryRow(t, row, invObj); return; }
             // ComboBox ファクトリが登録されていれば優先して使う（文字列値のみ対象）。
             if (_comboFactories.TryGetValue(field, out var comboFactory) && val is JsonValue)
             {
@@ -738,6 +748,15 @@ namespace InstantaleSaveEditor
             _obj["attributes"] = rebuilt;
             _attrsObj = rebuilt;
             BuildAttributesInner();
+        }
+
+        // inventory（アイテム辞書）を InventoryPanel（グリッド＋追加/編集/削除）で表示・編集する。
+        // 追加/削除/編集は inv へ即時反映されるため FieldRef は登録しない（Apply() の対象外）。
+        private void AddInventoryRow(TableLayoutPanel t, int row, JsonObject inv)
+        {
+            var panel = new InventoryPanel { Dock = DockStyle.Top };
+            panel.Bind(inv);
+            t.Controls.Add(panel, 1, row);
         }
 
         // ラベル列固定・値列可変の2列テーブル（config / attributes の展開で共用）。

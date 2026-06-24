@@ -300,6 +300,8 @@ namespace InstantaleSaveEditor
             _btnUnlock.Visible = false; _npcLocked = false; _btnExport.Visible = false;
             if (node?.Tag is not string[] tag) { _form.Clear(); SetBtns(false); return; }
             _curKind = tag[0];
+            // inventory のグリッド表示は NPC のときだけ有効化する（下の各分岐で上書き）。
+            _form.InventoryGridEnabled = tag[0] == "item" && tag[1] == "npcs";
             switch (tag[0])
             {
                 case "obj":   // world_data / index など単一オブジェクト

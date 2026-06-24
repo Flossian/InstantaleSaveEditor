@@ -581,6 +581,113 @@ namespace InstantaleSaveEditor
         }
     }
 
+    // インベントリの「グリッド＋追加/編集/削除ボタン」をまとめた再利用パネル。
+    // プレイヤー(PlayerTab)と NPC(WorldTab の ObjectForm 経由) の双方から使う。
+    // inventory 辞書を直接編集し、追加/削除/編集のたびに InventoryChanged を発火する。
+    internal sealed class InventoryPanel : Panel
+    {
+        private readonly InventoryGridControl _grid = new() { Location = new Point(0, 0) };
+        private readonly Button _btnEdit, _btnDelete;
+        private JsonObject _inv;
+
+        // 追加/削除/編集でインベントリが変化したときに発火（装備コンボの再構築などに使う）。
+        public event Action InventoryChanged;
+
+        public InventoryPanel()
+        {
+            AutoSize = true; AutoSizeMode = AutoSizeMode.GrowAndShrink;
+
+            // グリッドはスクロールホストに載せる（行数次第で背が高くなるため）。
+            var gridHost = new Panel { Dock = DockStyle.Top, Height = 360, AutoScroll = true };
+            gridHost.Controls.Add(_grid);
+            _grid.ItemActivated += id => EditItem(id);
+            _grid.SelectionChanged += () => { if (_btnDelete != null) _btnDelete.Enabled = _grid.SelectedId != null; };
+
+            var bar = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(0, 4, 0, 4) };
+            Button Mk(string text, Action act)
+            {
+                var b = new Button { Text = text, Width = 70, Margin = new Padding(2) };
+                b.Click += (_, _) => act();
+                bar.Controls.Add(b);
+                return b;
+            }
+            Mk(I18n.T("btn.add"), AddItem);
+            _btnEdit = Mk(I18n.T("btn.edit"), () => { if (_grid.SelectedId != null) EditItem(_grid.SelectedId); });
+            _btnDelete = Mk(I18n.T("btn.delete"), DeleteItem);
+            _btnDelete.Enabled = false;
+
+            // Dock=Top は後入れが上。ボタン列を上、グリッドを下に置く。
+            Controls.Add(gridHost);
+            Controls.Add(bar);
+        }
+
+        // inventory 辞書をバインドして表示を作り直す。
+        public void Bind(JsonObject inventory)
+        {
+            _inv = inventory;
+            _grid.Bind(inventory);
+            if (_btnDelete != null) _btnDelete.Enabled = _grid.SelectedId != null;
+        }
+
+        // グリッドを作り直し、削除ボタンの有効状態を更新し、変更を通知する。
+        private void Reload()
+        {
+            _grid.Bind(_inv);
+            if (_btnDelete != null) _btnDelete.Enabled = _grid.SelectedId != null;
+            InventoryChanged?.Invoke();
+        }
+
+        private void AddItem()
+        {
+            if (_inv == null) return;
+            _inv[NextItemId(_inv)] = NewItemTemplate();
+            Reload();
+        }
+
+        private void EditItem(string id)
+        {
+            if (_inv == null || id == null || _inv[id] is not JsonObject item) return;
+            using var dlg = new ItemEditDialog(id, item);
+            dlg.ShowDialog(FindForm());
+            Reload();
+        }
+
+        private void DeleteItem()
+        {
+            string id = _grid.SelectedId;
+            if (_inv == null || id == null) return;
+            if (MessageBox.Show(I18n.T("msg.confirmDeleteItem", id), I18n.T("title.confirm"), MessageBoxButtons.YesNo) != DialogResult.Yes) return;
+            _inv.Remove(id);
+            Reload();
+        }
+
+        // inventory に追加する新ID（item_N の N=既存最大+1）。
+        public static string NextItemId(JsonObject inv)
+        {
+            int max = -1;
+            foreach (var kv in inv)
+            {
+                var s = kv.Key.StartsWith("item_") ? kv.Key.Substring(5) : kv.Key;
+                if (int.TryParse(s, out int n) && n > max) max = n;
+            }
+            return "item_" + (max + 1);
+        }
+
+        // 新規アイテムの最小テンプレ（実アイテムと同じキー順。1×1・画像なしで開始）。
+        public static JsonObject NewItemTemplate() => new()
+        {
+            ["name"] = I18n.T("player.newItem"),
+            ["item_type"] = "material",
+            ["attributes"] = new JsonObject(),
+            ["description"] = "",
+            ["value"] = 0,
+            ["rarity"] = "common",
+            ["width_slots"] = 1,
+            ["height_slots"] = 1,
+            ["image_src"] = "",
+        };
+    }
+
     // インベントリ1アイテムを既存の ObjectForm で編集するダイアログ。
     // 編集は ObjectForm がフォーカスアウトで即モデルへ反映し、OK で Apply() により最終確定する。
     // item は inventory 辞書内の JsonObject 参照そのものなので、確定内容はそのまま辞書へ残る。

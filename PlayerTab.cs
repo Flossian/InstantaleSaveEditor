@@ -44,8 +44,7 @@ namespace InstantaleSaveEditor
         private readonly Dictionary<string, TextBox> _abil = new();        // 能力値の入力欄(キー→欄)
         private DataGridView _bodyGrid;                                    // 身体部位の表
         private ListBox _traitList;                                       // 特性一覧
-        private InventoryGridControl _invGrid;                            // インベントリ（グリッド式編集）
-        private Button _btnInvDelete;                                     // 選択アイテムの削除ボタン（選択連動）
+        private InventoryPanel _invPanel;                                 // インベントリ（グリッド＋追加/編集/削除。NPCと共通）
         private ComboBox _cbWeapon, _cbWearable;                          // 装備(アイテムID参照)
         private LifeLogGrid _lifeLog;                                      // 生涯ログ(life_log)のグリッド
         private AreaHistoryGrid _areaHistory;                             // エリア履歴(area_history)のグリッド
@@ -334,22 +333,11 @@ namespace InstantaleSaveEditor
         {
             var g = Group(I18n.T("player.group.invEquip"), 520);
 
-            // グリッド本体（行数次第で大きくなるため AutoScroll のホストに載せる）。
-            var gridHost = new Panel { Dock = DockStyle.Top, Height = 360, AutoScroll = true };
-            _invGrid = new InventoryGridControl { Location = new Point(0, 0) };
-            _invGrid.ItemActivated += id => EditInventoryItem(id);
-            _invGrid.SelectionChanged += () => { if (_btnInvDelete != null) _btnInvDelete.Enabled = _invGrid.SelectedId != null; };
-            gridHost.Controls.Add(_invGrid);
-            RefreshInventory();
-
-            var bar = ButtonBar(
-                (I18n.T("btn.add"), AddInventoryItem),
-                (I18n.T("btn.edit"), () => { if (_invGrid.SelectedId != null) EditInventoryItem(_invGrid.SelectedId); }
-            ),
-                (I18n.T("btn.delete"), DeleteSelectedInventoryItem));
-            // 削除ボタンは選択時のみ有効（ButtonBar の3番目のボタン）。
-            _btnInvDelete = bar.Controls.OfType<Button>().Last();
-            _btnInvDelete.Enabled = false;
+            // インベントリは NPC と共通の InventoryPanel（グリッド＋追加/編集/削除）。
+            // 変更時は装備コンボを作り直す（削除したアイテムを装備していた場合の追従）。
+            _invPanel = new InventoryPanel { Dock = DockStyle.Top };
+            _invPanel.InventoryChanged += () => RefreshEquipCombos();
+            _invPanel.Bind(EnsureObj("inventory"));   // 無ければ作る（追加操作の受け皿）
 
             var eqPanel = new TableLayoutPanel { Dock = DockStyle.Top, ColumnCount = 2, AutoSize = true, Padding = new Padding(0, 6, 0, 0) };
             eqPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120));
@@ -364,30 +352,8 @@ namespace InstantaleSaveEditor
 
             // Dock=Top は後から追加したものが上に来る（ResizableTextBox/LifeLogGrid と同規則）。
             g.Controls.Add(eqPanel);
-            g.Controls.Add(bar);
-            g.Controls.Add(gridHost);
+            g.Controls.Add(_invPanel);
             return g;
-        }
-
-        // 指定アイテムを既存の ObjectForm 編集ダイアログで開き、確定後にグリッドと装備コンボを更新する。
-        private void EditInventoryItem(string id)
-        {
-            var inv = J.Obj(_pd, "inventory");
-            if (inv == null || id == null || inv[id] is not JsonObject item) return;
-            using var dlg = new ItemEditDialog(id, item);
-            dlg.ShowDialog(this);
-            RefreshInventory(); RefreshEquipCombos();
-        }
-
-        // グリッドで選択中のアイテムを削除する（確認あり）。装備していた場合の参照は装備コンボ側で外す。
-        private void DeleteSelectedInventoryItem()
-        {
-            var inv = J.Obj(_pd, "inventory");
-            string id = _invGrid?.SelectedId;
-            if (inv == null || id == null) return;
-            if (MessageBox.Show(I18n.T("msg.confirmDeleteItem", id), I18n.T("title.confirm"), MessageBoxButtons.YesNo) != DialogResult.Yes) return;
-            inv.Remove(id);
-            RefreshInventory(); RefreshEquipCombos();
         }
 
         // 生涯ログ(life_log)をグリッドで表示・編集する。各行は開始日/終了日/要約回数/内容。
@@ -442,13 +408,6 @@ namespace InstantaleSaveEditor
             foreach (var n in arr) _traitList.Items.Add(n is JsonObject o ? I18n.T("player.traitItem", J.Str(o, "name", I18n.T("label.unnamed")), J.Int(o, "severity")) : n?.ToString() ?? "null");
         }
 
-        // インベントリのグリッドを inventory 辞書で作り直す。削除ボタンの有効状態も追従させる。
-        private void RefreshInventory()
-        {
-            _invGrid?.Bind(J.Obj(_pd, "inventory"));
-            if (_btnInvDelete != null) _btnInvDelete.Enabled = _invGrid?.SelectedId != null;
-        }
-
         // 装備コンボの候補を現在のインベントリIDから作り直し、既存の装備値を選択状態にする。
         private void RefreshEquipCombos()
         {
@@ -457,33 +416,6 @@ namespace InstantaleSaveEditor
             if (inv != null) ids.AddRange(inv.Select(kv => kv.Key));
             FillCombo(_cbWeapon, ids, J.Str(_pd != null ? J.Obj(_pd, "equipments") : null, "weapon"));
             FillCombo(_cbWearable, ids, J.Str(_pd != null ? J.Obj(_pd, "equipments") : null, "wearable"));
-        }
-
-        // インベントリに item_N (Nは最大+1) を最小テンプレで追加する。
-        private void AddInventoryItem()
-        {
-            var inv = EnsureObj("inventory");
-            int max = -1;
-            foreach (var kv in inv)
-            {
-                var s = kv.Key.StartsWith("item_") ? kv.Key.Substring(5) : kv.Key;
-                if (int.TryParse(s, out int n) && n > max) max = n;
-            }
-            string id = "item_" + (max + 1);
-            inv[id] = new JsonObject
-            {
-                ["name"] = I18n.T("player.newItem"),
-                ["item_type"] = "material",
-                ["attributes"] = new JsonObject(),
-                ["description"] = "",
-                ["value"] = 0,
-                ["rarity"] = "common",
-                // グリッド配置・画像の各項目（実アイテムと同じキー順）。1×1・画像なしで開始する。
-                ["width_slots"] = 1,
-                ["height_slots"] = 1,
-                ["image_src"] = "",
-            };
-            RefreshInventory(); RefreshEquipCombos();
         }
 
         // ---------------- 小ヘルパ ----------------
