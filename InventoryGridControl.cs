@@ -674,16 +674,19 @@ namespace InstantaleSaveEditor
         }
 
         // 新規アイテムの最小テンプレ（実アイテムと同じキー順。1×1・画像なしで開始）。
+        // 数値は long で格納する。int リテラルだと JsonValue が int 格納となり、
+        // J.Int / ObjectForm の TryGetValue<long> が失敗して数値として認識されず、
+        // サイズ等が文字列保存→読み戻し不能になる（InventoryGridControl.ParseInt のコメント参照）。
         public static JsonObject NewItemTemplate() => new()
         {
             ["name"] = I18n.T("player.newItem"),
             ["item_type"] = "material",
             ["attributes"] = new JsonObject(),
             ["description"] = "",
-            ["value"] = 0,
+            ["value"] = 0L,
             ["rarity"] = "common",
-            ["width_slots"] = 1,
-            ["height_slots"] = 1,
+            ["width_slots"] = 1L,
+            ["height_slots"] = 1L,
             ["image_src"] = "",
         };
     }
