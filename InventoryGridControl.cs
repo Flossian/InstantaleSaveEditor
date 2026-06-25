@@ -680,10 +680,10 @@ namespace InstantaleSaveEditor
             ["item_type"] = "material",
             ["attributes"] = new JsonObject(),
             ["description"] = "",
-            ["value"] = 0,
+            ["value"] = 0L,
             ["rarity"] = "common",
-            ["width_slots"] = 1,
-            ["height_slots"] = 1,
+            ["width_slots"] = 1L,
+            ["height_slots"] = 1L,
             ["image_src"] = "",
         };
     }
