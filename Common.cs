@@ -344,7 +344,23 @@ namespace InstantaleSaveEditor
         // 既定は false（従来通り JSON 編集ボタン）。WorldTab が NPC 編集時に true にする。
         public bool InventoryGridEnabled { get; set; }
 
+        // skills フィールドを一覧＋追加/編集/削除（SkillListPanel）にするか。
+        // 既定は false（従来通り JSON 編集ボタン）。WorldTab が NPC 編集時に true にする。
+        public bool SkillsGridEnabled { get; set; }
+
+        // image_src フィールドを「プレビュー＋パス欄＋参照ボタン」にし、画像一覧から選べるようにするか。
+        // 既定は false（従来通りのテキスト欄）。ItemEditDialog が true にする。
+        public bool ImageSrcPickerEnabled { get; set; }
+
+        // item_detail → 既定の image_src（相対パス）を供給する任意フック。
+        // 設定時、item_type 変更や item_detail の選択で image_src を該当フォルダの先頭画像へ自動更新する。
+        // ItemEditDialog が設定する。空文字を返せば image_src をクリアする。
+        public Func<string, string> DefaultImageForDetail { get; set; }
+
         private ComboBox _itemDetailCombo;   // attributes 展開時に生成した item_detail プルダウン（item_type 連動更新用）
+        private TextBox _imageSrcBox;        // image_src の入力欄（既定画像の自動反映先）
+        private Action _imageSrcRefresh;     // image_src プレビューの再描画
+        private bool _suppressDetailEvents;  // item_detail 候補の再構築中にイベント連動を抑止するフラグ
         private TableLayoutPanel _attrsInner;  // attributes 展開先の内側テーブル（作り替え時に差し替える）
         private TableLayoutPanel _attrsOuter;  // _attrsInner を載せている外側テーブル
         private int _attrsRow;                 // 外側テーブル上の attributes 行
@@ -401,6 +417,8 @@ namespace InstantaleSaveEditor
                     case DataGridView dg: dg.ReadOnly = ro; break;
                     // インベントリのグリッドは独自描画のため、無効化でドラッグ移動・ダブルクリック編集を止める。
                     case InventoryGridControl ig: ig.Enabled = !ro; break;
+                    // スキル一覧はダブルクリックで編集ダイアログが開くため、無効化してそれを止める。
+                    case ListBox lst: lst.Enabled = !ro; break;
                 }
                 if (c.HasChildren) ApplyReadOnly(c, ro);
             }
@@ -417,6 +435,7 @@ namespace InstantaleSaveEditor
         {
             _obj = obj; _host.Controls.Clear(); _fields.Clear();
             _itemDetailCombo = null; _attrsInner = null; _attrsOuter = null; _attrsObj = null;
+            _imageSrcBox = null; _imageSrcRefresh = null;
             if (obj == null) return;
 
             // 表示するキーの並び。keyOrder 指定時はその集合・順序、未指定なら obj の全キー。
@@ -525,6 +544,7 @@ namespace InstantaleSaveEditor
             "difficulty_level" => I18n.T("label.config.difficultyLevel"),
             "attributes" => I18n.T("label.attributes"),
             "item_detail" => I18n.T("label.itemDetail"),
+            "skills" => I18n.T("label.skills"),
             _ => field,
         };
 
@@ -566,6 +586,13 @@ namespace InstantaleSaveEditor
             // 有効時のみ。値は InventoryPanel が即時に辞書へ反映するため Apply() の対象外。
             if (field == "inventory" && InventoryGridEnabled && val is JsonObject invObj)
             { AddInventoryRow(t, row, invObj); return; }
+            // skills（スキル名→スキルの辞書）は専用の一覧＋ボタン（プレイヤーと共通の SkillListPanel）で編集する。
+            // 有効時のみ。値は SkillListPanel が即時に辞書へ反映するため Apply() の対象外。
+            if (field == "skills" && SkillsGridEnabled && val is JsonObject skillObj)
+            { AddSkillsRow(t, row, skillObj); return; }
+            // image_src（画像の相対パス）は、画像一覧から選べるプレビュー付き欄で表示する（有効時のみ）。
+            if (field == "image_src" && ImageSrcPickerEnabled && val is JsonValue)
+            { AddImageSrcRow(t, row, field, val.ToString()); return; }
             // ComboBox ファクトリが登録されていれば優先して使う（文字列値のみ対象）。
             if (_comboFactories.TryGetValue(field, out var comboFactory) && val is JsonValue)
             {
@@ -622,6 +649,74 @@ namespace InstantaleSaveEditor
             else if (val is JsonObject mo && mo.Count > 0 && mo.Count <= 12 && AllStrings(mo))
                 AddStringMapRow(t, row, field, mo);
             else { AddJsonRow(t, row, field, val); }
+        }
+
+        // image_src を画像一覧ダイアログから選べる行（プレビュー＋パス欄＋参照ボタン）。
+        // パス欄は通常の text フィールドとして登録し、Apply() でモデルへ書き戻す。
+        // 参照ボタンは ImagePickerDialog を開き、選択結果（アセット先からの相対パス）を欄へ反映する。
+        private void AddImageSrcRow(TableLayoutPanel t, int row, string field, string src)
+        {
+            var inner = new TableLayoutPanel { ColumnCount = 3, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Dock = DockStyle.Top };
+            inner.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 56));
+            inner.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            inner.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 96));
+
+            var pic = new PictureBox { Width = 48, Height = 48, SizeMode = PictureBoxSizeMode.Zoom, BorderStyle = BorderStyle.FixedSingle, Margin = new Padding(2) };
+            var tb = new TextBox { Text = src, Dock = DockStyle.Fill };
+            var fr = new FieldRef { Name = field, Kind = "text", Tb = tb };
+            var btn = new Button { Text = I18n.T("btn.browse"), Width = 88, Margin = new Padding(2) };
+
+            void RefreshPreview()
+            {
+                var old = pic.Image;
+                pic.Image = LoadAssetImage(Settings.Current?.GameAssetRoot, tb.Text);
+                old?.Dispose();
+            }
+            tb.Leave += (_, _) => { CommitField(fr); RefreshPreview(); };
+            btn.Click += (_, _) =>
+            {
+                string assetRoot = Settings.Current?.GameAssetRoot ?? "";
+                if (string.IsNullOrEmpty(assetRoot))
+                { MessageBox.Show(I18n.T("imgpick.noAssetRoot"), I18n.T("imgpick.title"), MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
+                using var dlg = new ImagePickerDialog(assetRoot, tb.Text);
+                if (dlg.ShowDialog(FindForm()) == DialogResult.OK && !string.IsNullOrEmpty(dlg.ResultPath))
+                { tb.Text = dlg.ResultPath; CommitField(fr); RefreshPreview(); }
+            };
+
+            inner.Controls.Add(pic, 0, 0);
+            inner.Controls.Add(tb, 1, 0);
+            inner.Controls.Add(btn, 2, 0);
+            t.Controls.Add(inner, 1, row);
+            _fields.Add(fr);
+            _imageSrcBox = tb; _imageSrcRefresh = RefreshPreview;   // item_detail 連動で書き換える対象
+            RefreshPreview();
+        }
+
+        // item_detail に対応する既定画像を image_src 欄・モデル・プレビューへ反映する（フック設定時のみ）。
+        private void ApplyDefaultImageForDetail(string detail)
+        {
+            if (DefaultImageForDetail == null || _imageSrcBox == null || _obj == null) return;
+            string img = DefaultImageForDetail(detail) ?? "";
+            _imageSrcBox.Text = img;
+            _obj["image_src"] = img;
+            _imageSrcRefresh?.Invoke();
+        }
+
+        // アセット先からの相対パスで画像を読み込む（プレビュー用）。解決不能・未設定・例外時は null。
+        // 元PNGをロックしないよう ReadAllBytes→MemoryStream 経由で複製を返す。
+        private static Image LoadAssetImage(string assetRoot, string rel)
+        {
+            if (string.IsNullOrEmpty(assetRoot) || string.IsNullOrEmpty(rel)) return null;
+            try
+            {
+                string full = Path.Combine(assetRoot, rel.Replace('/', Path.DirectorySeparatorChar));
+                if (!File.Exists(full)) return null;
+                byte[] bytes = File.ReadAllBytes(full);
+                using var ms = new MemoryStream(bytes);
+                using var tmp = Image.FromStream(ms);
+                return new Bitmap(tmp);
+            }
+            catch { return null; }
         }
 
         // 辞書の値がすべて文字列か（= キーごとのテキスト枠で表示できるか）。
@@ -705,6 +800,15 @@ namespace InstantaleSaveEditor
                 _itemDetailCombo = cb;
                 inner.Controls.Add(cb, 1, r);
                 PopulateItemDetail();   // 初期候補を現在の item_type から流し込む
+                // item_detail をユーザーが選び直したら image_src を該当画像へ更新する。
+                // 構築・候補再構築中の自動発火は _suppressDetailEvents で抑止する（配線は PopulateItemDetail の後）。
+                cb.SelectedIndexChanged += (_, _) =>
+                {
+                    if (_obj == null || _suppressDetailEvents) return;
+                    string d = cb.Text.Trim();
+                    _attrsObj["item_detail"] = d;
+                    ApplyDefaultImageForDetail(d);
+                };
                 r++;
             }
             foreach (var kv in _attrsObj)
@@ -730,12 +834,13 @@ namespace InstantaleSaveEditor
             if (statKeys.Count == 0) { PopulateItemDetail(); return; }   // 未知の type は壊さない
 
             bool detailDropdown = AttributeDetailOptions != null;
-            // item_detail が新 type の候補に無ければクリアする（旧 type 由来の不整合を残さない）。
+            // item_type 変更時は item_detail を新 type の候補の先頭（プルダウン一番上）へ初期化する。
+            // 旧 type 由来の item_detail は別カテゴリのため引き継がない。
             string detail = J.Str(_attrsObj, "item_detail");
-            if (detailDropdown && detail.Length > 0)
+            if (detailDropdown)
             {
                 var opts = AttributeDetailOptions(type);
-                if (opts == null || !opts.Contains(detail)) detail = "";
+                detail = opts != null && opts.Count > 0 ? opts[0] : "";
             }
 
             // 新しい attributes を [item_detail, スキーマのキー…] の順で組み直す（既存値は複製で保持）。
@@ -748,6 +853,9 @@ namespace InstantaleSaveEditor
             _obj["attributes"] = rebuilt;
             _attrsObj = rebuilt;
             BuildAttributesInner();
+
+            // item_detail の初期値に対応する画像を image_src へ反映する。
+            ApplyDefaultImageForDetail(detail);
         }
 
         // inventory（アイテム辞書）を InventoryPanel（グリッド＋追加/編集/削除）で表示・編集する。
@@ -756,6 +864,15 @@ namespace InstantaleSaveEditor
         {
             var panel = new InventoryPanel { Dock = DockStyle.Top };
             panel.Bind(inv);
+            t.Controls.Add(panel, 1, row);
+        }
+
+        // skills（スキル辞書）を SkillListPanel（一覧＋追加/編集/削除。プレイヤーと共通）で表示・編集する。
+        // 追加/削除/編集は辞書へ即時反映されるため FieldRef は登録しない（Apply() の対象外）。
+        private void AddSkillsRow(TableLayoutPanel t, int row, JsonObject skills)
+        {
+            var panel = new SkillListPanel { Dock = DockStyle.Top };
+            panel.Bind(skills);
             t.Controls.Add(panel, 1, row);
         }
 
@@ -814,11 +931,17 @@ namespace InstantaleSaveEditor
             if (_itemDetailCombo == null || AttributeDetailOptions == null || _obj == null) return;
             var opts = AttributeDetailOptions(J.Str(_obj, "item_type")) ?? Array.Empty<string>();
             string cur = _itemDetailCombo.Text;
-            _itemDetailCombo.BeginUpdate();
-            _itemDetailCombo.Items.Clear();
-            foreach (var o in opts) _itemDetailCombo.Items.Add(o);
-            _itemDetailCombo.EndUpdate();
-            _itemDetailCombo.Text = cur;   // 既存値は保持（候補外でも消さない）
+            // 候補の入れ替え・Text 再設定が SelectedIndexChanged を誘発し image_src を巻き込むのを抑止する。
+            _suppressDetailEvents = true;
+            try
+            {
+                _itemDetailCombo.BeginUpdate();
+                _itemDetailCombo.Items.Clear();
+                foreach (var o in opts) _itemDetailCombo.Items.Add(o);
+                _itemDetailCombo.EndUpdate();
+                _itemDetailCombo.Text = cur;   // 既存値は保持（候補外でも消さない）
+            }
+            finally { _suppressDetailEvents = false; }
         }
 
         // config の文字列値の欄。status は incomplete/completed の編集可プルダウン、その他はテキスト枠。

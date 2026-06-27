@@ -197,9 +197,9 @@ namespace InstantaleSaveEditor
         private readonly CheckBox _rememberPos = new() { AutoSize = true };
 
         // Localize() で文言を再適用するため、可視文言を持つ要素を保持する。
-        private GroupBox _grpBackup, _grpLanguage, _grpMisc, _grpInventory;
+        private GroupBox _grpBackup, _grpLanguage, _grpMisc, _grpAssetRoot, _grpInventory;
         private Label _lblBaseFolder, _lblBaseHint, _lblRetention, _lblLang, _lblSizeMode, _lblFixedSize, _lblTimes;
-        private Label _lblAssetRoot, _lblAssetHint, _lblInvCols, _lblInvRows;
+        private Label _lblAssetRoot, _lblAssetNote, _lblAssetHint, _lblInvCols, _lblInvRows;
         private Button _btnBrowse, _btnBrowseAsset, _btnOk, _btnCancel;
 
         private readonly SettingsSection _section;   // 表示するセクション
@@ -223,12 +223,13 @@ namespace InstantaleSaveEditor
             BuildBackupGroup();
             BuildLanguageGroup();
             BuildMiscGroup();
+            BuildAssetRootGroup();
             BuildInventoryGroup();
             switch (_section)
             {
                 case SettingsSection.Backup: root.Controls.Add(_grpBackup); Width = 460; Height = 270; break;
                 case SettingsSection.Language: root.Controls.Add(_grpLanguage); Width = 360; Height = 150; break;
-                default: root.Controls.Add(_grpMisc); root.Controls.Add(_grpInventory); Width = 460; Height = 420; break;
+                default: root.Controls.Add(_grpMisc); root.Controls.Add(_grpAssetRoot); root.Controls.Add(_grpInventory); Width = 460; Height = 470; break;
             }
 
             Controls.Add(root);
@@ -268,10 +269,13 @@ namespace InstantaleSaveEditor
             _lblTimes.Text = "×";
             _rememberPos.Text = I18n.T("settings.rememberPos");
 
-            _grpInventory.Text = I18n.T("settings.group.inventory");
+            _grpAssetRoot.Text = I18n.T("settings.group.assetRoot");
             _lblAssetRoot.Text = I18n.T("settings.assetRoot");
             _btnBrowseAsset.Text = I18n.T("btn.browse");
+            _lblAssetNote.Text = I18n.T("settings.assetNote");
             _lblAssetHint.Text = I18n.T("settings.assetHint");
+
+            _grpInventory.Text = I18n.T("settings.group.inventory");
             _lblInvCols.Text = I18n.T("settings.invCols");
             _lblInvRows.Text = I18n.T("settings.invRows");
 
@@ -371,10 +375,10 @@ namespace InstantaleSaveEditor
             return _grpMisc;
         }
 
-        // 「インベントリ」グループ（ゲーム導入先・グリッド列数/行数）。
-        private GroupBox BuildInventoryGroup()
+        // 「インストールフォルダ指定」グループ（ゲーム導入先）。インベントリ以外の機能でも参照する共通設定。
+        private GroupBox BuildAssetRootGroup()
         {
-            _grpInventory = new GroupBox { Width = 410, Height = 150, Margin = new Padding(3) };
+            _grpAssetRoot = new GroupBox { Width = 410, Height = 130, Margin = new Padding(3) };
             var t = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, Dock = DockStyle.Fill, Padding = new Padding(8, 20, 8, 8) };
 
             int r = 0;
@@ -391,9 +395,23 @@ namespace InstantaleSaveEditor
             folderRow.Controls.Add(_assetRoot); folderRow.Controls.Add(_btnBrowseAsset);
             t.Controls.Add(folderRow, 1, r); r++;
 
+            _lblAssetNote = new Label { AutoSize = true, ForeColor = SystemColors.GrayText };
+            t.Controls.Add(_lblAssetNote, 1, r); r++;
+
             _lblAssetHint = new Label { AutoSize = true, ForeColor = SystemColors.GrayText };
             t.Controls.Add(_lblAssetHint, 1, r); r++;
 
+            _grpAssetRoot.Controls.Add(t);
+            return _grpAssetRoot;
+        }
+
+        // 「インベントリ」グループ（グリッド列数/行数）。
+        private GroupBox BuildInventoryGroup()
+        {
+            _grpInventory = new GroupBox { Width = 410, Height = 90, Margin = new Padding(3) };
+            var t = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, Dock = DockStyle.Fill, Padding = new Padding(8, 20, 8, 8) };
+
+            int r = 0;
             _lblInvCols = new Label { AutoSize = true, Padding = new Padding(0, 6, 4, 0) };
             t.Controls.Add(_lblInvCols, 0, r);
             t.Controls.Add(_invCols, 1, r); r++;

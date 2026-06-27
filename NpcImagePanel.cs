@@ -13,20 +13,23 @@ namespace InstantaleSaveEditor
         private const int ColGap = 10;
 
         // 立ち絵の定義。インデックス0がゲーム使用ファイル(reduced_color_image.png)。
+        // 末尾(ExternalIdx)は外部から取り込んだ任意画像を保持する枠。
         private static readonly string[] StandFiles =
-            { "reduced_color_image.png", "pixelated_image_original.png", "no_bg_image.png" };
+            { "reduced_color_image.png", "pixelated_image_original.png", "no_bg_image.png", "external_image.png" };
         // 立ち絵ラベルの i18n キー（表示時に T() で解決する）。
         private static readonly string[] StandLabelKeys =
-            { "npc.stand.reduced", "npc.stand.pixelated", "npc.stand.original" };
+            { "npc.stand.reduced", "npc.stand.pixelated", "npc.stand.original", "npc.stand.external" };
+        private static readonly int StandCount = StandFiles.Length;
+        // 外部読み込み枠のインデックス（取込ボタンを持つ）。
+        private static readonly int ExternalIdx = StandFiles.Length - 1;
 
         // 元の縮小色を退避する固定バックアップ名。縮小色枠はこれを参照する。
         private const string BackupFile = "reduced_color_image_bk.png";
 
         // ---------------- ウィジェット ----------------
         private readonly PictureBox _pbFace = MakePb(FaceW, FaceH);
-        private readonly PictureBox[] _pbStand =
-            { MakePb(StandW, StandH), MakePb(StandW, StandH), MakePb(StandW, StandH) };
-        private readonly Button[] _useBtns = new Button[3];
+        private readonly PictureBox[] _pbStand;
+        private readonly Button[] _useBtns;
 
         // ---------------- 状態 ----------------
         private int _activeIdx = 0;
@@ -34,6 +37,10 @@ namespace InstantaleSaveEditor
 
         public NpcImagePanel()
         {
+            _pbStand = new PictureBox[StandCount];
+            _useBtns = new Button[StandCount];
+            for (int i = 0; i < StandCount; i++)
+                _pbStand[i] = MakePb(StandW, StandH);
             Height = 22 + StandH + 34 + 16;
             BackColor = SystemColors.Control;
             Padding = new Padding(8, 6, 8, 6);
@@ -59,18 +66,19 @@ namespace InstantaleSaveEditor
                 AutoScroll = true,
             };
             flow.Controls.Add(BuildFaceColumn());
-            for (int i = 0; i < 3; i++)
+            for (int i = 0; i < StandCount; i++)
                 flow.Controls.Add(BuildStandColumn(i));
             Controls.Add(flow);
         }
 
         private Panel BuildFaceColumn()
         {
-            const int btnY = 22 + FaceH + 4;
+            const int btnY = 22 + FaceH + 4;          // 顔画像の直下
+            int useY = 22 + StandH + 4;               // 立ち絵列の「使用する」と同じ高さ
             var p = new Panel
             {
                 Width = FaceW + 4,
-                Height = btnY + 62,
+                Height = useY + 30,
                 Margin = new Padding(0, 0, ColGap, 0),
             };
             p.Controls.Add(new Label { Text = I18n.T("npc.face"), AutoSize = true, Location = new Point(0, 2) });
@@ -78,15 +86,43 @@ namespace InstantaleSaveEditor
             ImageViewer.RegisterClickViewer(_pbFace, I18n.T("npc.face"));
             p.Controls.Add(_pbFace);
 
-            var btnImport = new Button { Text = I18n.T("npc.import"), Width = FaceW, Height = 26, Location = new Point(0, btnY) };
-            btnImport.Click += (_, _) => ImportFace();
-            p.Controls.Add(btnImport);
-
-            var btnCrop = new Button { Text = I18n.T("npc.cropFace"), Width = FaceW, Height = 26, Location = new Point(0, btnY + 30) };
+            // 顔画像指定は顔画像の直下。
+            var btnCrop = new Button { Text = I18n.T("npc.cropFace"), Width = FaceW, Height = 26, Location = new Point(0, btnY) };
             btnCrop.Click += (_, _) => CropFace();
             p.Controls.Add(btnCrop);
 
+            // 下部に取込み系を縦に並べ、最下段を「使用する」の高さに揃える。
+            var btnImport = new Button { Text = I18n.T("npc.import"), Width = FaceW, Height = 26, Location = new Point(0, useY - 60) };
+            btnImport.Click += (_, _) => ImportFace();
+            p.Controls.Add(btnImport);
+
+            var btnStandImport = new Button { Text = I18n.T("npc.importStand"), Width = FaceW, Height = 26, Location = new Point(0, useY - 30) };
+            btnStandImport.Click += (_, _) => ImportExternal();
+            p.Controls.Add(btnStandImport);
+
+            var btnFolder = new Button { Text = I18n.T("npc.openFolder"), Width = FaceW, Height = 26, Location = new Point(0, useY) };
+            btnFolder.Click += (_, _) => OpenCharDir();
+            p.Controls.Add(btnFolder);
+
             return p;
+        }
+
+        // 画像が収められているキャラクターフォルダをエクスプローラーで開く。
+        private void OpenCharDir()
+        {
+            if (string.IsNullOrEmpty(_charDir) || !Directory.Exists(_charDir)) return;
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = _charDir,
+                    UseShellExecute = true,
+                });
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.Message, I18n.T("title.error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         private Panel BuildStandColumn(int idx)
@@ -105,6 +141,8 @@ namespace InstantaleSaveEditor
             p.Controls.Add(_pbStand[idx]);
 
             var btn = new Button { Text = I18n.T("npc.use"), Width = StandW, Height = 26, Location = new Point(0, btnY) };
+            // 外部読み込み列は画像が取り込まれるまで押せない（既定で無効、UpdateButtonStyles が確定させる）。
+            if (idx == ExternalIdx) btn.Enabled = false;
             btn.Click += (_, _) => SetActive(cap);
             _useBtns[idx] = btn;
             p.Controls.Add(btn);
@@ -125,13 +163,16 @@ namespace InstantaleSaveEditor
 
         private void UpdateButtonStyles()
         {
-            for (int i = 0; i < 3; i++)
+            for (int i = 0; i < StandCount; i++)
             {
                 if (_useBtns[i] == null) continue;
                 _useBtns[i].BackColor = i == _activeIdx ? SystemColors.Highlight : SystemColors.Control;
                 _useBtns[i].ForeColor = i == _activeIdx ? SystemColors.HighlightText : SystemColors.ControlText;
                 _useBtns[i].FlatStyle = i == _activeIdx ? FlatStyle.Flat : FlatStyle.Standard;
             }
+            // 外部読み込み枠はプレビューに画像が読めている時だけ「使用する」を押せる。
+            if (_useBtns[ExternalIdx] != null)
+                _useBtns[ExternalIdx].Enabled = _pbStand[ExternalIdx].Image != null;
         }
 
         // 指定立ち絵を reduced_color_image.png に反映する。
@@ -192,7 +233,7 @@ namespace InstantaleSaveEditor
         {
             _charDir = charDir;
             LoadPb(_pbFace, charDir != null ? Path.Combine(charDir, "face_image.png") : null);
-            for (int i = 0; i < 3; i++)
+            for (int i = 0; i < StandCount; i++)
                 LoadPb(_pbStand[i], StandDisplayPath(i));
             _activeIdx = DetectActiveIndex();
             UpdateButtonStyles();
@@ -244,6 +285,32 @@ namespace InstantaleSaveEditor
                 using var img = Image.FromFile(dlg.FileName);
                 img.Save(dest, ImageFormat.Png);
                 LoadPb(_pbFace, dest);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(I18n.T("msg.importFailed") + ex.Message, I18n.T("title.error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        // 外部読み込み「取込」: 指定画像を external_image.png として取り込み、外部枠に表示する。
+        // ゲームへの反映は別途その列の「使用する」で行う（取込のみではゲーム使用ファイルに触れない）。
+        private void ImportExternal()
+        {
+            if (string.IsNullOrEmpty(_charDir)) return;
+            using var dlg = new OpenFileDialog
+            {
+                Title = I18n.T("npc.selectStand"),
+                Filter = I18n.T("filter.image"),
+            };
+            if (dlg.ShowDialog() != DialogResult.OK) return;
+            string dest = Path.Combine(_charDir, StandFiles[ExternalIdx]);
+            try
+            {
+                using (var img = Image.FromFile(dlg.FileName))
+                    img.Save(dest, ImageFormat.Png);
+                LoadPb(_pbStand[ExternalIdx], dest);
+                UpdateButtonStyles(); // 取込済みになったので「使用する」を有効化
+
             }
             catch (Exception ex)
             {

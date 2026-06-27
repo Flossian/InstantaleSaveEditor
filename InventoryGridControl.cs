@@ -54,6 +54,10 @@ namespace InstantaleSaveEditor
         // 現在選択中のアイテムID（無ければ null）。
         public string SelectedId => _inv != null && _selectedId != null && _inv.ContainsKey(_selectedId) ? _selectedId : null;
 
+        // 画像が表示できない状態か（アセット先未設定、または image_src があるのに解決できない）。
+        // InventoryPanel が警告ラベルの表示可否に使う。Bind のたびに更新する。
+        public bool ImagesUnavailable { get; private set; }
+
         // inventory 辞書をバインドして再構築・再描画する。設定（寸法・アセット先）もここで取り込む。
         public void Bind(JsonObject inventory)
         {
@@ -67,8 +71,23 @@ namespace InstantaleSaveEditor
             if (_selectedId != null && (_inv == null || !_inv.ContainsKey(_selectedId))) _selectedId = null;
 
             RebuildOccupancy();
+            ComputeImagesUnavailable();
             Size = new Size(_cols * CellSize + 1, _rows * CellSize + 1);
             Invalidate();
+        }
+
+        // 画像表示の可否を判定する。image_src を持つアイテムがあるのに解決できないものが
+        // 1つでもあれば true（アセット先未設定・ファイル欠落の双方を含む）。
+        private void ComputeImagesUnavailable()
+        {
+            ImagesUnavailable = false;
+            if (_inv == null) return;
+            foreach (var kv in _inv)
+            {
+                if (kv.Value is not JsonObject o) continue;
+                if (string.IsNullOrEmpty(J.Str(o, "image_src"))) continue;
+                if (ResolveImage(kv.Key) == null) { ImagesUnavailable = true; return; }
+            }
         }
 
         // データから占有マップを作り直す（クランプ後の範囲で埋める。重複は後勝ち＝描画は別途全件行う）。
@@ -199,6 +218,19 @@ namespace InstantaleSaveEditor
 
             using var pen = new Pen(border, 2);
             g.DrawRectangle(pen, rect);
+
+            DrawIdTag(g, id, rect);
+        }
+
+        // セル左上にアイテムID（item_2 等）を小さく表示する（背景半透明で可読性を確保）。
+        private void DrawIdTag(Graphics g, string id, Rectangle rect)
+        {
+            using var f = new Font(Font.FontFamily, 7f, FontStyle.Regular);
+            var sz = g.MeasureString(id, f);
+            using (var bb = new SolidBrush(Color.FromArgb(170, 0, 0, 0)))
+                g.FillRectangle(bb, rect.X + 1, rect.Y + 1, sz.Width, sz.Height);
+            using var br = new SolidBrush(Color.Gainsboro);
+            g.DrawString(id, f, br, rect.X + 1, rect.Y + 1);
         }
 
         // 画像をアスペクト維持で矩形内に収めて描く（alpha<1 で半透明）。
@@ -465,7 +497,7 @@ namespace InstantaleSaveEditor
         {
             if (_inv?[id] is not JsonObject o) return;
             _tip ??= new InvTooltip();
-            _tip.SetContent(TipTitle(o), TipBody(o));
+            _tip.SetContent(TipTitle(o, id), TipBody(o));
             MoveTip(at);
             if (!_tip.Visible) _tip.Show(this);
         }
@@ -479,8 +511,8 @@ namespace InstantaleSaveEditor
 
         private void HideTip() { if (_tip != null && _tip.Visible) _tip.Hide(); }
 
-        // ツールチップ見出し（アイテム名）。
-        private static string TipTitle(JsonObject o) => J.Str(o, "name", I18n.T("label.unnamed"));
+        // ツールチップ見出し（アイテム名＋ID タグ）。
+        private static string TipTitle(JsonObject o, string id) => $"{J.Str(o, "name", I18n.T("label.unnamed"))}（{id}）";
 
         // ツールチップ本文（種別・rarity・主要属性・説明）。
         private static string TipBody(JsonObject o)
@@ -588,6 +620,17 @@ namespace InstantaleSaveEditor
     {
         private readonly InventoryGridControl _grid = new() { Location = new Point(0, 0) };
         private readonly Button _btnEdit, _btnDelete;
+        // 画像が表示できないときに「画像パス未設定」を知らせる警告ラベル（最上段）。
+        private readonly Label _warn = new()
+        {
+            Dock = DockStyle.Top,
+            AutoSize = false,
+            Height = 36,
+            ForeColor = Color.Firebrick,
+            TextAlign = ContentAlignment.MiddleLeft,
+            Padding = new Padding(2, 0, 2, 0),
+            Visible = false,
+        };
         private JsonObject _inv;
 
         // 追加/削除/編集でインベントリが変化したときに発火（装備コンボの再構築などに使う）。
@@ -616,9 +659,10 @@ namespace InstantaleSaveEditor
             _btnDelete = Mk(I18n.T("btn.delete"), DeleteItem);
             _btnDelete.Enabled = false;
 
-            // Dock=Top は後入れが上。ボタン列を上、グリッドを下に置く。
+            // Dock=Top は後入れが上。下から: グリッド → ボタン列 → 警告ラベル（最上段）。
             Controls.Add(gridHost);
             Controls.Add(bar);
+            Controls.Add(_warn);
         }
 
         // inventory 辞書をバインドして表示を作り直す。
@@ -626,6 +670,7 @@ namespace InstantaleSaveEditor
         {
             _inv = inventory;
             _grid.Bind(inventory);
+            UpdateWarning();
             if (_btnDelete != null) _btnDelete.Enabled = _grid.SelectedId != null;
         }
 
@@ -633,8 +678,16 @@ namespace InstantaleSaveEditor
         private void Reload()
         {
             _grid.Bind(_inv);
+            UpdateWarning();
             if (_btnDelete != null) _btnDelete.Enabled = _grid.SelectedId != null;
             InventoryChanged?.Invoke();
+        }
+
+        // グリッドの画像解決状況に応じて警告ラベルの表示/文言を更新する。
+        private void UpdateWarning()
+        {
+            _warn.Text = I18n.T("inv.imageUnavailable");
+            _warn.Visible = _grid.ImagesUnavailable;
         }
 
         private void AddItem()
@@ -673,19 +726,31 @@ namespace InstantaleSaveEditor
             return "item_" + (max + 1);
         }
 
-        // 新規アイテムの最小テンプレ（実アイテムと同じキー順。1×1・画像なしで開始）。
-        public static JsonObject NewItemTemplate() => new()
+        // 新規アイテムのテンプレ（実アイテムと同じキー順。1×1で開始）。
+        // item_type 変更時と同様に、item_detail を既定 type の候補の先頭へ、attributes をその type の
+        // スキーマ（ステータスキー=0）へ、image_src を item_detail 該当フォルダの先頭画像へ初期化する。
+        public static JsonObject NewItemTemplate()
         {
-            ["name"] = I18n.T("player.newItem"),
-            ["item_type"] = "material",
-            ["attributes"] = new JsonObject(),
-            ["description"] = "",
-            ["value"] = 0L,
-            ["rarity"] = "common",
-            ["width_slots"] = 1L,
-            ["height_slots"] = 1L,
-            ["image_src"] = "",
-        };
+            const string type = "material";
+            string detail = FieldOptions.Get("item_detail." + type).FirstOrDefault() ?? "";
+            var attrs = new JsonObject { ["item_detail"] = detail };
+            foreach (var k in FieldOptions.Get("attributes." + type)) attrs[k] = 0L;
+            string image = ImagePickerDialog.LowestImageForDetail(Settings.Current?.GameAssetRoot ?? "", detail);
+            return new()
+            {
+                ["name"] = I18n.T("player.newItem"),
+                ["item_type"] = type,
+                ["attributes"] = attrs,
+                ["description"] = "",
+                ["value"] = 0L,
+                ["rarity"] = "common",
+                ["skill"] = null,
+                ["upgrade_level"] = 0L,
+                ["width_slots"] = 1L,
+                ["height_slots"] = 1L,
+                ["image_src"] = image,
+            };
+        }
     }
 
     // インベントリ1アイテムを既存の ObjectForm で編集するダイアログ。
@@ -702,7 +767,7 @@ namespace InstantaleSaveEditor
         public ItemEditDialog(string id, JsonObject item)
         {
             Text = I18n.T("title.editField", id);
-            Width = 560; Height = 600;
+            Width = 560; Height = 660;
             StartPosition = FormStartPosition.CenterParent;
 
             // item_type を候補一覧（field_options.json の "item_type": weapon/wearable/… ）から選べるプルダウンにする。
@@ -730,6 +795,12 @@ namespace InstantaleSaveEditor
             // item_type ごとの attributes キー一覧（item_detail を除く・表示順）を供給する。
             // 例: weapon → ["攻撃力","売価"]。field_options.json の "attributes.<type>" で外部編集可能。
             _form.AttributeStatKeys = type => FieldOptions.Get("attributes." + (type ?? ""));
+
+            // image_src は画像一覧ダイアログ（ImagePickerDialog）から選べるようにする。
+            _form.ImageSrcPickerEnabled = true;
+
+            // item_type 変更・item_detail 選択時に、item_detail に対応する画像の先頭（最も若い番号）を image_src へ充てる。
+            _form.DefaultImageForDetail = detail => ImagePickerDialog.LowestImageForDetail(Settings.Current?.GameAssetRoot ?? "", detail);
 
             _form.Dock = DockStyle.Fill;
             _form.Bind(item);
@@ -759,12 +830,233 @@ namespace InstantaleSaveEditor
             var ok = new Button { Text = I18n.T("btn.ok"), Dock = DockStyle.Right, Width = 90, DialogResult = DialogResult.OK };
             var cancel = new Button { Text = I18n.T("btn.cancel"), Dock = DockStyle.Right, Width = 90, DialogResult = DialogResult.Cancel };
             ok.Click += (_, _) => { if (!_form.Apply()) DialogResult = DialogResult.None; };
-            var bar = new Panel { Dock = DockStyle.Bottom, Height = 40 };
+            var bar = new Panel { Dock = DockStyle.Bottom, Height = 30 };
             bar.Controls.Add(ok); bar.Controls.Add(cancel);
 
             Controls.Add(_form);
             Controls.Add(bar);
             AcceptButton = ok; CancelButton = cancel;
+        }
+    }
+
+    // image_src を画像一覧から選ぶダイアログ。
+    // 左にフォルダ一覧、右に選択フォルダ内のサムネイル一覧を表示し、ダブルクリック/OK で確定する。
+    // 走査基準は GameAssetRoot 配下（既定 Assets/images/item_candidates_dark、無ければ Assets/images、それも無ければ直下）。
+    // ResultPath に GameAssetRoot からの相対パス（/区切り。例 Assets/images/item_candidates_dark/accessory/1.png）を返す。
+    internal sealed class ImagePickerDialog : Form
+    {
+        private static readonly string[] ImageExts = { ".png", ".jpg", ".jpeg", ".bmp" };
+
+        private readonly string _assetRoot;
+        private readonly string _itemsRoot;        // フォルダ一覧の走査基準
+        private readonly string _preselect;        // 現在値（相対パス）。一致する画像を初期選択する
+        private readonly ListBox _folders = new() { Dock = DockStyle.Fill, IntegralHeight = false };
+        private readonly ListView _images = new() { Dock = DockStyle.Fill, View = View.LargeIcon, MultiSelect = false };
+        private ImageList _thumbs;
+        private readonly List<Image> _live = new();   // ImageList が参照する実体。遅延実体化されるため破棄まで保持する
+
+        // 選択された画像の GameAssetRoot からの相対パス（未選択は null）。
+        public string ResultPath { get; private set; }
+
+        public ImagePickerDialog(string assetRoot, string current)
+        {
+            _assetRoot = assetRoot ?? "";
+            _itemsRoot = ResolveItemsRoot(_assetRoot);
+            _preselect = current;
+
+            Text = I18n.T("imgpick.title");
+            Width = 880; Height = 620;
+            StartPosition = FormStartPosition.CenterParent;
+
+            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1 };
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 240));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            layout.Controls.Add(_folders, 0, 0);
+            layout.Controls.Add(_images, 1, 0);
+
+            _folders.SelectedIndexChanged += (_, _) => LoadFolderImages();
+            _images.ItemActivate += (_, _) => { if (TrySelect()) DialogResult = DialogResult.OK; };
+
+            var ok = new Button { Text = I18n.T("btn.ok"), Dock = DockStyle.Right, Width = 90, DialogResult = DialogResult.OK };
+            var cancel = new Button { Text = I18n.T("btn.cancel"), Dock = DockStyle.Right, Width = 90, DialogResult = DialogResult.Cancel };
+            ok.Click += (_, _) => { if (!TrySelect()) DialogResult = DialogResult.None; };
+            var bar = new Panel { Dock = DockStyle.Bottom, Height = 44, Padding = new Padding(8) };
+            bar.Controls.Add(ok); bar.Controls.Add(cancel);
+
+            Controls.Add(layout);
+            Controls.Add(bar);
+            AcceptButton = ok; CancelButton = cancel;
+
+            LoadFolders();
+        }
+
+        // 走査基準フォルダを決める。アイテム画像の標準的な配置を優先し、無ければ広げる。
+        private static string ResolveItemsRoot(string assetRoot)
+        {
+            if (string.IsNullOrEmpty(assetRoot)) return assetRoot;
+            foreach (var sub in new[] { Path.Combine("Assets", "images", "item_candidates_dark"), Path.Combine("Assets", "images") })
+            {
+                string p = Path.Combine(assetRoot, sub);
+                if (Directory.Exists(p)) return p;
+            }
+            return assetRoot;
+        }
+
+        private static bool IsImage(string f) => ImageExts.Contains(Path.GetExtension(f).ToLowerInvariant());
+
+        // item_detail（=画像フォルダ名）に対応するフォルダ内で最も若い番号の画像の相対パスを返す。
+        // 例: detail="plant" → "Assets/images/item_candidates_dark/plant/1.png"。見つからなければ空文字。
+        public static string LowestImageForDetail(string assetRoot, string detail)
+        {
+            if (string.IsNullOrEmpty(assetRoot) || string.IsNullOrEmpty(detail)) return "";
+            try
+            {
+                string dir = Path.Combine(assetRoot, "Assets", "images", "item_candidates_dark", detail);
+                if (!Directory.Exists(dir)) return "";
+                string best = null;
+                foreach (var f in Directory.EnumerateFiles(dir))
+                    if (IsImage(f) && (best == null || NaturalCompare(f, best) < 0)) best = f;
+                if (best == null) return "";
+                return Path.GetRelativePath(assetRoot, best).Replace('\\', '/');
+            }
+            catch { return ""; }
+        }
+
+        // フォルダ直下に画像ファイルが1つでもあるか。
+        private static bool HasImage(string dir)
+        {
+            try { foreach (var f in Directory.EnumerateFiles(dir)) if (IsImage(f)) return true; }
+            catch { /* アクセス不可は無視 */ }
+            return false;
+        }
+
+        // 画像を含むフォルダを itemsRoot からの相対名で一覧化し、現在値のフォルダを初期選択する。
+        private void LoadFolders()
+        {
+            var rel = new List<string>();
+            try
+            {
+                if (Directory.Exists(_itemsRoot))
+                {
+                    if (HasImage(_itemsRoot)) rel.Add(".");   // 直下にも画像があれば先頭に
+                    foreach (var dir in Directory.EnumerateDirectories(_itemsRoot, "*", SearchOption.AllDirectories))
+                        if (HasImage(dir)) rel.Add(Path.GetRelativePath(_itemsRoot, dir).Replace('\\', '/'));
+                }
+            }
+            catch { /* 走査失敗時は空一覧 */ }
+            rel.Sort(StringComparer.OrdinalIgnoreCase);
+            foreach (var r in rel) _folders.Items.Add(r);
+
+            int sel = 0;
+            if (!string.IsNullOrEmpty(_preselect))
+            {
+                try
+                {
+                    string curDir = Path.GetDirectoryName(Path.Combine(_assetRoot, _preselect.Replace('/', Path.DirectorySeparatorChar))) ?? "";
+                    string curRel = Path.GetRelativePath(_itemsRoot, curDir).Replace('\\', '/');
+                    int idx = _folders.Items.IndexOf(curRel);
+                    if (idx >= 0) sel = idx;
+                }
+                catch { /* 解決失敗時は先頭 */ }
+            }
+            if (_folders.Items.Count > 0) _folders.SelectedIndex = sel;   // LoadFolderImages を誘発
+        }
+
+        // 選択フォルダ内の画像をサムネイルで一覧化する。現在値に一致する画像があれば選択して可視化する。
+        private void LoadFolderImages()
+        {
+            if (_folders.SelectedItem is not string relFolder) return;
+            string dir = relFolder == "." ? _itemsRoot : Path.Combine(_itemsRoot, relFolder.Replace('/', Path.DirectorySeparatorChar));
+
+            UseWaitCursor = true;
+            _images.BeginUpdate();
+            try
+            {
+                _images.Items.Clear();
+                var oldThumbs = _thumbs;
+                var oldLive = _live.ToList();
+                _live.Clear();
+                _thumbs = new ImageList { ImageSize = new Size(56, 56), ColorDepth = ColorDepth.Depth32Bit };
+                _images.LargeImageList = _thumbs;
+
+                var files = new List<string>();
+                try { foreach (var f in Directory.EnumerateFiles(dir)) if (IsImage(f)) files.Add(f); }
+                catch { /* アクセス不可は空 */ }
+                files.Sort(NaturalCompare);
+
+                int i = 0;
+                foreach (var f in files)
+                {
+                    string key = i.ToString();
+                    var thumb = MakeThumb(f, 56);
+                    if (thumb != null) { _thumbs.Images.Add(key, thumb); _live.Add(thumb); }   // 破棄は次回再構築/Dispose で
+                    _images.Items.Add(new ListViewItem(Path.GetFileNameWithoutExtension(f))
+                    { ImageKey = thumb != null ? key : null, Tag = RelFromAsset(f) });
+                    i++;
+                }
+                oldThumbs?.Dispose();
+                foreach (var im in oldLive) im.Dispose();
+
+                if (!string.IsNullOrEmpty(_preselect))
+                    foreach (ListViewItem it in _images.Items)
+                        if (string.Equals(it.Tag as string, _preselect, StringComparison.OrdinalIgnoreCase))
+                        { it.Selected = true; it.EnsureVisible(); break; }
+            }
+            finally { _images.EndUpdate(); UseWaitCursor = false; }
+        }
+
+        // ファイル名（数字なら数値順、その他は文字列順）で比較する。1,2,10... を期待通りに並べる。
+        private static int NaturalCompare(string a, string b)
+        {
+            string na = Path.GetFileNameWithoutExtension(a), nb = Path.GetFileNameWithoutExtension(b);
+            if (int.TryParse(na, out int va) && int.TryParse(nb, out int vb)) return va.CompareTo(vb);
+            return string.Compare(na, nb, StringComparison.OrdinalIgnoreCase);
+        }
+
+        // size×size の正方サムネイル（アスペクト維持・中央寄せ）を生成する。読み込み失敗時は null。
+        // 返した Bitmap は ImageList が遅延実体化するまで保持が必要なため、呼び出し側で破棄管理する。
+        private static Image MakeThumb(string path, int size)
+        {
+            try
+            {
+                byte[] bytes = File.ReadAllBytes(path);
+                using var ms = new MemoryStream(bytes);
+                using var full = Image.FromStream(ms);
+                var bmp = new Bitmap(size, size);
+                using var g = Graphics.FromImage(bmp);
+                g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                double scale = Math.Min((double)size / full.Width, (double)size / full.Height);
+                int w = Math.Max(1, (int)(full.Width * scale)), h = Math.Max(1, (int)(full.Height * scale));
+                g.DrawImage(full, (size - w) / 2, (size - h) / 2, w, h);
+                return bmp;
+            }
+            catch { return null; }
+        }
+
+        // フルパス→GameAssetRoot からの相対パス（/区切り）。
+        private string RelFromAsset(string full)
+        {
+            try { return Path.GetRelativePath(_assetRoot, full).Replace('\\', '/'); }
+            catch { return full.Replace('\\', '/'); }
+        }
+
+        // 現在の選択を ResultPath へ確定する。未選択なら false。
+        private bool TrySelect()
+        {
+            if (_images.SelectedItems.Count == 0) return false;
+            ResultPath = _images.SelectedItems[0].Tag as string;
+            return !string.IsNullOrEmpty(ResultPath);
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                _thumbs?.Dispose();
+                foreach (var im in _live) im.Dispose();
+                _live.Clear();
+            }
+            base.Dispose(disposing);
         }
     }
 }

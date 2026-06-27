@@ -32,7 +32,7 @@ namespace InstantaleSaveEditor
         { "head", "body", "arms", "legs", "organs", "sanity" };
         // ログ・記憶など構造が複雑な項目は専用UIを作らず JSON 編集ボタンで扱う。表示名は player.opaque.<key>。
         private static readonly string[] OpaqueKeys =
-        { "skills", "memory", "current_log", "image_src", "story_achievements" };
+        { "memory", "current_log", "image_src", "story_achievements" };
 
         private JsonObject _pd;                                            // player_data 本体
         private JsonObject _areas;                                         // areas データ（エリアComboBox生成用）
@@ -43,6 +43,7 @@ namespace InstantaleSaveEditor
         private readonly Dictionary<string, ComboBox> _combos = new();    // ComboBox で表示する基本値欄
         private readonly Dictionary<string, TextBox> _abil = new();        // 能力値の入力欄(キー→欄)
         private DataGridView _bodyGrid;                                    // 身体部位の表
+        private SkillListPanel _skillPanel;                               // スキル一覧（NPCと共通）
         private ListBox _traitList;                                       // 特性一覧
         private InventoryPanel _invPanel;                                 // インベントリ（グリッド＋追加/編集/削除。NPCと共通）
         private ComboBox _cbWeapon, _cbWearable;                          // 装備(アイテムID参照)
@@ -92,7 +93,7 @@ namespace InstantaleSaveEditor
             var sections = new Control[]
             {
                 BuildBasic(), BuildDescriptions(), BuildImages(), BuildAbilities(), BuildBody(),
-                BuildTraits(), BuildInventoryAndEquip(), BuildLifeLog(), BuildAreaHistory(), BuildOpaque(),
+                BuildSkills(), BuildTraits(), BuildInventoryAndEquip(), BuildLifeLog(), BuildAreaHistory(), BuildOpaque(),
             };
             for (int i = 0; i < sections.Length; i++)
             {
@@ -148,8 +149,11 @@ namespace InstantaleSaveEditor
                 if (!_basic.TryGetValue(key, out var tb)) continue;
                 if (isInt)
                 {
-                    if (!long.TryParse(tb.Text, out long lv)) return Fail(key, I18n.T("type.integer"));
-                    _pd[key] = lv;
+                    // 整数ならそのまま。小数が入っていたら小数点以下切り捨てで整数化。
+                    // 数値として解釈できない（文字列等）場合のみ型エラー。
+                    if (long.TryParse(tb.Text, out long lv)) _pd[key] = lv;
+                    else if (double.TryParse(tb.Text, out double dv)) _pd[key] = (long)dv;
+                    else return Fail(key, I18n.T("type.integer"));
                 }
                 else _pd[key] = tb.Text;
             }
@@ -310,6 +314,17 @@ namespace InstantaleSaveEditor
             return g;
         }
 
+        // スキル一覧。skills はスキル名をキーにした辞書。一覧＋追加/編集/削除は NPC と共通の
+        // SkillListPanel に委譲する（辞書を直接書き換えるため別途 Apply 不要＝即反映）。
+        private GroupBox BuildSkills()
+        {
+            var g = Group(I18n.T("player.group.skills"), 200);
+            _skillPanel = new SkillListPanel { Dock = DockStyle.Top };
+            _skillPanel.Bind(EnsureObj("skills"));   // 無ければ作る（追加操作の受け皿）
+            g.Controls.Add(_skillPanel);
+            return g;
+        }
+
         // 特性一覧。追加は最小テンプレを足し、編集/削除は選択行に対して JSON ダイアログ等で行う。
         // 配列を直接書き換えるため別途 Apply 不要（即反映）。
         private GroupBox BuildTraits()
@@ -331,7 +346,8 @@ namespace InstantaleSaveEditor
         // 追加/削除はグリッド外のボタンで行い（v1 スコープ外の機能を維持）、選択は単一クリックで行う。
         private GroupBox BuildInventoryAndEquip()
         {
-            var g = Group(I18n.T("player.group.invEquip"), 520);
+            // 高さは グリッド(360) + ボタン列 + 画像未設定の警告ラベル + 装備コンボ が収まる値。
+            var g = Group(I18n.T("player.group.invEquip"), 580);
 
             // インベントリは NPC と共通の InventoryPanel（グリッド＋追加/編集/削除）。
             // 変更時は装備コンボを作り直す（削除したアイテムを装備していた場合の追従）。
