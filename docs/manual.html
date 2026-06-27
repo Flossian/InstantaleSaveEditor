@@ -111,7 +111,7 @@
 <div class="wrap">
 
 <header class="title">
-  <h1>Instantale Save Editor 説明書 <span class="badge">v7</span></h1>
+  <h1>Instantale Save Editor 説明書 <span class="badge">v8</span></h1>
   <div class="sub">ゲーム <strong>Instantale</strong> のセーブデータ／ワールドデータ編集ツール（非公式）</div>
 </header>
 
@@ -133,8 +133,10 @@
     <li><a href="#lifelog">生涯ログの編集</a></li>
     <li><a href="#relationship">好感度の編集</a></li>
     <li><a href="#areahistory">エリア履歴の編集</a></li>
+    <li><a href="#inventory">インベントリの編集 <span class="badge">v8</span></a></li>
+    <li><a href="#skills">スキルの編集 <span class="badge">v8</span></a></li>
     <li><a href="#image">キャラクター画像の編集</a></li>
-    <li><a href="#quest">クエスト作成 <span class="badge">v6</span></a></li>
+    <li><a href="#quest">クエスト作成</a></li>
     <li><a href="#npcio">NPC のエクスポート／インポート <span class="badge">v7</span></a></li>
     <li><a href="#player2npc">プレイヤーを NPC 化 <span class="badge">v7</span></a></li>
     <li><a href="#settings">設定（言語・バックアップ・ウィンドウ） <span class="badge">v7</span></a></li>
@@ -172,7 +174,7 @@
 <table>
   <tr><th>項目</th><th>説明</th></tr>
   <tr><td>クエスト作成（テンプレから）...</td><td>テンプレートと部品からダンジョンとクエストを生成します。<a href="#quest">詳細</a>。</td></tr>
-  <tr><td>クエストをテンプレ化... <span class="badge">v6</span></td><td>既存の world_data / savedata からクエストのテンプレと部品（敵・ボス・イベント）を <code>templates/</code> フォルダへ書き出します。<a href="#quest">詳細</a>。</td></tr>
+  <tr><td>クエストをテンプレ化...</td><td>既存の world_data / savedata からクエストのテンプレと部品（敵・ボス・イベント）を <code>templates/</code> フォルダへ書き出します。<a href="#quest">詳細</a>。</td></tr>
   <tr><td>NPCをインポート... <span class="badge">v7</span></td><td>NPC パッケージ（zip）を読み込み、配置先を指定して現在のワールドへ取り込みます。<a href="#npcio">詳細</a>。</td></tr>
   <tr><td>プレイヤーをNPCに... <span class="badge">v7</span></td><td>プレイヤーを NPC に変換して <code>npcs</code> へ追加、または zip として書き出します。<a href="#player2npc">詳細</a>。</td></tr>
   <tr><td>全体をJSONで編集...</td><td>データ全体を JSON テキストとして直接編集します（上級者向け）。</td></tr>
@@ -198,9 +200,10 @@
   <tr><td>能力値</td><td>6 つの能力値。<code>0</code> や空欄は無効値として扱われます。</td></tr>
   <tr><td>身体部位</td><td>6 部位の状態を表で編集します。</td></tr>
   <tr><td>特性(traits)</td><td>所持している特性の一覧。</td></tr>
-  <tr><td>インベントリ・装備</td><td>所持アイテムと、武器・装備品（アイテム ID をプルダウンで指定）。</td></tr>
+  <tr><td>スキル(skills) <span class="badge">v8</span></td><td>所持スキルの一覧。各スキルを専用フォームで編集します。<a href="#skills">詳細</a>。</td></tr>
+  <tr><td>インベントリ・装備 <span class="badge">v8</span></td><td>所持アイテムを<strong>グリッド（格子）</strong>で配置・編集し、武器・装備品はアイテム ID をプルダウンで指定します。<a href="#inventory">詳細</a>。</td></tr>
   <tr><td>生涯ログ(life_log)</td><td>これまでの出来事の記録。<a href="#lifelog">詳細</a>。</td></tr>
-  <tr><td>エリア履歴(area_history) <span class="badge">v5</span></td><td>エリアごとの滞在日数・秩序度・実績などを表（グリッド）で編集します。<a href="#areahistory">詳細</a>。</td></tr>
+  <tr><td>エリア履歴(area_history)</td><td>エリアごとの滞在日数・秩序度・実績などを表（グリッド）で編集します。<a href="#areahistory">詳細</a>。</td></tr>
   <tr><td>その他（JSON編集）</td><td>記憶・現在ログなど、構造が複雑な項目は「JSON編集...」ボタンで丸ごと編集します。</td></tr>
 </table>
 
@@ -214,14 +217,14 @@
   <li>配列や複雑な構造は「JSON編集...」ボタンで編集します。</li>
   <li>NPC を選ぶと、説明文の下に<strong>画像パネル</strong>が表示されます（<a href="#image">詳細</a>）。</li>
   <li><code>areas</code> のうち、ダンジョン（<code>size</code> が <code>dungeon</code>）は <strong>dungeon</strong> として別ツリーにまとめて表示されます。編集・複製・削除の動作は通常の <code>areas</code> と同じです。</li>
-  <li><span class="badge">v6</span> <strong>npcs</strong> / <strong>quests</strong> / <strong>dungeon</strong> は、<strong>所属する拠点（area）ごとの見出し</strong>でグループ化して表示されます（見出しは「id: 名前 (件数)」。見出し自体は選択できません）。拠点が分からないものは「（エリアなし）」に、死亡している NPC は<strong>「死者」</strong>グループにまとめられます。</li>
+  <li><strong>npcs</strong> / <strong>quests</strong> / <strong>dungeon</strong> は、<strong>所属する拠点（area）ごとの見出し</strong>でグループ化して表示されます（見出しは「id: 名前 (件数)」。見出し自体は選択できません）。拠点が分からないものは「（エリアなし）」に、死亡している NPC は<strong>「死者」</strong>グループにまとめられます。</li>
   <li>facility（拠点）を選ぶと、説明文の下に対応する<strong>背景画像</strong>が表示されます（クリックで原寸表示。表示のみで差し替えはできません）。</li>
   <li>NPC の<strong>好感度（relationship）</strong>は、対象ごとに 1 行の<strong>表（グリッド）</strong>で表示・編集します（<a href="#relationship">詳細</a>）。</li>
   <li>NPC の<strong>画像生成プロンプト</strong>は <code>look</code> 欄（<strong>look(画像生成時のプロンプト)</strong>）に表示されます。</li>
-  <li><span class="badge">v5</span> 死亡している NPC（<code>config.is_dead</code> が <code>true</code>）は、一覧で名前の横に<strong>「（死亡）」</strong>と表示されます。</li>
+  <li>死亡している NPC（<code>config.is_dead</code> が <code>true</code>）は、一覧で名前の横に<strong>「（死亡）」</strong>と表示されます。</li>
 </ul>
 <div class="warn">
-  <strong>未生成 NPC の編集ロック</strong> <span class="badge">v4</span><br>
+  <strong>未生成 NPC の編集ロック</strong><br>
   立ち絵画像をまだ取得していない（＝ゲーム内で未生成の可能性がある）NPC は、誤編集でゲームが起動しなくなる恐れがあるため、
   <strong>既定で閲覧のみ（読み取り専用）</strong>になり、複製・削除も無効になります。
   どうしても編集する場合は <strong>「ロック解除」</strong>ボタンを押し、警告に同意してください。
@@ -233,10 +236,10 @@
   ここにはバトル中フラグ・会話状態・UI 退避情報など<strong>実行時の一時状態</strong>が多く含まれます。
   不用意な変更はゲーム進行と不整合を起こす可能性があります。仕組みが分からない項目は触らないことをおすすめします。
 </div>
-<p><span class="badge">v5</span> 項目を<strong>カテゴリ別の折りたたみグループ</strong>（パーティ・進行／戦闘状態／会話・入力状態／UI退避／ログ・テキスト／その他）に分けて表示します。
+<p>項目を<strong>カテゴリ別の折りたたみグループ</strong>（パーティ・進行／戦闘状態／会話・入力状態／UI退避／ログ・テキスト／その他）に分けて表示します。
   見出しをクリックすると開閉します。編集価値の高い<strong>「パーティ・進行」だけ既定で開いて</strong>おり、一時状態のグループは閉じています。</p>
 <p>
-  <span class="badge">v5</span> <strong>party（パーティ編成）</strong>は、メンバーを 1 行ずつ「ID: 名前」で表示し、
+  <strong>party（パーティ編成）</strong>は、メンバーを 1 行ずつ「ID: 名前」で表示し、
   <strong>「削除」ボタン</strong>で外す／末尾のプルダウンと<strong>「追加」ボタン</strong>で加えることができます（<code>player</code> は固定で削除できません）。
   死亡しているキャラには「（死亡）」が付き、追加しようとすると<strong>不整合の警告</strong>が出ます。
 </p>
@@ -256,7 +259,7 @@
   <li>表の<strong>下端のグレーの帯を上下にドラッグ</strong>すると、表の高さを変えられます。</li>
 </ul>
 
-<h2 id="relationship">7. 好感度の編集 <span class="badge">v4</span></h2>
+<h2 id="relationship">7. 好感度の編集</h2>
 <p>
   NPC の好感度（<code>relationship</code>）は、関係を持つ<strong>対象ごとに 1 行</strong>の表（グリッド）で編集します。
   対象が増えても自動で行が増えます。<strong>プレイヤー</strong>の行は常に先頭に表示されます。
@@ -275,7 +278,7 @@
   <li>表の<strong>下端のグレーの帯を上下にドラッグ</strong>すると、表の高さを変えられます。</li>
 </ul>
 
-<h2 id="areahistory">8. エリア履歴の編集 <span class="badge">v5</span></h2>
+<h2 id="areahistory">8. エリア履歴の編集</h2>
 <p>
   プレイヤータブの<strong>エリア履歴(area_history)</strong>は、訪れたエリアごとに 1 行の表（グリッド）で編集します。
   行の追加・削除はできず、<strong>既存エリアの値だけ</strong>を書き換えます。
@@ -293,7 +296,45 @@
   <li>表の<strong>下端のグレーの帯を上下にドラッグ</strong>すると、表の高さを変えられます。</li>
 </ul>
 
-<h2 id="image">9. キャラクター画像の編集</h2>
+<h2 id="inventory">9. インベントリの編集 <span class="badge">v8</span></h2>
+<p>
+  所持アイテム（<code>inventory</code>）は、ゲームと同じ<strong>格子（グリッド）</strong>で編集します。
+  各アイテムは自身の大きさ（<code>width_slots</code>×<code>height_slots</code>）どおりに表示され、設定したアイテム画像も格子上に描画されます。
+  プレイヤータブと NPC の両方で同じ操作です。
+</p>
+<table>
+  <tr><th>操作</th><th>説明</th></tr>
+  <tr><td>ドラッグ＆ドロップ</td><td>アイテムを掴んで別の位置へ<strong>移動</strong>します。置き先に別アイテムがあると<strong>入れ替え</strong>になります。</td></tr>
+  <tr><td>ダブルクリック／編集</td><td>選んだアイテムを<strong>編集ダイアログ</strong>で開きます（名前・種別・属性・説明・価値・レアリティなど）。</td></tr>
+  <tr><td>追加</td><td>新しいアイテム（1×1）を作成します。<strong>種別(item_type)</strong>を変えると、それに合わせて <code>item_detail</code>・属性・アイテム画像が自動で初期化されます。</td></tr>
+  <tr><td>削除</td><td>選択中のアイテムを削除します。</td></tr>
+</table>
+<div class="note">
+  アイテム画像は、設定の<strong>ゲーム導入先</strong>（<a href="#settings">設定</a>）を基準に各アイテムの <code>image_src</code> を解決して表示します。
+  ゲーム導入先が未設定、または画像が見つからないアイテムがあると、グリッドの上に<strong>「画像パスが未設定」</strong>の警告が出ます（編集自体は可能です）。
+</div>
+<div class="note">
+  格子の<strong>列数・行数</strong>は「設定 → ゲーム導入先・インベントリ」で変更できます（実際の所持枠に合わせて調整してください）。
+</div>
+
+<h2 id="skills">10. スキルの編集 <span class="badge">v8</span></h2>
+<p>
+  スキル（<code>skills</code>）は<strong>一覧＋追加／編集／削除</strong>で管理します。
+  一覧のスキルを<strong>ダブルクリック</strong>するか「編集」を押すと、専用フォームが開きます（生 JSON を触らずに編集できます）。
+  プレイヤータブと NPC の両方で同じ操作です。
+</p>
+<table>
+  <tr><th>項目</th><th>意味</th></tr>
+  <tr><td>名前</td><td>スキル名。</td></tr>
+  <tr><td>属性(element)</td><td>属性。既定値とセーブから抽出した実値から選べ、自由入力もできます。</td></tr>
+  <tr><td>種別(skill_type)</td><td>物理／魔法などの種別。</td></tr>
+  <tr><td>最大／現在の使用回数</td><td>使用回数の上限と残量。</td></tr>
+  <tr><td>有用度(usefulness)</td><td>有用度の数値。</td></tr>
+  <tr><td>説明</td><td>スキルの説明文。</td></tr>
+  <tr><td>効果(effects)</td><td>スキルの効果を一覧で追加・編集・削除します。効果の<strong>種別(type)</strong>に応じて入力欄が切り替わります。</td></tr>
+</table>
+
+<h2 id="image">11. キャラクター画像の編集</h2>
 <p>
   ワールドタブで <strong>NPC</strong> を選んだとき、またはプレイヤータブの<strong>キャラクター画像</strong>セクションで、
   顔画像と立ち絵 3 種（縮小色・ピクセル化・原本）が表示されます。どちらも操作は同じです。
@@ -304,13 +345,14 @@
   <tr><td>画像取込み（顔画像）</td><td>任意の画像ファイルを顔画像として取り込みます。</td></tr>
   <tr><td>顔画像指定（顔画像）</td><td>「使用する」立ち絵の上で範囲をドラッグして切り抜き、顔画像にします。</td></tr>
   <tr><td>使用する（立ち絵）</td><td>選んだ立ち絵をゲームが表示する画像に設定します。</td></tr>
+  <tr><td>取込（外部読み込み） <span class="badge">v8</span></td><td>任意の画像を<strong>外部の立ち絵枠</strong>に取り込みます。取込だけではゲームには反映されず、その枠の「使用する」を押すと表示に反映されます。</td></tr>
 </table>
 <div class="note">
   「使用する」はゲームが読み込む <code>reduced_color_image.png</code> を差し替えます。
   元の縮小色画像はバックアップに退避されるので、<strong>「立ち絵（縮小色）」の「使用する」</strong>を押せば元に戻せます。
 </div>
 
-<h2 id="quest">10. クエスト作成 <span class="badge">v6</span></h2>
+<h2 id="quest">12. クエスト作成</h2>
 <p>
   <strong>ツール → クエスト作成（テンプレから）</strong> から開く合成ビルダーです。文章類（基本情報＝タイトル・依頼主名・依頼概要・依頼主の発言、
   舞台＝ダンジョン名・舞台の描写・場所）は
@@ -331,7 +373,7 @@
   使用後は必ずゲームで動作を確認してください。
 </div>
 
-<h2 id="npcio">11. NPC のエクスポート／インポート <span class="badge">v7</span></h2>
+<h2 id="npcio">13. NPC のエクスポート／インポート <span class="badge">v7</span></h2>
 <p>
   NPC を <strong>JSON＋画像をまとめた zip パッケージ</strong>として書き出し、別のワールドへ取り込めます。
 </p>
@@ -355,7 +397,7 @@
   画像は <code>characters/{名前}/</code> へ展開されます。
 </div>
 
-<h2 id="player2npc">12. プレイヤーを NPC 化 <span class="badge">v7</span></h2>
+<h2 id="player2npc">14. プレイヤーを NPC 化 <span class="badge">v7</span></h2>
 <p>
   <strong>ツール → プレイヤーをNPCに</strong> から、プレイヤー（<code>player_data</code>）を NPC オブジェクトへ変換します。
   名前・年齢・性格・スキル・インベントリ・画像などはそのまま流用され、能力値は<strong>整数へ自動換算</strong>されます。
@@ -370,7 +412,7 @@
   生成後は<strong>ゲームで動作を確認</strong>してください。
 </div>
 
-<h2 id="settings">13. 設定（言語・バックアップ・ウィンドウ） <span class="badge">v7</span></h2>
+<h2 id="settings">15. 設定（言語・バックアップ・ウィンドウ・ゲーム導入先） <span class="badge">v7</span></h2>
 <p><strong>設定</strong>メニューから、UI 言語・自動バックアップ・ウィンドウの挙動を変更できます。設定は exe と同じ場所の <code>settings.json</code> に保存されます。</p>
 
 <h3>言語</h3>
@@ -395,12 +437,21 @@
   内容に変化がない保存ではバックアップは作られません。メニューバー右端で現在 ON/OFF を確認できます。
 </div>
 
+<h3>ゲーム導入先・インベントリ <span class="badge">v8</span></h3>
+<p>
+  <strong>ゲーム導入先</strong>は、インベントリのアイテム画像（各アイテムの <code>image_src</code>）を解決する基準フォルダです。
+  Instantale をインストールしたフォルダを指定すると、グリッドにアイテム画像が表示されます。未設定でも編集はできますが、画像は出ません。
+</p>
+<p>
+  <strong>インベントリの列数・行数</strong>で、<a href="#inventory">インベントリの編集</a>に使う格子の大きさを指定します（実際の所持枠に合わせて調整してください）。
+</p>
+
 <h3>その他（ウィンドウ）</h3>
 <p>
   ウィンドウサイズを<strong>前回のサイズを記憶</strong>するか<strong>固定サイズ</strong>で起動するかを選べます。起動位置の記憶も指定できます。
 </p>
 
-<h2 id="files">14. データの保存場所</h2>
+<h2 id="files">16. データの保存場所</h2>
 <table>
   <tr><th>種類</th><th>場所</th></tr>
   <tr><td>セーブデータ</td><td><code>%LocalAppData%\Darmabeko\Instantale\saves\{ワールド名}\savedata.json</code></td></tr>
@@ -411,7 +462,7 @@
   ※ <code>%AppData%</code> はエクスプローラーのアドレス欄にそのまま入力すると開けます。
 </p>
 
-<h2 id="faq">15. 困ったときは</h2>
+<h2 id="faq">17. 困ったときは</h2>
 <ul>
   <li><strong>編集が反映されない</strong> … 入力欄から<strong>フォーカスを外す</strong>（別の場所をクリック）と反映されます。最後に「上書き保存」を忘れずに。</li>
   <li><strong>ゲームがセーブを読み込めなくなった</strong> … 自動バックアップ（<code>backups\</code> 内の zip）または手動コピーから戻してください。</li>
