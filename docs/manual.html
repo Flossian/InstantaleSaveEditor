@@ -151,15 +151,14 @@
 <ol>
   <li><strong>ファイル → 開く</strong> で対象データ（<code>savedata.json</code> または <code>world_data.json</code>）を選びます。</li>
   <li>上部のタブ（<strong>プレイヤー／ワールド／ゲーム変数</strong>）を切り替えて編集します。</li>
-  <li>入力欄の値は<strong>フォーカスが外れた時点</strong>（別の欄をクリック等）でデータに反映されます。</li>
-  <li><strong>ファイル → 上書き保存</strong> でファイルに書き戻します。</li>
+  <li>入力欄の値は<strong>フォーカスが外れた時点</strong>（別の欄をクリック等）で反映されます。</li>
+  <li><strong>ファイル → 上書き保存</strong> で書き戻します。</li>
 </ol>
 <div class="note">
-  ワールドデータ（<code>world_data.json</code>）のように <code>player_data</code> や <code>game_variables</code> を含まないファイルも開けます。
-  その場合、該当するタブには「ありません」と表示されます。
+  <code>player_data</code> や <code>game_variables</code> を含まないファイル（<code>world_data.json</code> など）も開けます。該当タブには「ありません」と表示されます。
 </div>
 <div class="warn">
-  保存するとファイルが上書きされます。元に戻せるよう、<strong>初回は必ずコピーを取ってから</strong>編集してください。
+  保存するとファイルが上書きされます。<strong>初回は必ずコピーを取ってから</strong>編集してください。
 </div>
 
 <h2 id="menu">2. メニュー一覧</h2>
@@ -212,19 +211,15 @@
 
 <h2 id="world">4. ワールドタブ</h2>
 <p>
-  左側のツリーから対象（<code>areas</code> / <code>npcs</code> / <code>quests</code> / <code>story_quests</code> / <code>index</code> など）を選ぶと、
-  右側に編集フォームが表示されます。値は型に応じて自動でウィジェット化されます。
+  左側のツリーから対象（<code>areas</code> / <code>npcs</code> / <code>quests</code> / <code>story_quests</code> / <code>index</code> など）を選ぶと、右側に編集フォームが表示されます。値は型に応じて自動でウィジェット化されます。
 </p>
 <ul>
-  <li>長い文章はリサイズ可能なテキスト枠で編集できます。</li>
-  <li>配列や複雑な構造は「JSON編集...」ボタンで編集します。</li>
-  <li>NPC を選ぶと、説明文の下に<strong>画像パネル</strong>が表示されます（<a href="#image">詳細</a>）。</li>
-  <li><code>areas</code> のうち、ダンジョン（<code>size</code> が <code>dungeon</code>）は <strong>dungeon</strong> として別ツリーにまとめて表示されます。編集・複製・削除の動作は通常の <code>areas</code> と同じです。</li>
-  <li><strong>npcs</strong> / <strong>quests</strong> / <strong>dungeon</strong> は、<strong>所属する拠点（area）ごとの見出し</strong>でグループ化して表示されます（見出しは「id: 名前 (件数)」。見出し自体は選択できません）。拠点が分からないものは「（エリアなし）」に、死亡している NPC は<strong>「死者」</strong>グループにまとめられます。</li>
-  <li>facility（拠点）を選ぶと、説明文の下に対応する<strong>背景画像</strong>が表示されます（クリックで原寸表示。表示のみで差し替えはできません）。</li>
-  <li>NPC の<strong>好感度（relationship）</strong>は、対象ごとに 1 行の<strong>表（グリッド）</strong>で表示・編集します（<a href="#relationship">詳細</a>）。</li>
-  <li>NPC の<strong>画像生成プロンプト</strong>は <code>look</code> 欄（<strong>look(画像生成時のプロンプト)</strong>）に表示されます。</li>
-  <li>死亡している NPC（<code>config.is_dead</code> が <code>true</code>）は、一覧で名前の横に<strong>「（死亡）」</strong>と表示されます。</li>
+  <li>長い文章はリサイズ可能なテキスト枠、配列や複雑な構造は「JSON編集...」ボタンで編集します。</li>
+  <li>NPC を選ぶと説明文の下に<strong>画像パネル</strong>（<a href="#image">詳細</a>）、facility（拠点）を選ぶと<strong>背景画像</strong>（クリックで原寸表示。差し替え不可）が表示されます。</li>
+  <li>ダンジョン（<code>size</code> が <code>dungeon</code> の <code>areas</code>）は <strong>dungeon</strong> として別ツリーに表示されます（操作は通常の <code>areas</code> と同じ）。</li>
+  <li><strong>npcs</strong> / <strong>quests</strong> / <strong>dungeon</strong> は<strong>所属拠点（area）ごとの見出し</strong>（「id: 名前 (件数)」。選択不可）でグループ化されます。拠点不明は「（エリアなし）」、死亡 NPC は<strong>「死者」</strong>グループへ。</li>
+  <li>NPC の<strong>好感度（relationship）</strong>は対象ごとに 1 行の表で編集します（<a href="#relationship">詳細</a>）。画像生成プロンプトは <code>look</code> 欄に表示されます。</li>
+  <li>死亡 NPC（<code>config.is_dead</code> が <code>true</code>）は一覧で名前の横に<strong>「（死亡）」</strong>と表示されます。</li>
 </ul>
 <div class="warn">
   <strong>未生成 NPC の編集ロック</strong><br>
@@ -239,12 +234,9 @@
   ここにはバトル中フラグ・会話状態・UI 退避情報など<strong>実行時の一時状態</strong>が多く含まれます。
   不用意な変更はゲーム進行と不整合を起こす可能性があります。仕組みが分からない項目は触らないことをおすすめします。
 </div>
-<p>項目を<strong>カテゴリ別の折りたたみグループ</strong>（パーティ・進行／戦闘状態／会話・入力状態／UI退避／ログ・テキスト／その他）に分けて表示します。
-  見出しをクリックすると開閉します。編集価値の高い<strong>「パーティ・進行」だけ既定で開いて</strong>おり、一時状態のグループは閉じています。</p>
+<p>項目を<strong>カテゴリ別の折りたたみグループ</strong>（パーティ・進行／戦闘状態／会話・入力状態／UI退避／ログ・テキスト／その他）に分けて表示します。見出しクリックで開閉でき、編集価値の高い<strong>「パーティ・進行」だけ既定で開いて</strong>います。</p>
 <p>
-  <strong>party（パーティ編成）</strong>は、メンバーを 1 行ずつ「ID: 名前」で表示し、
-  <strong>「削除」ボタン</strong>で外す／末尾のプルダウンと<strong>「追加」ボタン</strong>で加えることができます（<code>player</code> は固定で削除できません）。
-  死亡しているキャラには「（死亡）」が付き、追加しようとすると<strong>不整合の警告</strong>が出ます。
+  <strong>party（パーティ編成）</strong>はメンバーを「ID: 名前」で 1 行ずつ表示し、<strong>「削除」</strong>で外す／末尾プルダウンと<strong>「追加」</strong>で加えられます（<code>player</code> は削除不可）。死亡キャラには「（死亡）」が付き、追加時に<strong>不整合の警告</strong>が出ます。
 </p>
 
 <h2 id="lifelog">6. 生涯ログの編集</h2>
@@ -313,15 +305,10 @@
   <tr><td>削除</td><td>選択中のアイテムを削除します。</td></tr>
 </table>
 <div class="note">
-  アイテム画像は、設定の<strong>ゲーム導入先</strong>（<a href="#settings">設定</a>）を基準に各アイテムの <code>image_src</code> を解決して表示します。
-  ゲーム導入先が未設定、または画像が見つからないアイテムがあると、グリッドの上に<strong>「画像パスが未設定」</strong>の警告が出ます（編集自体は可能です）。
+  アイテム画像は設定の<strong>ゲーム導入先</strong>（<a href="#settings">設定</a>）を基準に各アイテムの <code>image_src</code> から解決します。未設定や画像が見つからない場合はグリッド上に<strong>「画像パスが未設定」</strong>と警告が出ます（編集は可能）。格子の<strong>列数・行数</strong>も同じ設定で変更できます。
 </div>
 <div class="note">
-  格子の<strong>列数・行数</strong>は「設定 → ゲーム導入先・インベントリ」で変更できます（実際の所持枠に合わせて調整してください）。
-</div>
-<div class="note">
-  グリッド画面の<strong>「エクスポート」「インポート」</strong>ボタンでアイテムを zip として持ち出し／取り込みできます。
-  プレイヤーのインベントリでは、ツール内の<strong>倉庫</strong>にアイテムを一時保管することもできます（<a href="#itemio">詳細</a>）。<span class="badge">v9</span>
+  グリッド画面の<strong>「エクスポート」「インポート」</strong>でアイテムを zip として持ち出し／取り込みできます。プレイヤーのインベントリではツール内の<strong>倉庫</strong>にも一時保管できます（<a href="#itemio">詳細</a>）。<span class="badge">v9</span>
 </div>
 
 <h2 id="itemio">10. アイテムの倉庫・エクスポート／インポート <span class="badge">v9</span></h2>
@@ -392,19 +379,13 @@
 
 <h2 id="quest">13. クエスト作成</h2>
 <p>
-  <strong>ツール → クエスト作成（テンプレから）</strong> から開く合成ビルダーです。文章類（基本情報＝タイトル・依頼主名・依頼概要・依頼主の発言、
-  舞台＝ダンジョン名・舞台の描写・場所）は
-  <strong>自由に入力</strong>でき、各欄の<strong>「テンプレ」ボタン</strong>を押すと、保存済みテンプレ（<code>templates/quests/</code>）の値を一覧から選んで流用できます。
-  <strong>「テンプレ一括読込」</strong>を押すと、選んだテンプレの内容を各欄へまとめて流し込みます。
+  <strong>ツール → クエスト作成（テンプレから）</strong> から開く合成ビルダーです。文章類（タイトル・依頼主名・依頼概要・発言、ダンジョン名・描写・場所）は<strong>自由入力</strong>でき、各欄の<strong>「テンプレ」</strong>で保存済みテンプレ（<code>templates/quests/</code>）の値を流用、<strong>「テンプレ一括読込」</strong>で各欄へまとめて流し込めます。
 </p>
 <p>
-  敵（<strong>enemies</strong>）・<strong>ボス</strong>・戦闘<strong>イベント</strong>は、部品ライブラリ
-  （<code>templates/enemies</code> / <code>bosses</code> / <code>events</code>）から選んで追加し、各要素は<strong>「JSON編集」</strong>で微調整できます。
-  内容を整えて<strong>「作成」</strong>を押すと、場所一覧からダンジョン（area）が生成され、クエスト（quest）として選んだ<strong>発注拠点</strong>に紐付きます。
+  敵（<strong>enemies</strong>）・<strong>ボス</strong>・戦闘<strong>イベント</strong>は部品ライブラリ（<code>templates/{enemies,bosses,events}</code>）から選んで追加し、各要素は<strong>「JSON編集」</strong>で微調整します。<strong>「作成」</strong>でダンジョン（area）が生成され、クエストとして選んだ<strong>発注拠点</strong>に紐付きます。
 </p>
 <div class="note">
-  部品テンプレ（敵・ボス・イベント）やクエストの文章テンプレは、<strong>ツール → クエストをテンプレ化</strong>で既存のワールド／セーブから書き出せます。
-  対象ファイルを選ぶと、そのクエストと部品が <code>templates/</code> フォルダへ抽出されます（出力先はダイアログに表示されます）。
+  部品・文章テンプレは<strong>ツール → クエストをテンプレ化</strong>で既存のワールド／セーブから <code>templates/</code> へ書き出せます（出力先はダイアログに表示）。
 </div>
 <div class="warn">
   生成されるクエストはテンプレと部品をもとにした<strong>素案</strong>です。導線（<code>connections</code>）は変更しません。
@@ -417,16 +398,14 @@
 </p>
 <h3>エクスポート</h3>
 <p>
-  ワールドタブで <strong>NPC を選び</strong>、画像パネル付近の<strong>「エクスポート」</strong>ボタンを押します。
-  NPC の JSON と <code>characters/{名前}/</code> の画像が 1 つの zip にまとまり、exe と同じ場所の <code>npc\{ワールド名}\</code> フォルダへ保存されます（同名があれば <code>名前(2).zip</code> のように自動で別名にします）。
+  ワールドタブで <strong>NPC を選び</strong>、画像パネル付近の<strong>「エクスポート」</strong>を押します。NPC の JSON と <code>characters/{名前}/</code> の画像が zip にまとまり、exe と同じ場所の <code>npc\{ワールド名}\</code> へ保存されます（同名は <code>名前(2).zip</code> のように自動別名）。
 </p>
 <div class="note">
-  出力先はワールドごとに分かれます <span class="badge">v9</span>。設定の<strong>「ワールド毎にフォルダを分けて出力する」</strong>をオフにすると、ワールドを区別せず <code>npc\ALL\</code> へまとめて出力します（<a href="#settings">設定</a>）。
+  設定の<strong>「ワールド毎にフォルダを分けて出力する」</strong>をオフにすると、ワールドを区別せず <code>npc\ALL\</code> へまとめて出力します（<a href="#settings">設定</a>）。<span class="badge">v9</span>
 </div>
 <h3>インポート</h3>
 <p>
-  <strong>ツール → NPCをインポート</strong> を開くと、配置を指定するダイアログが開きます。
-  zip ファイルを選ぶのではなく、<code>npc\</code> 配下に書き出してある NPC を画面の一覧から選びます。
+  <strong>ツール → NPCをインポート</strong> で配置指定ダイアログが開きます。zip を選ぶのではなく、<code>npc\</code> 配下に書き出し済みの NPC を一覧から選びます。
 </p>
 <table>
   <tr><th>項目</th><th>説明</th></tr>
@@ -498,17 +477,12 @@
 
 <h3>ゲーム導入先・インベントリ <span class="badge">v8</span></h3>
 <p>
-  <strong>ゲーム導入先</strong>は、インベントリのアイテム画像（各アイテムの <code>image_src</code>）を解決する基準フォルダです。
-  Instantale をインストールしたフォルダを指定すると、グリッドにアイテム画像が表示されます。未設定でも編集はできますが、画像は出ません。
-</p>
-<p>
-  <strong>インベントリの列数・行数</strong>で、<a href="#inventory">インベントリの編集</a>に使う格子の大きさを指定します（実際の所持枠に合わせて調整してください）。
+  <strong>ゲーム導入先</strong>は、インベントリのアイテム画像（<code>image_src</code>）を解決する基準フォルダです。Instantale をインストールしたフォルダを指定するとグリッドに画像が表示されます（未設定でも編集は可）。<strong>インベントリの列数・行数</strong>で<a href="#inventory">格子の大きさ</a>も指定できます。
 </p>
 
 <h3>NPCエクスポート <span class="badge">v9</span></h3>
 <p>
-  <strong>「ワールド毎にフォルダを分けて出力する」</strong>が ON（既定）のとき、NPC のエクスポートは出力元のワールド名で <code>npc\{ワールド名}\</code> へ振り分けます。
-  OFF にすると、ワールドを区別せず <code>npc\ALL\</code> へまとめて出力します（<a href="#npcio">NPC のエクスポート／インポート</a>）。
+  <strong>「ワールド毎にフォルダを分けて出力する」</strong>が ON（既定）なら <code>npc\{ワールド名}\</code>、OFF なら <code>npc\ALL\</code> へ出力します（<a href="#npcio">詳細</a>）。
 </p>
 
 <h3>その他（ウィンドウ）</h3>
