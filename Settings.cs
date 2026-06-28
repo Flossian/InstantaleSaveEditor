@@ -38,8 +38,12 @@ namespace InstantaleSaveEditor
         public int InventoryGridColumns { get; set; } = 4;          // グリッド列数（固定値。セーブからは読まない）
         public int InventoryGridRows { get; set; } = 6;             // グリッド行数（実容量に合わせユーザーが変更）
 
+        // --- NPC エクスポート ---
+        public bool NpcExportPerWorld { get; set; } = true;         // true: npc\{ワールド名}\ へ / false: npc\ALL\ へ
+
         // --- その他 ---
         public string LastOpenedFolder { get; set; } = "";          // ファイルダイアログの初期位置
+        public string LastImportNpcWorld { get; set; } = "";        // NPCインポート画面で最後に開いていたワールド
 
         // 起動時に読み込んだ現在の設定インスタンス（コントロール等から参照する）。
         // SettingsForm は同一インスタンスを書き換えるため、設定変更も即ここへ反映される。
@@ -190,6 +194,9 @@ namespace InstantaleSaveEditor
         private readonly NumericUpDown _invCols = new() { Minimum = 1, Maximum = 64, Width = 80 };
         private readonly NumericUpDown _invRows = new() { Minimum = 1, Maximum = 64, Width = 80 };
 
+        // NPC エクスポート。
+        private readonly CheckBox _npcPerWorld = new() { AutoSize = true };
+
         private readonly ComboBox _lang = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 160 };
         private readonly ComboBox _sizeMode = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 160 };
         private readonly NumericUpDown _fixedW = new() { Minimum = 400, Maximum = 10000, Width = 80 };
@@ -197,9 +204,9 @@ namespace InstantaleSaveEditor
         private readonly CheckBox _rememberPos = new() { AutoSize = true };
 
         // Localize() で文言を再適用するため、可視文言を持つ要素を保持する。
-        private GroupBox _grpBackup, _grpLanguage, _grpMisc, _grpAssetRoot, _grpInventory;
+        private GroupBox _grpBackup, _grpLanguage, _grpMisc, _grpAssetRoot, _grpInventory, _grpNpc;
         private Label _lblBaseFolder, _lblBaseHint, _lblRetention, _lblLang, _lblSizeMode, _lblFixedSize, _lblTimes;
-        private Label _lblAssetRoot, _lblAssetNote, _lblAssetHint, _lblInvCols, _lblInvRows;
+        private Label _lblAssetRoot, _lblAssetNote, _lblAssetHint, _lblInvCols, _lblInvRows, _lblNpcHint;
         private Button _btnBrowse, _btnBrowseAsset, _btnOk, _btnCancel;
 
         private readonly SettingsSection _section;   // 表示するセクション
@@ -225,11 +232,12 @@ namespace InstantaleSaveEditor
             BuildMiscGroup();
             BuildAssetRootGroup();
             BuildInventoryGroup();
+            BuildNpcGroup();
             switch (_section)
             {
-                case SettingsSection.Backup: root.Controls.Add(_grpBackup); Width = 460; Height = 270; break;
-                case SettingsSection.Language: root.Controls.Add(_grpLanguage); Width = 360; Height = 150; break;
-                default: root.Controls.Add(_grpMisc); root.Controls.Add(_grpAssetRoot); root.Controls.Add(_grpInventory); Width = 460; Height = 520; break;
+                case SettingsSection.Backup: root.Controls.Add(_grpBackup); Width = 460; Height = 286; break;
+                case SettingsSection.Language: root.Controls.Add(_grpLanguage); Width = 360; Height = 166; break;
+                default: root.Controls.Add(_grpMisc); root.Controls.Add(_grpAssetRoot); root.Controls.Add(_grpInventory); root.Controls.Add(_grpNpc); Width = 460; Height = 600; break;
             }
 
             Controls.Add(root);
@@ -278,6 +286,10 @@ namespace InstantaleSaveEditor
             _grpInventory.Text = I18n.T("settings.group.inventory");
             _lblInvCols.Text = I18n.T("settings.invCols");
             _lblInvRows.Text = I18n.T("settings.invRows");
+
+            _grpNpc.Text = I18n.T("settings.group.npc");
+            _npcPerWorld.Text = I18n.T("settings.npcPerWorld");
+            _lblNpcHint.Text = I18n.T("settings.npcPerWorldHint");
 
             // ウィンドウサイズモードのコンボ（選択は維持）。
             int sizeIdx = _sizeMode.SelectedIndex;
@@ -408,7 +420,7 @@ namespace InstantaleSaveEditor
         // 「インベントリ」グループ（グリッド列数/行数）。
         private GroupBox BuildInventoryGroup()
         {
-            _grpInventory = new GroupBox { Width = 410, Height = 90, Margin = new Padding(3) };
+            _grpInventory = new GroupBox { Width = 410, Height = 100, Margin = new Padding(3) };
             var t = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, Dock = DockStyle.Fill, Padding = new Padding(8, 20, 8, 8) };
 
             int r = 0;
@@ -422,6 +434,20 @@ namespace InstantaleSaveEditor
 
             _grpInventory.Controls.Add(t);
             return _grpInventory;
+        }
+
+        // 「NPCエクスポート」グループ（ワールド毎に分けるか）。
+        private GroupBox BuildNpcGroup()
+        {
+            _grpNpc = new GroupBox { Width = 410, Height = 90, Margin = new Padding(3) };
+            var t = new TableLayoutPanel { ColumnCount = 1, AutoSize = true, Dock = DockStyle.Fill, Padding = new Padding(8, 20, 8, 8) };
+
+            t.Controls.Add(_npcPerWorld, 0, 0);
+            _lblNpcHint = new Label { AutoSize = true, ForeColor = SystemColors.GrayText };
+            t.Controls.Add(_lblNpcHint, 0, 1);
+
+            _grpNpc.Controls.Add(t);
+            return _grpNpc;
         }
 
         // 言語コンボを I18n.GetAvailableLanguages() で（再）構築する。現在の選択コードを維持する。
@@ -452,7 +478,7 @@ namespace InstantaleSaveEditor
         // 下部の OK / キャンセル。
         private Panel BuildButtonBar()
         {
-            var bar = new Panel { Dock = DockStyle.Bottom, Height = 30 };
+            var bar = new Panel { Dock = DockStyle.Bottom, Height = 46, Padding = new Padding(0, 8, 8, 10) };
             _btnOk = new Button { Dock = DockStyle.Right, Width = 90, DialogResult = DialogResult.OK };
             _btnCancel = new Button { Dock = DockStyle.Right, Width = 90, DialogResult = DialogResult.Cancel };
             _btnOk.Click += (_, _) => { SaveValues(); Settings.Save(_s); };
@@ -486,6 +512,8 @@ namespace InstantaleSaveEditor
             _assetRoot.Text = _s.GameAssetRoot;
             _invCols.Value = Math.Clamp(_s.InventoryGridColumns, (int)_invCols.Minimum, (int)_invCols.Maximum);
             _invRows.Value = Math.Clamp(_s.InventoryGridRows, (int)_invRows.Minimum, (int)_invRows.Maximum);
+
+            _npcPerWorld.Checked = _s.NpcExportPerWorld;
         }
 
         // ウィジェットの値を設定へ書き戻す。
@@ -505,6 +533,8 @@ namespace InstantaleSaveEditor
             _s.GameAssetRoot = _assetRoot.Text.Trim();
             _s.InventoryGridColumns = (int)_invCols.Value;
             _s.InventoryGridRows = (int)_invRows.Value;
+
+            _s.NpcExportPerWorld = _npcPerWorld.Checked;
         }
 
         // チェック状態に応じて関連ウィジェットの有効/無効を切り替える。

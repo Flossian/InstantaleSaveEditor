@@ -545,7 +545,7 @@ namespace InstantaleSaveEditor
             string dest;
             try
             {
-                dest = NpcPortability.FreeExportPath(name);
+                dest = NpcPortability.FreeExportPath(name, NpcPortability.ExportWorldName(source));
                 NpcPortability.Export(npc, _worldDir, source, _curKey, dest);
             }
             catch (Exception ex)

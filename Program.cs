@@ -362,19 +362,19 @@ namespace InstantaleSaveEditor
             Status("status.templateExtracted", res.quests, res.enemies, res.bosses, res.events);
         }
 
-        // npc\ ライブラリの一覧から NPC を選び、配置先を指定してワールドへ挿入する。
+        // npc\{ワールド}\ のライブラリから NPC を選び、配置先を指定してワールドへ挿入する。
         private void ImportNpc()
         {
             if (_root == null) { MessageBox.Show(this, I18n.T("msg.openFileFirst")); return; }
             if (J.Obj(_root, "npcs") == null || J.Obj(_root, "areas") == null || J.Obj(_root, "index") == null)
             { MessageBox.Show(this, I18n.T("msg.noNpcsAreasIndex")); return; }
 
-            var infos = NpcPortability.ListLibrary();
-            if (infos.Count == 0)
+            var worlds = NpcPortability.ListWorlds();
+            if (worlds.Count == 0)
             { MessageBox.Show(this, I18n.T("npcimport.empty", NpcPortability.BaseDir())); return; }
 
             string worldDir = WorldTab.ResolveWorldDir(_path);
-            using var dlg = new NpcImportDialog(_root, worldDir, infos);
+            using var dlg = new NpcImportDialog(_root, worldDir, worlds);
             if (dlg.ShowDialog(this) == DialogResult.OK)
             {
                 _world.Bind(_root, _path);   // ツリー更新

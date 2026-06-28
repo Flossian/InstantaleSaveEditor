@@ -33,7 +33,17 @@ namespace InstantaleSaveEditor
         public const string Format = "instantale_npc";
 
         // ---------------- npc\ ライブラリ ----------------
-        // exe 隣の npc ディレクトリ（エクスポート先＝インポート一覧の対象）。
+        // ワールド名が不明なときに使うフォルダ名。
+        public const string UnknownWorld = "unknown";
+
+        // ワールド毎に分けない設定のときの集約フォルダ名。
+        public const string AllWorld = "ALL";
+
+        // エクスポート先のフォルダ名を設定に従って決める（ワールド毎=source / まとめる=ALL）。
+        public static string ExportWorldName(string source)
+            => (Settings.Current?.NpcExportPerWorld ?? true) ? source : AllWorld;
+
+        // exe 隣の npc ディレクトリ（エクスポート先＝インポート一覧の親）。配下を npc\{ワールド名}\ で分ける。
         // 単一ファイル発行では Assembly.Location が空になるため ProcessPath を使う。
         public static string BaseDir()
         {
@@ -41,10 +51,14 @@ namespace InstantaleSaveEditor
             return Path.Combine(dir, "npc");
         }
 
-        // npc\ 配下の重複しないエクスポート先パスを返す（name.zip, name(2).zip, ...）。
-        public static string FreeExportPath(string name)
+        // npc\{ワールド名}\ のフルパス（空なら unknown フォルダ）。
+        public static string WorldDir(string worldName)
+            => Path.Combine(BaseDir(), SafeFileName(string.IsNullOrWhiteSpace(worldName) ? UnknownWorld : worldName));
+
+        // npc\{ワールド名}\ 配下の重複しないエクスポート先パスを返す（name.zip, name(2).zip, ...）。
+        public static string FreeExportPath(string name, string worldName)
         {
-            string dir = BaseDir();
+            string dir = WorldDir(worldName);
             Directory.CreateDirectory(dir);
             string safe = SafeFileName(name);
             string path = Path.Combine(dir, safe + ".zip");
@@ -53,11 +67,23 @@ namespace InstantaleSaveEditor
             return path;
         }
 
-        // npc\ 配下の全 zip の概要を列挙する（壊れた zip は飛ばす。名前順）。
-        public static List<NpcPackageInfo> ListLibrary()
+        // npc\ 直下の、zip を1つ以上含むワールドフォルダ名を列挙する（名前順）。
+        public static List<string> ListWorlds()
+        {
+            var list = new List<string>();
+            string dir = BaseDir();
+            if (!Directory.Exists(dir)) return list;
+            foreach (var sub in Directory.EnumerateDirectories(dir))
+                try { if (Directory.EnumerateFiles(sub, "*.zip").Any()) list.Add(Path.GetFileName(sub)); }
+                catch { /* 走査失敗フォルダは飛ばす */ }
+            return list.OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList();
+        }
+
+        // npc\{ワールド名}\ 配下の全 zip の概要を列挙する（壊れた zip は飛ばす。名前順）。
+        public static List<NpcPackageInfo> ListLibrary(string worldName)
         {
             var list = new List<NpcPackageInfo>();
-            string dir = BaseDir();
+            string dir = WorldDir(worldName);
             if (!Directory.Exists(dir)) return list;
             foreach (var zipPath in Directory.EnumerateFiles(dir, "*.zip"))
                 try { list.Add(ReadInfo(zipPath)); } catch { /* 壊れた zip は無視 */ }
@@ -246,16 +272,19 @@ namespace InstantaleSaveEditor
     }
 
     // ---------------- インポート設定ダイアログ ----------------
-    // npc\ ライブラリの一覧から1体を選び、配置先(ダンジョン以外の area + facility)・
-    // 登録先(住人/冒険者)・名前重複の解決を指定し、OK で world へ挿入する。
+    // 上部のプルダウンで npc\ 配下のワールドを選び、そのワールドの NPC 一覧から1体を選んで、
+    // 配置先(ダンジョン以外の area + facility)・登録先(住人/冒険者)・名前重複の解決を指定し、
+    // OK で world へ挿入する。開いていたワールドは settings.json に保存し次回復元する。
     internal sealed class NpcImportDialog : Form
     {
         private readonly JsonObject _root;
         private readonly string _worldDir;
-        private readonly List<NpcPackageInfo> _infos;   // 一覧（npc\ 配下）
+        private readonly List<string> _worlds;          // npc\ 配下のワールド名一覧
+        private List<NpcPackageInfo> _infos = new();    // 選択中ワールドの NPC 一覧
         private NpcPackage _pkg;                         // 選択中パッケージ（未選択なら null）
         private readonly JsonObject _areas, _npcs, _index;
 
+        private readonly ComboBox _cbWorld = new() { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill };
         private readonly ListBox _lstPackages = new() { Dock = DockStyle.Fill, IntegralHeight = false };
         private PictureBox _pbFace;                      // プレビュー顔画像
         private TextBox _tbPreview;                      // プレビュー本文
@@ -277,9 +306,9 @@ namespace InstantaleSaveEditor
 
         public string ResultSummary { get; private set; }
 
-        public NpcImportDialog(JsonObject root, string worldDir, List<NpcPackageInfo> infos)
+        public NpcImportDialog(JsonObject root, string worldDir, List<string> worlds)
         {
-            _root = root; _worldDir = worldDir; _infos = infos ?? new List<NpcPackageInfo>();
+            _root = root; _worldDir = worldDir; _worlds = worlds ?? new List<string>();
             _areas = J.Obj(_root, "areas"); _npcs = J.Obj(_root, "npcs"); _index = J.Obj(_root, "index");
 
             Text = I18n.T("npcimport.title");
@@ -314,25 +343,63 @@ namespace InstantaleSaveEditor
             _rbRenameExisting.CheckedChanged += (_, _) => UpdateCollisionUi();
             _rbOverwrite.CheckedChanged += (_, _) => UpdateCollisionUi();
 
-            // 一覧の各要素を載せ、先頭を選択して反映する。
-            foreach (var info in _infos) _lstPackages.Items.Add(FormatListItem(info));
+            // 一覧の選択ハンドラを先に張る（ワールド選択→一覧再構築で発火するため）。
             _lstPackages.SelectedIndexChanged += (_, _) => OnSelectPackage();
+
+            // ワールド一覧を載せ、前回のワールド（無ければ先頭）を選ぶ。
+            foreach (var w in _worlds) _cbWorld.Items.Add(w);
+            _cbWorld.SelectedIndexChanged += (_, _) => ReloadList();
+            int initial = 0;
+            string last = Settings.Current?.LastImportNpcWorld;
+            if (!string.IsNullOrEmpty(last))
+            {
+                int idx = _worlds.FindIndex(w => string.Equals(w, last, StringComparison.OrdinalIgnoreCase));
+                if (idx >= 0) initial = idx;   // 見つからなければ先頭(0)
+            }
+            if (_cbWorld.Items.Count > 0) _cbWorld.SelectedIndex = initial; else ReloadList();
+        }
+
+        // 一覧行の表示文字列（名前）。ワールドは上のプルダウンで選ぶため名前のみ。
+        private static string FormatListItem(NpcPackageInfo info) => info.Name;
+
+        // 選択中ワールドの NPC 一覧を読み直して反映する（先頭を選択）。
+        private void ReloadList()
+        {
+            string world = _cbWorld.SelectedItem as string;
+            _infos = world != null ? NpcPortability.ListLibrary(world) : new List<NpcPackageInfo>();
+            _lstPackages.Items.Clear();
+            foreach (var info in _infos) _lstPackages.Items.Add(FormatListItem(info));
             if (_lstPackages.Items.Count > 0) _lstPackages.SelectedIndex = 0; else OnSelectPackage();
         }
 
-        // 一覧行の表示文字列（名前＋出典ワールド）。
-        private static string FormatListItem(NpcPackageInfo info)
-            => info.SourceWorld.Length > 0 ? $"{info.Name}  ({info.SourceWorld})" : info.Name;
-
-        // ---- 一覧 ----
+        // ---- 一覧（ワールド選択＋NPC一覧） ----
         private Control BuildList()
         {
-            var p = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2 };
-            p.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
-            p.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-            p.Controls.Add(new Label { Text = I18n.T("npcimport.listHeader"), AutoSize = true, Padding = new Padding(2, 2, 0, 2) }, 0, 0);
-            p.Controls.Add(_lstPackages, 0, 1);
+            var p = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4 };
+            p.RowStyles.Add(new RowStyle(SizeType.Absolute, 18));   // ワールドラベル
+            p.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));   // ワールドプルダウン
+            p.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));   // 一覧ヘッダ
+            p.RowStyles.Add(new RowStyle(SizeType.Percent, 100));   // NPC一覧
+            p.Controls.Add(new Label { Text = I18n.T("npcimport.world"), AutoSize = true, Padding = new Padding(2, 2, 0, 0) }, 0, 0);
+            p.Controls.Add(_cbWorld, 0, 1);
+            p.Controls.Add(new Label { Text = I18n.T("npcimport.listHeader"), AutoSize = true, Padding = new Padding(2, 2, 0, 2) }, 0, 2);
+            p.Controls.Add(_lstPackages, 0, 3);
             return p;
+        }
+
+        // 終了時：開いていたワールドを settings.json に保存する（OK/キャンセル問わず）。
+        protected override void OnFormClosed(FormClosedEventArgs e)
+        {
+            try
+            {
+                if (Settings.Current != null && _cbWorld.SelectedItem is string w)
+                {
+                    Settings.Current.LastImportNpcWorld = w;
+                    Settings.Save(Settings.Current);
+                }
+            }
+            catch { /* 設定保存失敗は致命的にしない */ }
+            base.OnFormClosed(e);
         }
 
         // ---- プレビュー（顔画像＋テキスト要約） ----

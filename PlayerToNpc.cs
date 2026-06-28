@@ -253,7 +253,7 @@ namespace InstantaleSaveEditor
             string dest;
             try
             {
-                dest = NpcPortability.FreeExportPath(name);
+                dest = NpcPortability.FreeExportPath(name, NpcPortability.ExportWorldName(source));
                 NpcPortability.Export(npc, _worldDir, source, npc["id"].ToString(), dest);
             }
             catch (Exception ex)
