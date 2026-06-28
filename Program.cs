@@ -362,30 +362,19 @@ namespace InstantaleSaveEditor
             Status("status.templateExtracted", res.quests, res.enemies, res.bosses, res.events);
         }
 
-        // NPCパッケージ(zip)を読み込み、配置先を指定してワールドへ挿入する。
+        // npc\ ライブラリの一覧から NPC を選び、配置先を指定してワールドへ挿入する。
         private void ImportNpc()
         {
             if (_root == null) { MessageBox.Show(this, I18n.T("msg.openFileFirst")); return; }
             if (J.Obj(_root, "npcs") == null || J.Obj(_root, "areas") == null || J.Obj(_root, "index") == null)
             { MessageBox.Show(this, I18n.T("msg.noNpcsAreasIndex")); return; }
 
-            using var ofd = new OpenFileDialog
-            {
-                Filter = I18n.T("filter.npcPackage"),
-                Title = I18n.T("title.selectNpcPackage"),
-            };
-            if (ofd.ShowDialog(this) != DialogResult.OK) return;
-
-            NpcPackage pkg;
-            try { pkg = NpcPortability.ReadPackage(ofd.FileName); }
-            catch (Exception ex)
-            {
-                MessageBox.Show(this, I18n.T("msg.loadFailed") + "\n\n" + ex.Message, I18n.T("title.failed"), MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return;
-            }
+            var infos = NpcPortability.ListLibrary();
+            if (infos.Count == 0)
+            { MessageBox.Show(this, I18n.T("npcimport.empty", NpcPortability.BaseDir())); return; }
 
             string worldDir = WorldTab.ResolveWorldDir(_path);
-            using var dlg = new NpcImportDialog(_root, worldDir, pkg);
+            using var dlg = new NpcImportDialog(_root, worldDir, infos);
             if (dlg.ShowDialog(this) == DialogResult.OK)
             {
                 _world.Bind(_root, _path);   // ツリー更新

@@ -533,7 +533,7 @@ namespace InstantaleSaveEditor
             Populate();
         }
 
-        // 選択中の NPC を JSON＋画像の zip としてエクスポートする。
+        // 選択中の NPC を JSON＋画像の zip として npc\ ライブラリへエクスポートする。
         private void ExportNpc()
         {
             if (_curContainer == null || _curKey == null || _curContainer[_curKey] is not JsonObject npc) return;
@@ -542,27 +542,18 @@ namespace InstantaleSaveEditor
             string source = J.Str(J.Obj(_root, "world_data"), "name");
             if (string.IsNullOrEmpty(source) && _worldDir != null) source = Path.GetFileName(_worldDir);
 
-            using var dlg = new SaveFileDialog
+            string dest;
+            try
             {
-                Filter = I18n.T("filter.npcPackageSave"),
-                DefaultExt = "zip",
-                FileName = SafeFileName(name) + ".zip",
-            };
-            if (dlg.ShowDialog(FindForm()) != DialogResult.OK) return;
-            try { NpcPortability.Export(npc, _worldDir, source, _curKey, dlg.FileName); }
+                dest = NpcPortability.FreeExportPath(name);
+                NpcPortability.Export(npc, _worldDir, source, _curKey, dest);
+            }
             catch (Exception ex)
             {
                 MessageBox.Show(I18n.T("msg.exportFailed") + "\n" + ex.Message, I18n.T("title.error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
-            MessageBox.Show(I18n.T("msg.npcExported", name, dlg.FileName), I18n.T("title.export"), MessageBoxButtons.OK, MessageBoxIcon.Information);
-        }
-
-        // ファイル名に使えない文字を '_' に置き換える。
-        private static string SafeFileName(string s)
-        {
-            foreach (var c in Path.GetInvalidFileNameChars()) s = s.Replace(c, '_');
-            return string.IsNullOrWhiteSpace(s) ? "npc" : s;
+            MessageBox.Show(I18n.T("msg.npcExported", name, dest), I18n.T("title.export"), MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         // 選択レコード（item/facility）を確認の上で削除する。

@@ -17,10 +17,89 @@ namespace InstantaleSaveEditor
         public Dictionary<string, byte[]> Images = new();  // 画像ファイル名 → 中身
     }
 
+    // npc\ ライブラリ一覧の表示用メタ情報（NPC 本体は読まず、名前・出典・顔画像のみ）。
+    internal sealed class NpcPackageInfo
+    {
+        public string Path = "";          // zip のフルパス
+        public string Name = "";          // 表示名
+        public string SourceWorld = "";   // 出典ワールド名
+        public string Job = "";           // 職業
+        public byte[] FaceImage;          // 顔画像（あれば）
+    }
+
     // NPC 移植（エクスポート/インポート）の入出力ロジック。UI は NpcImportDialog 側。
     internal static class NpcPortability
     {
         public const string Format = "instantale_npc";
+
+        // ---------------- npc\ ライブラリ ----------------
+        // exe 隣の npc ディレクトリ（エクスポート先＝インポート一覧の対象）。
+        // 単一ファイル発行では Assembly.Location が空になるため ProcessPath を使う。
+        public static string BaseDir()
+        {
+            string dir = Path.GetDirectoryName(Environment.ProcessPath ?? "") ?? AppContext.BaseDirectory;
+            return Path.Combine(dir, "npc");
+        }
+
+        // npc\ 配下の重複しないエクスポート先パスを返す（name.zip, name(2).zip, ...）。
+        public static string FreeExportPath(string name)
+        {
+            string dir = BaseDir();
+            Directory.CreateDirectory(dir);
+            string safe = SafeFileName(name);
+            string path = Path.Combine(dir, safe + ".zip");
+            for (int i = 2; File.Exists(path) && i < 1000; i++)
+                path = Path.Combine(dir, $"{safe}({i}).zip");
+            return path;
+        }
+
+        // npc\ 配下の全 zip の概要を列挙する（壊れた zip は飛ばす。名前順）。
+        public static List<NpcPackageInfo> ListLibrary()
+        {
+            var list = new List<NpcPackageInfo>();
+            string dir = BaseDir();
+            if (!Directory.Exists(dir)) return list;
+            foreach (var zipPath in Directory.EnumerateFiles(dir, "*.zip"))
+                try { list.Add(ReadInfo(zipPath)); } catch { /* 壊れた zip は無視 */ }
+            return list.OrderBy(i => i.Name, StringComparer.OrdinalIgnoreCase).ToList();
+        }
+
+        // zip のメタ情報＋顔画像だけを読む（一覧表示用。NPC 本体は読み込まない）。
+        public static NpcPackageInfo ReadInfo(string zipPath)
+        {
+            using var zip = ZipFile.OpenRead(zipPath);
+            var jsonEntry = zip.GetEntry("npc.json")
+                ?? throw new InvalidDataException(I18n.T("npcpkg.err.noJson"));
+            JsonObject wrapper;
+            using (var r = new StreamReader(jsonEntry.Open(), Encoding.UTF8))
+                wrapper = JsonNode.Parse(r.ReadToEnd())?.AsObject();
+            if (wrapper == null || J.Str(wrapper, "format") != Format)
+                throw new InvalidDataException(I18n.T("npcpkg.err.badFormat"));
+            var npc = J.Obj(wrapper, "npc");
+            var info = new NpcPackageInfo
+            {
+                Path = zipPath,
+                Name = J.Str(wrapper, "original_name", npc != null ? J.Str(npc, "name") : ""),
+                SourceWorld = J.Str(wrapper, "source_world"),
+                Job = npc != null ? J.Str(npc, "job") : "",
+            };
+            var face = zip.GetEntry("images/face_image.png");
+            if (face != null)
+            {
+                using var s = face.Open();
+                using var ms = new MemoryStream();
+                s.CopyTo(ms);
+                info.FaceImage = ms.ToArray();
+            }
+            return info;
+        }
+
+        // ファイル名に使えない文字を '_' に置き換える。
+        public static string SafeFileName(string s)
+        {
+            foreach (var c in Path.GetInvalidFileNameChars()) s = s.Replace(c, '_');
+            return string.IsNullOrWhiteSpace(s) ? "npc" : s;
+        }
 
         // ---------------- エクスポート ----------------
         // NPC 本体 + characters/{名前}/*.png を destZip に書き出す。
@@ -167,14 +246,19 @@ namespace InstantaleSaveEditor
     }
 
     // ---------------- インポート設定ダイアログ ----------------
-    // 取り込んだ NPC の配置先(ダンジョン以外の area + facility)・登録先(住人/冒険者)・
-    // 名前重複の解決を指定し、OK で world へ挿入する。
+    // npc\ ライブラリの一覧から1体を選び、配置先(ダンジョン以外の area + facility)・
+    // 登録先(住人/冒険者)・名前重複の解決を指定し、OK で world へ挿入する。
     internal sealed class NpcImportDialog : Form
     {
         private readonly JsonObject _root;
         private readonly string _worldDir;
-        private readonly NpcPackage _pkg;
+        private readonly List<NpcPackageInfo> _infos;   // 一覧（npc\ 配下）
+        private NpcPackage _pkg;                         // 選択中パッケージ（未選択なら null）
         private readonly JsonObject _areas, _npcs, _index;
+
+        private readonly ListBox _lstPackages = new() { Dock = DockStyle.Fill, IntegralHeight = false };
+        private PictureBox _pbFace;                      // プレビュー顔画像
+        private TextBox _tbPreview;                      // プレビュー本文
 
         private readonly ComboBox _cbArea = new() { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill };
         private readonly ComboBox _cbFac = new() { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill };
@@ -193,23 +277,30 @@ namespace InstantaleSaveEditor
 
         public string ResultSummary { get; private set; }
 
-        public NpcImportDialog(JsonObject root, string worldDir, NpcPackage pkg)
+        public NpcImportDialog(JsonObject root, string worldDir, List<NpcPackageInfo> infos)
         {
-            _root = root; _worldDir = worldDir; _pkg = pkg;
+            _root = root; _worldDir = worldDir; _infos = infos ?? new List<NpcPackageInfo>();
             _areas = J.Obj(_root, "areas"); _npcs = J.Obj(_root, "npcs"); _index = J.Obj(_root, "index");
 
             Text = I18n.T("npcimport.title");
-            Width = 640; Height = 600; StartPosition = FormStartPosition.CenterParent;
+            Width = 860; Height = 600; StartPosition = FormStartPosition.CenterParent;
             MinimizeBox = false; MaximizeBox = false;
 
-            var root2 = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3, Padding = new Padding(10) };
-            root2.RowStyles.Add(new RowStyle(SizeType.Absolute, 150));   // プレビュー
-            root2.RowStyles.Add(new RowStyle(SizeType.Percent, 100));    // 設定
-            root2.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));    // ボタン
-            root2.Controls.Add(BuildPreview(), 0, 0);
-            root2.Controls.Add(BuildSettings(), 0, 1);
-            root2.Controls.Add(BuildButtons(), 0, 2);
-            Controls.Add(root2);
+            // 左：一覧 / 右：プレビュー＋設定＋ボタン
+            var main = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Padding = new Padding(10) };
+            main.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 220));
+            main.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            main.Controls.Add(BuildList(), 0, 0);
+
+            var right = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3, Padding = new Padding(8, 0, 0, 0) };
+            right.RowStyles.Add(new RowStyle(SizeType.Absolute, 150));   // プレビュー
+            right.RowStyles.Add(new RowStyle(SizeType.Percent, 100));    // 設定
+            right.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));    // ボタン
+            right.Controls.Add(BuildPreview(), 0, 0);
+            right.Controls.Add(BuildSettings(), 0, 1);
+            right.Controls.Add(BuildButtons(), 0, 2);
+            main.Controls.Add(right, 1, 0);
+            Controls.Add(main);
 
             // 非ダンジョン area を列挙
             if (_areas != null)
@@ -219,50 +310,103 @@ namespace InstantaleSaveEditor
             _cbArea.SelectedIndexChanged += (_, _) => RefillFacilities();
             if (_cbArea.Items.Count > 0) _cbArea.SelectedIndex = 0;
 
-            // 名前重複の初期判定
-            _tbName.Text = _pkg.OriginalName;
             _rbRenameNew.CheckedChanged += (_, _) => UpdateCollisionUi();
             _rbRenameExisting.CheckedChanged += (_, _) => UpdateCollisionUi();
             _rbOverwrite.CheckedChanged += (_, _) => UpdateCollisionUi();
-            bool collide = NpcPortability.NameExists(_npcs, _pkg.OriginalName);
-            _grpCollision.Visible = collide;
-            if (collide)
-            {
-                _tbName.Text = SuggestFree(_pkg.OriginalName);
-                _tbExistingNew.Text = SuggestFree(_pkg.OriginalName + I18n.T("npcimport.oldSuffix"));
-            }
-            UpdateCollisionUi();
+
+            // 一覧の各要素を載せ、先頭を選択して反映する。
+            foreach (var info in _infos) _lstPackages.Items.Add(FormatListItem(info));
+            _lstPackages.SelectedIndexChanged += (_, _) => OnSelectPackage();
+            if (_lstPackages.Items.Count > 0) _lstPackages.SelectedIndex = 0; else OnSelectPackage();
+        }
+
+        // 一覧行の表示文字列（名前＋出典ワールド）。
+        private static string FormatListItem(NpcPackageInfo info)
+            => info.SourceWorld.Length > 0 ? $"{info.Name}  ({info.SourceWorld})" : info.Name;
+
+        // ---- 一覧 ----
+        private Control BuildList()
+        {
+            var p = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2 };
+            p.RowStyles.Add(new RowStyle(SizeType.Absolute, 22));
+            p.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            p.Controls.Add(new Label { Text = I18n.T("npcimport.listHeader"), AutoSize = true, Padding = new Padding(2, 2, 0, 2) }, 0, 0);
+            p.Controls.Add(_lstPackages, 0, 1);
+            return p;
         }
 
         // ---- プレビュー（顔画像＋テキスト要約） ----
         private Control BuildPreview()
         {
             var p = new Panel { Dock = DockStyle.Fill };
-            var pb = new PictureBox
+            _pbFace = new PictureBox
             {
                 SizeMode = PictureBoxSizeMode.Zoom, Width = 100, Height = 130,
                 Dock = DockStyle.Left, BorderStyle = BorderStyle.FixedSingle,
                 BackColor = Color.FromArgb(230, 230, 230),
             };
-            if (_pkg.Images.TryGetValue("face_image.png", out var face))
-                try { pb.Image = Image.FromStream(new MemoryStream(face)); } catch { }
-
-            var sb = new StringBuilder();
-            sb.AppendLine("■ " + J.Str(_pkg.Npc, "name"));
-            if (_pkg.SourceWorld.Length > 0) sb.AppendLine(I18n.T("npcimport.sourcePrefix") + _pkg.SourceWorld);
-            string job = J.Str(_pkg.Npc, "job");
-            if (job.Length > 0) sb.AppendLine(I18n.T("npcimport.jobPrefix") + job);
-            sb.AppendLine();
-            sb.Append(J.Str(_pkg.Npc, "look_description"));
-            var tb = new TextBox
+            _tbPreview = new TextBox
             {
                 Multiline = true, ReadOnly = true, Dock = DockStyle.Fill,
-                ScrollBars = ScrollBars.Vertical, WordWrap = true, Text = sb.ToString(), BackColor = SystemColors.Window,
+                ScrollBars = ScrollBars.Vertical, WordWrap = true, BackColor = SystemColors.Window,
             };
             // Dock.Fill は残り領域を占めるよう Dock.Left より先に追加する（後だと画像の裏に回り先頭行が隠れる）。
-            p.Controls.Add(tb);
-            p.Controls.Add(pb);
+            p.Controls.Add(_tbPreview);
+            p.Controls.Add(_pbFace);
             return p;
+        }
+
+        // 選択中パッケージの内容をプレビューへ反映する（未選択なら空表示）。
+        private void RefreshPreview()
+        {
+            var old = _pbFace.Image;
+            _pbFace.Image = null;
+            old?.Dispose();
+            if (_pkg != null && _pkg.Images.TryGetValue("face_image.png", out var face))
+                try { _pbFace.Image = Image.FromStream(new MemoryStream(face)); } catch { }
+
+            var sb = new StringBuilder();
+            if (_pkg != null)
+            {
+                sb.AppendLine("■ " + J.Str(_pkg.Npc, "name"));
+                if (_pkg.SourceWorld.Length > 0) sb.AppendLine(I18n.T("npcimport.sourcePrefix") + _pkg.SourceWorld);
+                string job = J.Str(_pkg.Npc, "job");
+                if (job.Length > 0) sb.AppendLine(I18n.T("npcimport.jobPrefix") + job);
+                sb.AppendLine();
+                sb.Append(J.Str(_pkg.Npc, "look_description"));
+            }
+            _tbPreview.Text = sb.ToString();
+        }
+
+        // 一覧の選択が変わったとき：パッケージ本体を読み込み、プレビューと名前重複UIを更新する。
+        private void OnSelectPackage()
+        {
+            int i = _lstPackages.SelectedIndex;
+            _pkg = null;
+            if (i >= 0 && i < _infos.Count)
+            {
+                try { _pkg = NpcPortability.ReadPackage(_infos[i].Path); }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(this, I18n.T("msg.loadFailed") + "\n\n" + ex.Message,
+                        I18n.T("title.failed"), MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
+            RefreshPreview();
+            InitCollisionForPackage();
+        }
+
+        // 選択中パッケージの名前重複を判定し、解決UIの初期状態を整える。
+        private void InitCollisionForPackage()
+        {
+            if (_pkg == null) { _grpCollision.Visible = false; UpdateCollisionUi(); return; }
+            bool collide = NpcPortability.NameExists(_npcs, _pkg.OriginalName);
+            _grpCollision.Visible = collide;
+            _rbRenameNew.Checked = true;
+            _tbName.Text = collide ? SuggestFree(_pkg.OriginalName) : _pkg.OriginalName;
+            if (collide)
+                _tbExistingNew.Text = SuggestFree(_pkg.OriginalName + I18n.T("npcimport.oldSuffix"));
+            UpdateCollisionUi();
         }
 
         // ---- 配置設定 ----
@@ -315,6 +459,7 @@ namespace InstantaleSaveEditor
         // ラジオ状態に応じて入力欄の有効/無効と警告表示を更新する。
         private void UpdateCollisionUi()
         {
+            if (_pkg == null) { _lblOverwrite.Text = ""; _lblWarn.Text = ""; return; }
             bool renameExisting = _rbRenameExisting.Checked;
             bool overwrite = _rbOverwrite.Checked;
             _tbName.Enabled = !renameExisting && !overwrite;
@@ -366,6 +511,8 @@ namespace InstantaleSaveEditor
         // 入力を検証し、NPC を world へ挿入する。
         private void Create()
         {
+            if (_pkg == null)
+            { MessageBox.Show(this, I18n.T("npcimport.errSelectPackage")); return; }
             if (_areas == null || _npcs == null || _index == null)
             { MessageBox.Show(this, I18n.T("npcimport.errNoContainers")); return; }
             string areaId = AreaComboHelper.ExtractId(_cbArea.Text);

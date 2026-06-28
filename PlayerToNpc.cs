@@ -250,17 +250,15 @@ namespace InstantaleSaveEditor
             string source = J.Str(J.Obj(_root, "world_data"), "name");
             if (string.IsNullOrEmpty(source) && _worldDir != null) source = Path.GetFileName(_worldDir);
 
-            using var dlg = new SaveFileDialog
+            string dest;
+            try
             {
-                Filter = I18n.T("filter.npcPackageSave"),
-                DefaultExt = "zip",
-                FileName = SafeFileName(name) + ".zip",
-            };
-            if (dlg.ShowDialog(this) != DialogResult.OK) return;
-            try { NpcPortability.Export(npc, _worldDir, source, npc["id"].ToString(), dlg.FileName); }
+                dest = NpcPortability.FreeExportPath(name);
+                NpcPortability.Export(npc, _worldDir, source, npc["id"].ToString(), dest);
+            }
             catch (Exception ex)
             { MessageBox.Show(this, I18n.T("msg.exportFailed") + "\n" + ex.Message, I18n.T("title.error"), MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
-            MessageBox.Show(this, I18n.T("p2n.exported", name, dlg.FileName), I18n.T("title.export"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(this, I18n.T("p2n.exported", name, dest), I18n.T("title.export"), MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         // ---------------- 既定値・ヘルパ ----------------
@@ -326,12 +324,6 @@ namespace InstantaleSaveEditor
                 if (s.Length > 0) a.Add(s);
             }
             return a;
-        }
-
-        private static string SafeFileName(string s)
-        {
-            foreach (var c in Path.GetInvalidFileNameChars()) s = s.Replace(c, '_');
-            return string.IsNullOrWhiteSpace(s) ? "npc" : s;
         }
 
         private void Warn(string msg) => MessageBox.Show(this, msg, I18n.T("title.inputError"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
