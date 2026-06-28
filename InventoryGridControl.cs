@@ -43,6 +43,13 @@ namespace InstantaleSaveEditor
         public event Action<string> ItemActivated;
         // 選択が変わったとき（ボタンの有効/無効更新などに使う）。
         public event Action SelectionChanged;
+        // Ctrl+クリックでアイテムが選ばれたとき（引数=ID）。倉庫⇄インベントリの移動に使う。
+        public event Action<string> ItemCtrlClicked;
+        // ドラッグ中のアイテムをコントロール外で離したとき（引数=ID, スクリーン座標）。他グリッドへの移動に使う。
+        public event Action<string, Point> ItemDraggedOut;
+
+        // 設定の寸法ではなく明示寸法でグリッドを構成する場合に指定する（倉庫グリッド用）。null なら設定値。
+        public Size? GridSizeOverride { get; set; }
 
         public InventoryGridControl()
         {
@@ -65,6 +72,7 @@ namespace InstantaleSaveEditor
             var s = Settings.Current;
             _cols = Math.Max(1, s.InventoryGridColumns);
             _rows = Math.Max(1, s.InventoryGridRows);
+            if (GridSizeOverride is Size gs) { _cols = Math.Max(1, gs.Width); _rows = Math.Max(1, gs.Height); }
             _assetRoot = s.GameAssetRoot ?? "";
 
             // 選択が消えていればクリア。
@@ -323,6 +331,12 @@ namespace InstantaleSaveEditor
             base.OnMouseDown(e);
             if (e.Button != MouseButtons.Left) return;
             HideTip();
+            // Ctrl+クリック: つかんだアイテムを他グリッドへ移動する（選択・ドラッグは開始しない）。
+            if ((ModifierKeys & Keys.Control) == Keys.Control && ItemCtrlClicked != null)
+            {
+                string hit = ItemAt(e.Location);
+                if (hit != null) { ItemCtrlClicked(hit); return; }
+            }
             _pressPos = e.Location;
             _pressId = ItemAt(e.Location);
             // クリックで選択を更新。
@@ -370,9 +384,20 @@ namespace InstantaleSaveEditor
             base.OnMouseUp(e);
             if (_dragging)
             {
-                try { PerformDrop(); }
-                catch { /* 何があってもクラッシュさせない（スナップバック扱い） */ }
-                _dragging = false; _dragId = null;
+                // コントロール外で離した場合は他グリッドへの移動として通知する（内部ドロップはしない）。
+                if (!ClientRectangle.Contains(e.Location) && ItemDraggedOut != null)
+                {
+                    string dragged = _dragId;
+                    _dragging = false; _dragId = null;
+                    try { ItemDraggedOut(dragged, PointToScreen(e.Location)); }
+                    catch { /* 失敗してもクラッシュさせない（スナップバック扱い） */ }
+                }
+                else
+                {
+                    try { PerformDrop(); }
+                    catch { /* 何があってもクラッシュさせない（スナップバック扱い） */ }
+                    _dragging = false; _dragId = null;
+                }
                 RebuildOccupancy();
                 Invalidate();
             }
@@ -613,13 +638,21 @@ namespace InstantaleSaveEditor
         }
     }
 
-    // インベントリの「グリッド＋追加/編集/削除ボタン」をまとめた再利用パネル。
+    // インベントリの「グリッド＋追加/編集/削除ボタン」に、右側のアイテム倉庫グリッドを並べた再利用パネル。
     // プレイヤー(PlayerTab)と NPC(WorldTab の ObjectForm 経由) の双方から使う。
     // inventory 辞書を直接編集し、追加/削除/編集のたびに InventoryChanged を発火する。
+    // 倉庫(ItemWarehouse)はツール側の保管箱で、キャラ個別倉庫(item\{world}\{char})と共有倉庫(item\shared)の2系統。
+    // Ctrl+クリック（インベントリ→個別倉庫／倉庫→インベントリ）またはグリッド間ドラッグ（重なった倉庫へ振り分け）、
+    // 各倉庫の「保存/取出」ボタンでインベントリ⇄倉庫を移動する（保存=zip 書き出し、取出=zip 削除＋画像復元）。
     internal sealed class InventoryPanel : Panel
     {
         private readonly InventoryGridControl _grid = new() { Location = new Point(0, 0) };
-        private readonly Button _btnEdit, _btnDelete;
+        private readonly InventoryGridControl _whChar = new() { Location = new Point(0, 0) };   // 個別倉庫グリッド（キャラ毎）
+        private readonly InventoryGridControl _whShared = new() { Location = new Point(0, 0) }; // 共有倉庫グリッド（全キャラ共通）
+        private readonly Button _btnEdit, _btnDelete, _btnExport;
+        private readonly Button _btnToChar, _btnFromChar;     // 個別倉庫へ保存 / から取出
+        private readonly Button _btnToShared, _btnFromShared; // 共有倉庫へ保存 / から取出
+        private ItemWarehouse _charWh;   // キャラ個別倉庫（Bind 時に world/char から生成）
         // 画像が表示できないときに「画像パス未設定」を知らせる警告ラベル（最上段）。
         private readonly Label _warn = new()
         {
@@ -632,24 +665,92 @@ namespace InstantaleSaveEditor
             Visible = false,
         };
         private JsonObject _inv;
+        private readonly bool _warehouse;          // 倉庫機能を表示するか（プレイヤーのみ true）
 
         // 追加/削除/編集でインベントリが変化したときに発火（装備コンボの再構築などに使う）。
         public event Action InventoryChanged;
 
-        public InventoryPanel()
+        // warehouseEnabled=true で右側にアイテム倉庫グリッドと移動ボタンを表示する（プレイヤー専用）。
+        // false（既定）では従来どおりインベントリグリッドのみ。NPC 編集ではこちらを使う。
+        public InventoryPanel(bool warehouseEnabled = false)
         {
+            _warehouse = warehouseEnabled;
             AutoSize = true; AutoSizeMode = AutoSizeMode.GrowAndShrink;
 
-            // グリッドはスクロールホストに載せる（行数次第で背が高くなるため）。
-            var gridHost = new Panel { Dock = DockStyle.Top, Height = 360, AutoScroll = true };
-            gridHost.Controls.Add(_grid);
             _grid.ItemActivated += id => EditItem(id);
-            _grid.SelectionChanged += () => { if (_btnDelete != null) _btnDelete.Enabled = _grid.SelectedId != null; };
+            _grid.SelectionChanged += UpdateButtons;
+
+            // 本体（グリッド領域）。倉庫有効時は [インベントリ][個別倉庫ボタン][個別倉庫][共有倉庫ボタン][共有倉庫] を横に並べる。
+            Control body;
+            if (_warehouse)
+            {
+                var invHost = new Panel { Width = 250, Height = 354, AutoScroll = true, Margin = new Padding(0) };
+                invHost.Controls.Add(_grid);
+                // Ctrl+クリック: インベントリ→個別倉庫（既定）。ドラッグ: 重なった倉庫へ振り分け。
+                _grid.ItemCtrlClicked += id => SaveToWarehouse(id, _charWh);
+                _grid.ItemDraggedOut += (id, pt) =>
+                {
+                    if (Over(_whChar, pt)) SaveToWarehouse(id, _charWh);
+                    else if (Over(_whShared, pt)) SaveToWarehouse(id, ItemWarehouse.Shared);
+                };
+
+                _whChar.GridSizeOverride = new Size(ItemWarehouse.Cols, ItemWarehouse.Rows);
+                var charHost = new Panel { Width = 356, Height = 354, AutoScroll = true, Margin = new Padding(0) };
+                charHost.Controls.Add(_whChar);
+                _whChar.SelectionChanged += UpdateButtons;
+                _whChar.ItemCtrlClicked += id => RetrieveFromWarehouse(id, _charWh);
+                _whChar.ItemDraggedOut += (id, pt) => { if (Over(_grid, pt)) RetrieveFromWarehouse(id, _charWh); };
+
+                _whShared.GridSizeOverride = new Size(ItemWarehouse.Cols, ItemWarehouse.Rows);
+                var sharedHost = new Panel { Width = 356, Height = 354, AutoScroll = true, Margin = new Padding(0) };
+                sharedHost.Controls.Add(_whShared);
+                _whShared.SelectionChanged += UpdateButtons;
+                _whShared.ItemCtrlClicked += id => RetrieveFromWarehouse(id, ItemWarehouse.Shared);
+                _whShared.ItemDraggedOut += (id, pt) => { if (Over(_grid, pt)) RetrieveFromWarehouse(id, ItemWarehouse.Shared); };
+
+                // 個別倉庫の移動ボタン列。
+                var midChar = new Panel { Width = 130, Height = 354, Margin = new Padding(0) };
+                _btnToChar = new Button { Text = I18n.T("inv.toCharWarehouse"), Width = 120, Height = 32, Left = 5, Top = 130, Enabled = false };
+                _btnFromChar = new Button { Text = I18n.T("inv.fromCharWarehouse"), Width = 120, Height = 32, Left = 5, Top = 180, Enabled = false };
+                _btnToChar.Click += (_, _) => { if (_grid.SelectedId != null) SaveToWarehouse(_grid.SelectedId, _charWh); };
+                _btnFromChar.Click += (_, _) => { if (_whChar.SelectedId != null) RetrieveFromWarehouse(_whChar.SelectedId, _charWh); };
+                midChar.Controls.Add(_btnToChar); midChar.Controls.Add(_btnFromChar);
+
+                // 共有倉庫の移動ボタン列。
+                var midShared = new Panel { Width = 130, Height = 354, Margin = new Padding(0) };
+                _btnToShared = new Button { Text = I18n.T("inv.toSharedWarehouse"), Width = 120, Height = 32, Left = 5, Top = 130, Enabled = false };
+                _btnFromShared = new Button { Text = I18n.T("inv.fromSharedWarehouse"), Width = 120, Height = 32, Left = 5, Top = 180, Enabled = false };
+                _btnToShared.Click += (_, _) => { if (_grid.SelectedId != null) SaveToWarehouse(_grid.SelectedId, ItemWarehouse.Shared); };
+                _btnFromShared.Click += (_, _) => { if (_whShared.SelectedId != null) RetrieveFromWarehouse(_whShared.SelectedId, ItemWarehouse.Shared); };
+                midShared.Controls.Add(_btnToShared); midShared.Controls.Add(_btnFromShared);
+
+                var row = new FlowLayoutPanel
+                {
+                    Dock = DockStyle.Top,
+                    Height = 360,
+                    AutoSize = false,
+                    WrapContents = false,
+                    FlowDirection = FlowDirection.LeftToRight,
+                };
+                row.Controls.Add(invHost);
+                row.Controls.Add(midChar);
+                row.Controls.Add(charHost);
+                row.Controls.Add(midShared);
+                row.Controls.Add(sharedHost);
+                body = row;
+            }
+            else
+            {
+                // 倉庫なし: 従来どおりインベントリグリッドのみ（行数次第で背が高くなるためスクロールホストに載せる）。
+                var gridHost = new Panel { Dock = DockStyle.Top, Height = 360, AutoScroll = true };
+                gridHost.Controls.Add(_grid);
+                body = gridHost;
+            }
 
             var bar = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(0, 4, 0, 4) };
-            Button Mk(string text, Action act)
+            Button Mk(string text, Action act, int width = 70)
             {
-                var b = new Button { Text = text, Width = 70, Margin = new Padding(2) };
+                var b = new Button { Text = text, Width = width, Margin = new Padding(2) };
                 b.Click += (_, _) => act();
                 bar.Controls.Add(b);
                 return b;
@@ -657,30 +758,116 @@ namespace InstantaleSaveEditor
             Mk(I18n.T("btn.add"), AddItem);
             _btnEdit = Mk(I18n.T("btn.edit"), () => { if (_grid.SelectedId != null) EditItem(_grid.SelectedId); });
             _btnDelete = Mk(I18n.T("btn.delete"), DeleteItem);
+            _btnExport = Mk(I18n.T("btn.export"), ExportItem, 96);
+            Mk(I18n.T("inv.import"), ImportItem, 96);
             _btnDelete.Enabled = false;
+            _btnExport.Enabled = false;
 
-            // Dock=Top は後入れが上。下から: グリッド → ボタン列 → 警告ラベル（最上段）。
-            Controls.Add(gridHost);
+            // Dock=Top は後入れが上。下から: 本体 → (見出し) → ボタン列 → 警告ラベル（最上段）。
+            Controls.Add(body);
+            if (_warehouse)
+            {
+                // グリッドの見出し（インベントリ / 個別倉庫 / 共有倉庫）。X はホスト幅の累積に合わせる。
+                var header = new Panel { Dock = DockStyle.Top, Height = 18 };
+                header.Controls.Add(new Label { Text = I18n.T("inv.inventoryLabel"), AutoSize = true, Left = 0, Top = 1 });
+                header.Controls.Add(new Label { Text = I18n.T("inv.charWarehouseLabel"), AutoSize = true, Left = 380, Top = 1 });
+                header.Controls.Add(new Label { Text = I18n.T("inv.sharedWarehouseLabel"), AutoSize = true, Left = 866, Top = 1 });
+                Controls.Add(header);
+            }
             Controls.Add(bar);
             Controls.Add(_warn);
         }
 
-        // inventory 辞書をバインドして表示を作り直す。
-        public void Bind(JsonObject inventory)
+        // スクリーン座標がグリッド c のクライアント領域内かどうか（外部ドロップの移動先判定）。
+        private static bool Over(InventoryGridControl c, Point screenPt)
+            => c.ClientRectangle.Contains(c.PointToClient(screenPt));
+
+        // inventory 辞書をバインドして表示を作り直す。倉庫有効時は個別/共有の両倉庫も読み込んで表示する。
+        // worldName/charName は個別倉庫（item\{world}\{char}）の場所決定に使う（倉庫無効時は無視）。
+        public void Bind(JsonObject inventory, string worldName = null, string charName = null)
         {
             _inv = inventory;
             _grid.Bind(inventory);
+            if (_warehouse)
+            {
+                _charWh = new ItemWarehouse(ItemWarehouse.CharDir(worldName, charName));
+                _charWh.EnsureLoaded();
+                ItemWarehouse.Shared.EnsureLoaded();
+                _whChar.Bind(_charWh.Items);
+                _whShared.Bind(ItemWarehouse.Shared.Items);
+            }
             UpdateWarning();
-            if (_btnDelete != null) _btnDelete.Enabled = _grid.SelectedId != null;
+            UpdateButtons();
         }
 
-        // グリッドを作り直し、削除ボタンの有効状態を更新し、変更を通知する。
+        // 全グリッドを作り直し、ボタンの有効状態を更新し、変更を通知する（倉庫有効時のみ）。
+        private void ReloadAll()
+        {
+            _grid.Bind(_inv);
+            _whChar.Bind(_charWh?.Items);
+            _whShared.Bind(ItemWarehouse.Shared.Items);
+            UpdateWarning();
+            UpdateButtons();
+            InventoryChanged?.Invoke();
+        }
+
+        // インベントリのみを作り直す（追加/削除/編集/インポート用。倉庫は変化しない）。
         private void Reload()
         {
             _grid.Bind(_inv);
             UpdateWarning();
-            if (_btnDelete != null) _btnDelete.Enabled = _grid.SelectedId != null;
+            UpdateButtons();
             InventoryChanged?.Invoke();
+        }
+
+        // 選択の有無・倉庫の利用可否で削除・エクスポート・各移動ボタンの有効状態を切り替える。
+        private void UpdateButtons()
+        {
+            bool hasSel = _grid.SelectedId != null;
+            if (_btnDelete != null) _btnDelete.Enabled = hasSel;
+            if (_btnExport != null) _btnExport.Enabled = hasSel;
+            if (_btnToChar != null) _btnToChar.Enabled = hasSel && (_charWh?.Available ?? false);
+            if (_btnFromChar != null) _btnFromChar.Enabled = _whChar.SelectedId != null;
+            if (_btnToShared != null) _btnToShared.Enabled = hasSel;
+            if (_btnFromShared != null) _btnFromShared.Enabled = _whShared.SelectedId != null;
+        }
+
+        // インベントリのアイテムを倉庫へ移す（インベントリから除去し、指定倉庫へ追加＝zip 書き出し）。
+        private void SaveToWarehouse(string id, ItemWarehouse wh)
+        {
+            if (_inv == null || id == null || wh == null || !wh.Available || _inv[id] is not JsonObject item) return;
+            try { wh.Add(item, Settings.Current?.GameAssetRoot ?? ""); }
+            catch (Exception ex)
+            {
+                MessageBox.Show(I18n.T("msg.warehouseSaveFailed") + "\n" + ex.Message, I18n.T("title.error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+            _inv.Remove(id);
+            ReloadAll();
+        }
+
+        // 指定倉庫のアイテムをこのインベントリへ移す（倉庫から取り出し＝zip 削除・画像復元し、新 item ID で追加）。
+        private void RetrieveFromWarehouse(string id, ItemWarehouse wh)
+        {
+            if (_inv == null || id == null || wh == null) return;
+            string assetRoot = Settings.Current?.GameAssetRoot ?? "";
+            JsonObject item;
+            try { item = wh.TakeOut(id, assetRoot); }
+            catch (Exception ex)
+            {
+                MessageBox.Show(I18n.T("msg.warehouseTakeFailed") + "\n" + ex.Message, I18n.T("title.error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+            if (item == null) return;
+
+            string newId = NextItemId(_inv);
+            int cols = Math.Max(1, Settings.Current?.InventoryGridColumns ?? 4);
+            int rows = Math.Max(1, Settings.Current?.InventoryGridRows ?? 6);
+            int w = Math.Max(1, (int)J.Int(item, "width_slots", 1));
+            int h = Math.Max(1, (int)J.Int(item, "height_slots", 1));
+            item["grid_pos"] = ItemPortability.FindFreeGridPosTopLeft(_inv, w, h, cols, rows);
+            _inv[newId] = item;
+            ReloadAll();
         }
 
         // グリッドの画像解決状況に応じて警告ラベルの表示/文言を更新する。
@@ -714,6 +901,71 @@ namespace InstantaleSaveEditor
             Reload();
         }
 
+        // 選択中のアイテムを JSON＋画像の zip としてエクスポートする。
+        private void ExportItem()
+        {
+            string id = _grid.SelectedId;
+            if (_inv == null || id == null || _inv[id] is not JsonObject item) return;
+            string name = J.Str(item, "name", "item");
+            using var dlg = new SaveFileDialog
+            {
+                Filter = I18n.T("filter.itemPackageSave"),
+                DefaultExt = "zip",
+                FileName = SafeFileName(name) + ".zip",
+            };
+            if (dlg.ShowDialog(FindForm()) != DialogResult.OK) return;
+            try { ItemPortability.Export(item, Settings.Current?.GameAssetRoot ?? "", id, dlg.FileName); }
+            catch (Exception ex)
+            {
+                MessageBox.Show(I18n.T("msg.exportFailed") + "\n" + ex.Message, I18n.T("title.error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+            MessageBox.Show(I18n.T("msg.itemExported", name, dlg.FileName), I18n.T("title.export"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        // アイテムパッケージ(zip)を読み込み、新しい item ID としてこのインベントリへ追加する。
+        private void ImportItem()
+        {
+            if (_inv == null) return;
+            using var ofd = new OpenFileDialog
+            {
+                Filter = I18n.T("filter.itemPackage"),
+                Title = I18n.T("title.selectItemPackage"),
+            };
+            if (ofd.ShowDialog(FindForm()) != DialogResult.OK) return;
+
+            ItemPackage pkg;
+            try { pkg = ItemPortability.ReadPackage(ofd.FileName); }
+            catch (Exception ex)
+            {
+                MessageBox.Show(I18n.T("msg.loadFailed") + "\n" + ex.Message, I18n.T("title.error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            // 画像を GameAssetRoot 配下へ復元（既存なら触らない）。失敗しても取り込み自体は続行する。
+            string assetRoot = Settings.Current?.GameAssetRoot ?? "";
+            try { ItemPortability.PlaceImage(assetRoot, pkg.ImageRelPath, pkg.ImageBytes); } catch { }
+
+            var item = pkg.Item;
+            string newId = NextItemId(_inv);
+            int cols = Math.Max(1, Settings.Current?.InventoryGridColumns ?? 4);
+            int rows = Math.Max(1, Settings.Current?.InventoryGridRows ?? 6);
+            int w = Math.Max(1, (int)J.Int(item, "width_slots", 1));
+            int h = Math.Max(1, (int)J.Int(item, "height_slots", 1));
+            item["grid_pos"] = ItemPortability.FindFreeGridPos(_inv, w, h, cols, rows);
+
+            _inv[newId] = item;
+            Reload();
+            MessageBox.Show(I18n.T("msg.itemImported", J.Str(item, "name", newId), newId), I18n.T("title.importDone"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        // ファイル名に使えない文字を '_' に置き換える。
+        private static string SafeFileName(string s)
+        {
+            foreach (var c in Path.GetInvalidFileNameChars()) s = s.Replace(c, '_');
+            return string.IsNullOrWhiteSpace(s) ? "item" : s;
+        }
+
         // inventory に追加する新ID（item_N の N=既存最大+1）。
         public static string NextItemId(JsonObject inv)
         {
@@ -727,12 +979,12 @@ namespace InstantaleSaveEditor
         }
 
         // 新規アイテムのテンプレ（実アイテムと同じキー順。1×1で開始）。
-        // item_type 変更時と同様に、item_detail を既定 type の候補の先頭へ、attributes をその type の
-        // スキーマ（ステータスキー=0）へ、image_src を item_detail 該当フォルダの先頭画像へ初期化する。
+        // item_detail は "treasure" を既定とし、attributes を type のスキーマ（ステータスキー=0）へ、
+        // image_src を item_detail 該当フォルダの先頭画像へ初期化する。
         public static JsonObject NewItemTemplate()
         {
             const string type = "material";
-            string detail = FieldOptions.Get("item_detail." + type).FirstOrDefault() ?? "";
+            const string detail = "treasure";
             var attrs = new JsonObject { ["item_detail"] = detail };
             foreach (var k in FieldOptions.Get("attributes." + type)) attrs[k] = 0L;
             string image = ImagePickerDialog.LowestImageForDetail(Settings.Current?.GameAssetRoot ?? "", detail);

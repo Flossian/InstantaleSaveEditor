@@ -229,7 +229,7 @@ namespace InstantaleSaveEditor
             {
                 case SettingsSection.Backup: root.Controls.Add(_grpBackup); Width = 460; Height = 270; break;
                 case SettingsSection.Language: root.Controls.Add(_grpLanguage); Width = 360; Height = 150; break;
-                default: root.Controls.Add(_grpMisc); root.Controls.Add(_grpAssetRoot); root.Controls.Add(_grpInventory); Width = 460; Height = 470; break;
+                default: root.Controls.Add(_grpMisc); root.Controls.Add(_grpAssetRoot); root.Controls.Add(_grpInventory); Width = 460; Height = 520; break;
             }
 
             Controls.Add(root);

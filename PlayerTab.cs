@@ -346,14 +346,18 @@ namespace InstantaleSaveEditor
         // 追加/削除はグリッド外のボタンで行い（v1 スコープ外の機能を維持）、選択は単一クリックで行う。
         private GroupBox BuildInventoryAndEquip()
         {
-            // 高さは グリッド(360) + ボタン列 + 画像未設定の警告ラベル + 装備コンボ が収まる値。
-            var g = Group(I18n.T("player.group.invEquip"), 580);
+            // 倉庫付き InventoryPanel と装備コンボの合計高は可変なので、中身に追従する AutoSize 枠にする
+            // （固定高だと下端の装備コンボが見切れる）。
+            var g = new GroupBox { Text = I18n.T("player.group.invEquip"), AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Width = 760, Margin = new Padding(4), Padding = new Padding(8) };
 
             // インベントリは NPC と共通の InventoryPanel（グリッド＋追加/編集/削除）。
+            // プレイヤーのみアイテム倉庫を併設する（NPC では無効）。
             // 変更時は装備コンボを作り直す（削除したアイテムを装備していた場合の追従）。
-            _invPanel = new InventoryPanel { Dock = DockStyle.Top };
+            _invPanel = new InventoryPanel(warehouseEnabled: true) { Dock = DockStyle.Top };
             _invPanel.InventoryChanged += () => RefreshEquipCombos();
-            _invPanel.Bind(EnsureObj("inventory"));   // 無ければ作る（追加操作の受け皿）
+            // 個別倉庫(item\{world}\{char})の場所決定にワールド名（_worldDir 末尾）とキャラ名（player_data.name）を渡す。
+            string worldName = string.IsNullOrEmpty(_worldDir) ? null : Path.GetFileName(_worldDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            _invPanel.Bind(EnsureObj("inventory"), worldName, J.Str(_pd, "name"));   // 無ければ作る（追加操作の受け皿）
 
             var eqPanel = new TableLayoutPanel { Dock = DockStyle.Top, ColumnCount = 2, AutoSize = true, Padding = new Padding(0, 6, 0, 0) };
             eqPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 120));
@@ -424,14 +428,14 @@ namespace InstantaleSaveEditor
             foreach (var n in arr) _traitList.Items.Add(n is JsonObject o ? I18n.T("player.traitItem", J.Str(o, "name", I18n.T("label.unnamed")), J.Int(o, "severity")) : n?.ToString() ?? "null");
         }
 
-        // 装備コンボの候補を現在のインベントリIDから作り直し、既存の装備値を選択状態にする。
+        // 装備コンボの候補を作り直す。武器は item_type=weapon、防具は wearable のアイテムのみを候補にし、
+        // 既存の装備値を選択状態にする（種別が一致しない現装備はデータ消失を防ぐため例外的に残す）。
         private void RefreshEquipCombos()
         {
             var inv = J.Obj(_pd, "inventory");
-            var ids = new List<string> { I18n.T("label.none") };
-            if (inv != null) ids.AddRange(inv.Select(kv => kv.Key));
-            FillCombo(_cbWeapon, ids, J.Str(_pd != null ? J.Obj(_pd, "equipments") : null, "weapon"));
-            FillCombo(_cbWearable, ids, J.Str(_pd != null ? J.Obj(_pd, "equipments") : null, "wearable"));
+            var eq = _pd != null ? J.Obj(_pd, "equipments") : null;
+            FillEquipCombo(_cbWeapon, inv, "weapon", J.Str(eq, "weapon"));
+            FillEquipCombo(_cbWearable, inv, "wearable", J.Str(eq, "wearable"));
         }
 
         // ---------------- 小ヘルパ ----------------
@@ -468,17 +472,36 @@ namespace InstantaleSaveEditor
             int i = lb.SelectedIndex; if (arr == null || i < 0 || i >= arr.Count) return;
             if (MessageBox.Show(I18n.T("msg.confirmDelete"), I18n.T("title.confirm"), MessageBoxButtons.YesNo) == DialogResult.Yes) { arr.RemoveAt(i); refresh(); }
         }
-        // コンボに候補を入れ、現在値を選択。先頭は "(なし)" 想定。
-        private static void FillCombo(ComboBox cb, List<string> ids, string current)
+        // 装備コンボの1候補。表示は "id：名前"、保持する値は id。先頭の「なし」は Id=null。
+        private sealed class EquipChoice
+        {
+            public string Id;
+            public string Label;
+            public override string ToString() => Label;
+        }
+
+        // inv から item_type==type のアイテムだけを "id：名前" 候補にして詰める。先頭は「なし」。
+        // current（現装備ID）が種別不一致でインベントリに存在する場合も、その項目だけは残して選択する。
+        private static void FillEquipCombo(ComboBox cb, JsonObject inv, string type, string current)
         {
             cb.Items.Clear();
-            foreach (var s in ids) cb.Items.Add(s);
-            int idx = string.IsNullOrEmpty(current) ? 0 : ids.IndexOf(current);
-            cb.SelectedIndex = idx >= 0 ? idx : 0;
+            cb.Items.Add(new EquipChoice { Id = null, Label = I18n.T("label.none") });
+            int sel = 0;
+            if (inv != null)
+                foreach (var kv in inv)
+                {
+                    if (kv.Value is not JsonObject o) continue;
+                    bool isType = string.Equals(J.Str(o, "item_type"), type, StringComparison.Ordinal);
+                    bool isCurrent = kv.Key == current;
+                    if (!isType && !isCurrent) continue;   // 種別不一致でも現装備は残す（データ消失防止）
+                    cb.Items.Add(new EquipChoice { Id = kv.Key, Label = $"{kv.Key}：{J.Str(o, "name")}" });
+                    if (isCurrent) sel = cb.Items.Count - 1;
+                }
+            cb.SelectedIndex = sel;
         }
-        // コンボ選択をJSON値へ。先頭("なし")は null、それ以外はアイテムID文字列。
+        // コンボ選択をJSON値へ。「なし」(Id=null)は null、それ以外はアイテムID文字列。
         private static JsonNode ComboVal(ComboBox cb)
-            => cb.SelectedIndex <= 0 ? null : JsonValue.Create((string)cb.SelectedItem);
+            => cb.SelectedItem is EquipChoice c && c.Id != null ? JsonValue.Create(c.Id) : null;
 
         // 表セルの文字列取得（null安全）。
         private static string Cell(DataGridViewRow r, int c) => r.Cells[c].Value?.ToString() ?? "";
