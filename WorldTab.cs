@@ -21,7 +21,7 @@ namespace InstantaleSaveEditor
         private readonly ObjectForm _form = new() { Dock = DockStyle.Fill };
         private readonly NpcImagePanel _npcPanel = new();         // NPC選択時にフォームへ注入する画像パネル
         private readonly BackgroundImagePanel _bgPanel = new();   // facility選択時にフォームへ注入する背景画像パネル
-        private Button _btnDup, _btnDel, _btnUnlock, _btnExport;
+        private Button _btnDup, _btnDel, _btnUnlock, _btnExport, _btnRefresh;
         private bool _npcLocked;            // 現在のNPCが未生成（立ち絵未取得）で閲覧のみか
         private string _curKind;            // obj / sec / item / facility（node 階層はツリーに出さない）
         private JsonObject _curContainer;   // 選択レコードを保持する辞書（複製/削除の対象）
@@ -43,11 +43,14 @@ namespace InstantaleSaveEditor
             _btnDel = new Button { Width = 70, Enabled = false };
             _btnUnlock = new Button { Width = 90, Visible = false };
             _btnExport = new Button { Width = 100, Visible = false };
+            // メモリ上のデータから左ツリーを再構築する（名前変更などをファイル保存/再読込なしで反映）。
+            _btnRefresh = new Button { Width = 100 };
             _btnDup.Click += (_, _) => Duplicate();
             _btnDel.Click += (_, _) => Delete();
             _btnUnlock.Click += (_, _) => UnlockNpc();
             _btnExport.Click += (_, _) => ExportNpc();
-            ops.Controls.AddRange(new Control[] { _btnDup, _btnDel, _btnUnlock, _btnExport });
+            _btnRefresh.Click += (_, _) => RefreshTree();
+            ops.Controls.AddRange(new Control[] { _btnDup, _btnDel, _btnUnlock, _btnExport, _btnRefresh });
             right.Controls.Add(ops, 0, 0);
             right.Controls.Add(_form, 0, 1);
             split.Panel2.Controls.Add(right);
@@ -67,6 +70,7 @@ namespace InstantaleSaveEditor
             _btnDel.Text = I18n.T("btn.delete");
             _btnUnlock.Text = I18n.T("btn.unlock");
             _btnExport.Text = I18n.T("btn.export");
+            _btnRefresh.Text = I18n.T("btn.refreshTree");
         }
 
         // 言語切替時にボタン文言を更新し、ツリー見出しの翻訳を反映するため作り直す。
@@ -111,6 +115,15 @@ namespace InstantaleSaveEditor
 
         // 保存前に、現在表示中のレコードの未確定入力を反映する（型エラーなら false）。
         public bool ApplyCurrent() => _form.Apply();
+
+        // メモリ上のデータから左ツリーを作り直す（ファイル保存/再読込なしで名前変更などを反映）。
+        // 表示中の未確定入力を先にモデルへ反映してから再構築する。
+        private void RefreshTree()
+        {
+            if (_root == null) return;
+            if (!_form.Apply()) return;   // 型エラーがあれば再構築しない（入力を失わせない）
+            Populate();
+        }
 
         // ツリーを再構築する。world_data / index は単一ノード、areas 等はセクション→項目で展開。
         // dungeon / npcs / quests は、紐づく area（拠点）ごとの見出しノードでグループ化する。
@@ -298,6 +311,10 @@ namespace InstantaleSaveEditor
         // ツリー選択に応じて対象オブジェクトをフォームへバインドし、操作ボタンの有効/無効を切り替える。
         private void OnSelect(TreeNode node)
         {
+            // 別レコードへ切り替える前に、表示中レコードの未確定入力を確定する。
+            // テキスト等は Leave で反映済みだが、life_log/relationship のグリッド編集は
+            // Apply() でしか書き戻されないため、ここで呼ばないと切替時に失われる。
+            _form.Apply();
             _btnUnlock.Visible = false; _npcLocked = false; _btnExport.Visible = false;
             if (node?.Tag is not string[] tag) { _form.Clear(); SetBtns(false); return; }
             _curKind = tag[0];
