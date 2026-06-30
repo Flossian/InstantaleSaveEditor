@@ -6,8 +6,11 @@
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>disable</Nullable>
+    <!-- ゲーム互換 JSON エンコーダ(GameJsonEncoder)が char* オーバーライドを使うため必要 -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
     <AssemblyName>InstantaleSaveEditor</AssemblyName>
-    <Version>3.0.0</Version>
+    <Version>9.1.0</Version>
 
     <!-- 単体 exe（.NET ランタイム同梱）配布の既定設定 -->
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>

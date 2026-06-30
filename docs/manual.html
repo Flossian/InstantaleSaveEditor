@@ -111,7 +111,7 @@
 <div class="wrap">
 
 <header class="title">
-  <h1>Instantale Save Editor 説明書 <span class="badge">v9</span></h1>
+  <h1>Instantale Save Editor 説明書 <span class="badge">v9.1</span></h1>
   <div class="sub">ゲーム <strong>Instantale</strong> のセーブデータ／ワールドデータ編集ツール（非公式）</div>
 </header>
 
@@ -199,7 +199,7 @@
   <tr><td>基本値</td><td>名前・所持金・現在地など。数値欄には数値を入力します。</td></tr>
   <tr><td>説明文(descriptions)</td><td>外見・背景などの長文。枠の下端をドラッグして高さを変えられます。</td></tr>
   <tr><td>キャラクター画像</td><td>プレイヤーの顔画像と立ち絵。NPC と同じ操作で表示・差し替えができます。<a href="#image">詳細</a>。</td></tr>
-  <tr><td>能力値</td><td>6 つの能力値。<code>0</code> や空欄は無効値として扱われます。</td></tr>
+  <tr><td>能力値</td><td>6 つの能力値。<code>0</code> を含む入力値はそのまま保持されます（空欄は数値エラーになります）。</td></tr>
   <tr><td>身体部位</td><td>6 部位の状態を表で編集します。</td></tr>
   <tr><td>特性(traits)</td><td>所持している特性の一覧。</td></tr>
   <tr><td>スキル(skills) <span class="badge">v8</span></td><td>所持スキルの一覧。各スキルを専用フォームで編集します。<a href="#skills">詳細</a>。</td></tr>
@@ -221,11 +221,10 @@
   <li>NPC の<strong>好感度（relationship）</strong>は対象ごとに 1 行の表で編集します（<a href="#relationship">詳細</a>）。画像生成プロンプトは <code>look</code> 欄に表示されます。</li>
   <li>死亡 NPC（<code>config.is_dead</code> が <code>true</code>）は一覧で名前の横に<strong>「（死亡）」</strong>と表示されます。</li>
 </ul>
-<div class="warn">
-  <strong>未生成 NPC の編集ロック</strong><br>
-  立ち絵画像をまだ取得していない（＝ゲーム内で未生成の可能性がある）NPC は、誤編集でゲームが起動しなくなる恐れがあるため、
-  <strong>既定で閲覧のみ（読み取り専用）</strong>になり、複製・削除も無効になります。
-  どうしても編集する場合は <strong>「ロック解除」</strong>ボタンを押し、警告に同意してください。
+<div class="note">
+  <strong>未生成 NPC について</strong> <span class="badge">v9.1</span><br>
+  立ち絵画像をまだ取得していない（＝ゲーム内で未生成の可能性がある）NPC も、ほかの NPC と同じく<strong>そのまま編集・複製・削除</strong>できます。
+  v9.1 以前は誤編集でゲームが起動しなくなる恐れがあったため読み取り専用にロックしていましたが、その原因（能力値データの破損）を修正したためロックを廃止しました。
 </div>
 
 <h2 id="variables">5. ゲーム変数タブ</h2>
@@ -507,7 +506,6 @@
   <li><strong>ゲームがセーブを読み込めなくなった</strong> … 自動バックアップ（<code>backups\</code> 内の zip）または手動コピーから戻してください。</li>
   <li><strong>タブに「ありません」と出る</strong> … そのデータ（プレイヤー／ゲーム変数）を含まないファイルを開いています。異常ではありません。</li>
   <li><strong>立ち絵を元に戻したい</strong> … NPC の「立ち絵（縮小色）」の「使用する」を押してください。</li>
-  <li><strong>NPC が編集できない（入力欄が灰色）</strong> … 立ち絵が未取得の未生成 NPC のため、安全のためロックされています。編集するには「ロック解除」ボタンを押してください（ゲームが起動しなくなる恐れがあるため非推奨）。</li>
 </ul>
 
 <footer>

@@ -184,11 +184,19 @@ namespace InstantaleSaveEditor
                     po["description"] = Cell(r, 4);
                 }
 
-            // 装備: コンボの選択をアイテムID(なしは null)として反映。
+            // 装備: コンボの選択をアイテムID(なし=スロットのキーを持たせない)として反映。
+            // 未装備スロットを null キーで増やすと、装備なしの元データ（空辞書 {}）と差分が出る。
+            // 値があるスロットだけキーを持たせ、無ければキーを削除して元データと同一に保つ。
+            var weapon = ComboVal(_cbWeapon);
+            var wearable = ComboVal(_cbWearable);
             var eq = J.Obj(_pd, "equipments");
-            if (eq == null) { eq = new JsonObject(); _pd["equipments"] = eq; }
-            eq["weapon"] = ComboVal(_cbWeapon);
-            eq["wearable"] = ComboVal(_cbWearable);
+            if (eq == null && (weapon != null || wearable != null))
+            { eq = new JsonObject(); _pd["equipments"] = eq; }   // 装備が付くときだけ辞書を新設
+            if (eq != null)
+            {
+                SetEquipSlot(eq, "weapon", weapon);
+                SetEquipSlot(eq, "wearable", wearable);
+            }
 
             // 生涯ログ: グリッドの行内容を life_log 配列へ反映。
             if (_lifeLog != null) _pd["life_log"] = _lifeLog.ToArray();
@@ -502,6 +510,14 @@ namespace InstantaleSaveEditor
         // コンボ選択をJSON値へ。「なし」(Id=null)は null、それ以外はアイテムID文字列。
         private static JsonNode ComboVal(ComboBox cb)
             => cb.SelectedItem is EquipChoice c && c.Id != null ? JsonValue.Create(c.Id) : null;
+
+        // 装備スロットを反映する。値があればキーへ設定、なし(null)ならキー自体を削除する。
+        // （未装備を null キーとして残すと、装備なしの元データ {} との差分になるため。）
+        private static void SetEquipSlot(JsonObject eq, string slot, JsonNode val)
+        {
+            if (val != null) eq[slot] = val;
+            else eq.Remove(slot);
+        }
 
         // 表セルの文字列取得（null安全）。
         private static string Cell(DataGridViewRow r, int c) => r.Cells[c].Value?.ToString() ?? "";

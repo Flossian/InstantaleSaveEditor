@@ -7,6 +7,54 @@ using System.Text.Json.Serialization.Metadata;
 
 namespace InstantaleSaveEditor
 {
+    // ---------------- ゲーム互換 JSON エンコーダ ----------------
+    // ゲーム(= Python の json.dumps(ensure_ascii=False) 相当)と同じ最小エスケープだけを行う。
+    // エスケープするのは " と \ と制御文字(U+0000–U+001F)のみ。それ以外（全角スペース U+3000、
+    // 行区切り U+2028/U+2029、< > & など全ての非制御文字）は生のまま UTF-8 で出力する。
+    // 標準の UnsafeRelaxedJsonEscaping は U+3000 等をエスケープしてしまい、セーブを編集なしで
+    // 保存し直すだけでもバイト列がゲーム出力と食い違う。これを使ってバイト再現性を保つ。
+    internal sealed class GameJsonEncoder : JavaScriptEncoder
+    {
+        public static readonly GameJsonEncoder Instance = new();
+
+        public override int MaxOutputCharactersPerInputCharacter => 6;   // "\uXXXX"
+
+        // エスケープが必要なのは " と \ と制御文字だけ。
+        public override bool WillEncode(int unicodeScalar)
+            => unicodeScalar == '"' || unicodeScalar == '\\' || unicodeScalar < 0x20;
+
+        public override unsafe int FindFirstCharacterToEncode(char* text, int textLength)
+        {
+            for (int i = 0; i < textLength; i++)
+            {
+                char c = text[i];
+                if (c == '"' || c == '\\' || c < 0x20) return i;
+            }
+            return -1;
+        }
+
+        // WillEncode が true を返した文字（" \ 制御文字）だけがここへ来る。
+        // 制御文字は \b \f \n \r \t の短縮形、その他は \u00XX（小文字）で出力する（Python と同形式）。
+        public override unsafe bool TryEncodeUnicodeScalar(int unicodeScalar, char* buffer, int bufferLength, out int numberOfCharactersWritten)
+        {
+            string s = unicodeScalar switch
+            {
+                '"' => "\\\"",
+                '\\' => "\\\\",
+                '\b' => "\\b",
+                '\f' => "\\f",
+                '\n' => "\\n",
+                '\r' => "\\r",
+                '\t' => "\\t",
+                _ => "\\u" + unicodeScalar.ToString("x4"),
+            };
+            if (s.Length > bufferLength) { numberOfCharactersWritten = 0; return false; }
+            for (int i = 0; i < s.Length; i++) buffer[i] = s[i];
+            numberOfCharactersWritten = s.Length;
+            return true;
+        }
+    }
+
     // ---------------- コーデック ----------------
     // セーブ/ワールドデータとアプリ内部表現(JSON)を相互変換する。
     internal static class Codec
@@ -16,11 +64,14 @@ namespace InstantaleSaveEditor
 
         // ゲームが書き出すのと同じ形式: 最小化(空白なし) / UTF-8 / 非ASCIIをそのまま出す。
         // これと一致しないとバイト単位での再現性が崩れるため Encoder/WriteIndented を固定。
+        // 標準の UnsafeRelaxedJsonEscaping は全角スペース U+3000 や U+2028/U+2029 をエスケープしてしまい
+        // ゲーム出力とバイト単位で食い違うため、ゲーム(Python の ensure_ascii=False 相当)と同じ最小
+        // エスケープを行う GameJsonEncoder を使う。
         public static readonly JsonSerializerOptions Compact = new()
-        { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping, WriteIndented = false, TypeInfoResolver = new DefaultJsonTypeInfoResolver() };
+        { Encoder = GameJsonEncoder.Instance, WriteIndented = false, TypeInfoResolver = new DefaultJsonTypeInfoResolver() };
         // 確認用エクスポート向けの整形(インデント付き)出力。ゲームには使わない。
         public static readonly JsonSerializerOptions Pretty = new()
-        { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping, WriteIndented = true, TypeInfoResolver = new DefaultJsonTypeInfoResolver() };
+        { Encoder = GameJsonEncoder.Instance, WriteIndented = true, TypeInfoResolver = new DefaultJsonTypeInfoResolver() };
 
         // バイト列を相互変換する（同じ処理を二度かければ元に戻る）。
         private static byte[] Transform(byte[] data)
@@ -269,8 +320,11 @@ namespace InstantaleSaveEditor
             _content = new Panel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Visible = open };
             _header = new Button
             {
-                Dock = DockStyle.Top, Height = 30, FlatStyle = FlatStyle.Flat,
-                TextAlign = ContentAlignment.MiddleLeft, BackColor = SystemColors.ControlLight,
+                Dock = DockStyle.Top,
+                Height = 30,
+                FlatStyle = FlatStyle.Flat,
+                TextAlign = ContentAlignment.MiddleLeft,
+                BackColor = SystemColors.ControlLight,
             };
             _header.Font = new Font(_header.Font, FontStyle.Bold);
             _open = open;
@@ -396,34 +450,6 @@ namespace InstantaleSaveEditor
         public ComboBox GetCombo(string field)
             => _fields.FirstOrDefault(f => f.Kind == "combo" && f.Name == field)?.Combo;
 
-        // フォーム全体の読み取り専用を切り替える（未生成NPCの誤編集防止に使う）。
-        // 入力系ウィジェットのみ無効化し、画像クリック等の閲覧操作は残す。
-        // Bind でウィジェットは作り直されるため、Bind 後に毎回呼び直すこと。
-        public void SetReadOnly(bool ro) => ApplyReadOnly(_host, ro);
-
-        private static void ApplyReadOnly(Control parent, bool ro)
-        {
-            foreach (Control c in parent.Controls)
-            {
-                switch (c)
-                {
-                    case TextBox tb:
-                        tb.ReadOnly = ro;
-                        tb.BackColor = ro ? SystemColors.Control : SystemColors.Window;
-                        break;
-                    case ComboBox cb: cb.Enabled = !ro; break;
-                    case CheckBox ck: ck.Enabled = !ro; break;
-                    case Button bt: bt.Enabled = !ro; break;
-                    case DataGridView dg: dg.ReadOnly = ro; break;
-                    // インベントリのグリッドは独自描画のため、無効化でドラッグ移動・ダブルクリック編集を止める。
-                    case InventoryGridControl ig: ig.Enabled = !ro; break;
-                    // スキル一覧はダブルクリックで編集ダイアログが開くため、無効化してそれを止める。
-                    case ListBox lst: lst.Enabled = !ro; break;
-                }
-                if (c.HasChildren) ApplyReadOnly(c, ro);
-            }
-        }
-
         // 指定オブジェクトの各プロパティをフォーム化して表示する。
         // injectControl / injectAfterKey を指定すると、該当フィールドの直後にコントロールを差し込む。
         // reorder を指定すると、モデルの並びは変えずに表示順だけ move を after の直後へ移動する。
@@ -503,7 +529,7 @@ namespace InstantaleSaveEditor
                     case "text": _obj[f.Name] = f.Tb.Text; break;
                     case "strlist": _obj[f.Name] = ToStringArray(f.Tb.Text); break;
                     case "abilities":
-                        CommitAbilities(f.Name, f.Sub);   // 0/空/不正があれば null に正規化
+                        CommitAbilities(f.Name, f.Sub);   // 各欄の入力をそのまま反映（非破壊。空欄は null、構造は維持）
                         break;
                     case "json": if (f.Holder.Changed) _obj[f.Name] = f.Holder.Node; break;
                     case "lifelog": _obj[f.Name] = f.Life.ToArray(); break;
@@ -1050,9 +1076,15 @@ namespace InstantaleSaveEditor
             foreach (var (key, _) in AbilityKeys)
             {
                 inner.Controls.Add(new Label { Text = $"{I18n.T("ability." + key)} ({key})", AutoSize = true, Padding = new Padding(2, 6, 4, 0) }, c, r);
-                double dv = J.Dbl(abil, key);
-                bool isInt = abil[key] is JsonValue v && v.TryGetValue<long>(out _);   // 整数で入っているか
-                var tb = new TextBox { Width = 64, Text = isInt ? ((long)dv).ToString() : dv.ToString() };
+                // 数値が入っていれば表示、未設定(null 等)は空欄にする。
+                // 未生成NPCの雛形は各能力値が null のため、これを "0" と表示して 0 と誤確定させない。
+                string disp = "";
+                if (abil[key] is JsonValue v)
+                {
+                    if (v.TryGetValue<long>(out long lvv)) disp = lvv.ToString();
+                    else if (v.TryGetValue<double>(out double dvv)) disp = dvv.ToString();
+                }
+                var tb = new TextBox { Width = 64, Text = disp };
                 tb.Leave += (_, _) => CommitAbilities(field, boxes);   // どれか1つ離れたら6項目まとめて確定
                 inner.Controls.Add(tb, c + 1, r);
                 boxes[key] = tb;
@@ -1062,24 +1094,28 @@ namespace InstantaleSaveEditor
             _fields.Add(new FieldRef { Name = field, Kind = "abilities", Sub = boxes });
         }
 
-        // 能力値6項目を一括で確定する。
-        // 全項目が正の数のときだけオブジェクトを書き込み、1つでも 0/空/不正があれば null（未生成扱い）。
+        // 能力値6項目を一括で確定する。各欄の入力をそのまま反映する（0 や負値も有効な能力値として保持する）。
+        // 空欄は JSON null（未設定）として書き戻し、ability_scores オブジェクトの構造（6キー）は常に維持する。
+        //
+        // 旧実装は「1つでも 0/空/不正なら ability_scores オブジェクト全体を null（未生成扱い）」にしていた。
+        // 未生成NPCの雛形は ability_scores = {strength:null, ...}（各値 null の6キーオブジェクト）であり、
+        // 旧実装ではツリー切替時の Apply() でこのオブジェクトごと null へ化け、ゲームの生成処理が
+        // dict 参照（ability_scores[...] / .items()）で落ちていた。閲覧して切り替えるだけでも壊れる。
+        // ここではオブジェクトを壊さず、各値を入力のまま（未入力は null）で書き戻すことで雛形を完全保持する。
         private void CommitAbilities(string field, Dictionary<string, TextBox> boxes)
         {
             if (_obj == null) return;
-            var result = new JsonObject();
-            bool allOk = true;
+            // 既存の ability_scores オブジェクトを基に書き戻す（無ければ新規オブジェクト）。オブジェクトの null 化はしない。
+            var result = _obj[field] is JsonObject cur ? (JsonObject)cur.DeepClone() : new JsonObject();
             foreach (var kv in boxes)
             {
                 string txt = kv.Value.Text.Trim();
-                bool ok;
-                if (txt.Length == 0) ok = false;
-                else if (txt.Contains('.')) { ok = double.TryParse(txt, out double dv) && dv > 0; if (ok) result[kv.Key] = dv; }
-                else { ok = long.TryParse(txt, out long lv) && lv > 0; if (ok) result[kv.Key] = lv; }
-                if (ok) Ok(kv.Value); else Bad(kv.Value);
-                if (!ok) allOk = false;
+                if (txt.Length == 0) { result[kv.Key] = null; Ok(kv.Value); }      // 空欄は未設定(null)として保持
+                else if (long.TryParse(txt, out long lv)) { result[kv.Key] = lv; Ok(kv.Value); }
+                else if (double.TryParse(txt, out double dv)) { result[kv.Key] = dv; Ok(kv.Value); }
+                else Bad(kv.Value);                                                // 数値でない入力は反映しない（既存値を維持）
             }
-            _obj[field] = allOk ? (JsonNode)result : null;   // 0/空/不正があれば ability_scores は null
+            _obj[field] = result;
         }
 
         // party（["player", NPC ID...]）のメンバーを GUI で追加/削除する。
