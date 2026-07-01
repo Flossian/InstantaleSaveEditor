@@ -137,6 +137,17 @@ namespace InstantaleSaveEditor
             { if (v.TryGetValue<double>(out var d)) return d; if (v.TryGetValue<long>(out var l)) return l; }
             return def;
         }
+        // 自由入力欄の文字列を JSON 値へ変換する（数値欄の検証を外す用途）。
+        // 整数なら long、小数なら double、それ以外（数値に解釈できない文字列）はそのまま文字列で保持する。
+        // emptyAsNull=true のとき、空白のみの欄は JSON null（未設定）として返す。
+        public static JsonNode Loose(string text, bool emptyAsNull = false)
+        {
+            if (emptyAsNull && string.IsNullOrWhiteSpace(text)) return null;
+            if (long.TryParse(text, out long l)) return JsonValue.Create(l);
+            if (double.TryParse(text, out double d)) return JsonValue.Create(d);
+            return JsonValue.Create(text);
+        }
+
         // 子オブジェクト/子配列を取得（型違いや null は null を返す）。
         public static JsonObject Obj(JsonObject o, string k) => o != null && o.TryGetPropertyValue(k, out var n) ? n as JsonObject : null;
         public static JsonArray Arr(JsonObject o, string k) => o != null && o.TryGetPropertyValue(k, out var n) ? n as JsonArray : null;
@@ -520,12 +531,10 @@ namespace InstantaleSaveEditor
                 switch (f.Kind)
                 {
                     case "bool": _obj[f.Name] = f.Chk.Checked; break;
+                    // 数値欄は検証を外し、自由入力を許す（数値なら number、それ以外は文字列で保持）。
                     case "int":
-                        if (!long.TryParse(f.Tb.Text, out long lv)) return Fail(f.Name, I18n.T("type.integer"));
-                        _obj[f.Name] = lv; break;
                     case "dbl":
-                        if (!double.TryParse(f.Tb.Text, out double dv)) return Fail(f.Name, I18n.T("type.number"));
-                        _obj[f.Name] = dv; break;
+                        _obj[f.Name] = J.Loose(f.Tb.Text); break;
                     case "text": _obj[f.Name] = f.Tb.Text; break;
                     case "strlist": _obj[f.Name] = ToStringArray(f.Tb.Text); break;
                     case "abilities":
@@ -544,10 +553,6 @@ namespace InstantaleSaveEditor
             }
             return true;
         }
-
-        // 型エラー時の共通メッセージ表示（false を返して呼び出し側で中断させる）。
-        private static bool Fail(string field, string type)
-        { MessageBox.Show(I18n.T("msg.typeError", field, type), I18n.T("title.typeError"), MessageBoxButtons.OK, MessageBoxIcon.Warning); return false; }
 
         // 2列(ラベル / 入力)の表を作る。左列は固定幅、右列は残り全部=ウィンドウ幅に追従。
         private TableLayoutPanel NewTable()
@@ -925,13 +930,14 @@ namespace InstantaleSaveEditor
             else if (jv != null && jv.TryGetValue<long>(out long lv))
             {
                 var tb = new TextBox { Text = lv.ToString(), Width = 160 };
-                tb.Leave += (_, _) => { if (_obj == null) return; if (long.TryParse(tb.Text, out long n)) { map[key] = n; Ok(tb); } else tb.BackColor = Color.MistyRose; };
+                // 数値欄は検証を外し、自由入力を許す（数値なら number、それ以外は文字列で保持）。
+                tb.Leave += (_, _) => { if (_obj == null) return; map[key] = J.Loose(tb.Text); Ok(tb); };
                 inner.Controls.Add(tb, 1, r);
             }
             else if (jv != null && jv.TryGetValue<double>(out double dv))
             {
                 var tb = new TextBox { Text = dv.ToString(), Width = 160 };
-                tb.Leave += (_, _) => { if (_obj == null) return; if (double.TryParse(tb.Text, out double n)) { map[key] = n; Ok(tb); } else tb.BackColor = Color.MistyRose; };
+                tb.Leave += (_, _) => { if (_obj == null) return; map[key] = J.Loose(tb.Text); Ok(tb); };
                 inner.Controls.Add(tb, 1, r);
             }
             else
@@ -1052,11 +1058,10 @@ namespace InstantaleSaveEditor
             if (_obj == null) return;
             switch (f.Kind)
             {
+                // 数値欄は検証を外し、自由入力を許す（数値なら number、それ以外は文字列で保持）。
                 case "int":
-                    if (long.TryParse(f.Tb.Text, out long lv)) { _obj[f.Name] = lv; Ok(f.Tb); } else Bad(f.Tb);
-                    break;
                 case "dbl":
-                    if (double.TryParse(f.Tb.Text, out double dv)) { _obj[f.Name] = dv; Ok(f.Tb); } else Bad(f.Tb);
+                    _obj[f.Name] = J.Loose(f.Tb.Text); Ok(f.Tb);
                     break;
                 case "text":
                     _obj[f.Name] = f.Tb.Text; Ok(f.Tb);
@@ -1065,7 +1070,6 @@ namespace InstantaleSaveEditor
         }
 
         private static void Ok(TextBox tb) => tb.BackColor = System.Drawing.SystemColors.Window;
-        private static void Bad(TextBox tb) => tb.BackColor = Color.MistyRose;
 
         // 能力値6項目を 2列×3行の数値欄として表示する。各欄はフォーカスアウトで一括確定。
         private void AddAbilityRow(TableLayoutPanel t, int row, string field, JsonObject abil)
@@ -1110,10 +1114,9 @@ namespace InstantaleSaveEditor
             foreach (var kv in boxes)
             {
                 string txt = kv.Value.Text.Trim();
+                // 検証を外した自由入力: 空欄は null、数値は number、それ以外は文字列で保持。
                 if (txt.Length == 0) { result[kv.Key] = null; Ok(kv.Value); }      // 空欄は未設定(null)として保持
-                else if (long.TryParse(txt, out long lv)) { result[kv.Key] = lv; Ok(kv.Value); }
-                else if (double.TryParse(txt, out double dv)) { result[kv.Key] = dv; Ok(kv.Value); }
-                else Bad(kv.Value);                                                // 数値でない入力は反映しない（既存値を維持）
+                else { result[kv.Key] = J.Loose(txt); Ok(kv.Value); }
             }
             _obj[field] = result;
         }

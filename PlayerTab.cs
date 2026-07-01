@@ -87,7 +87,7 @@ namespace InstantaleSaveEditor
             }
 
             // 1列レイアウト。各セクションを Dock=Top で横幅いっぱい（ウィンドウ幅に追従）に。
-            var stack = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, AutoScroll = true, Padding = new Padding(8) };
+            var stack = new NonJumpingScrollPanel { Dock = DockStyle.Fill, ColumnCount = 1, AutoScroll = true, Padding = new Padding(8) };
             stack.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
 
             var sections = new Control[]
@@ -553,6 +553,26 @@ namespace InstantaleSaveEditor
                 bar.Controls.Add(b);
             }
             return bar;
+        }
+
+        // 通常の TableLayoutPanel(AutoScroll)は、どこかの欄にフォーカスが残ったまま別の場所へマウスを
+        // 動かしただけで、WinForms内部がフォーカス中コントロールを可視範囲へ強制スクロールし直すことがある
+        // （ScrollControlIntoView。protected だが virtual ではないため上書きできず、OnLayout 経由でもない）。
+        // このタブは基本値欄（先頭付近）にフォーカスを残したままインベントリ等を操作することが多く、
+        // マウスを乗せるだけで先頭に戻されてしまうため、スクロールバー/ホイール以外での位置変化を巻き戻す。
+        internal sealed class NonJumpingScrollPanel : TableLayoutPanel
+        {
+            private Point _desired;
+            private const int WM_VSCROLL = 0x0115, WM_HSCROLL = 0x0114, WM_MOUSEWHEEL = 0x020A;
+
+            protected override void WndProc(ref Message m)
+            {
+                base.WndProc(ref m);
+                if (m.Msg == WM_VSCROLL || m.Msg == WM_HSCROLL || m.Msg == WM_MOUSEWHEEL)
+                    _desired = AutoScrollPosition;
+                else if (AutoScrollPosition != _desired)
+                    AutoScrollPosition = new Point(-_desired.X, -_desired.Y);
+            }
         }
     }
 }
