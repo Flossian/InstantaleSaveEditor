@@ -1,5 +1,6 @@
 // プレイヤータブ: player_data 専用の編集UI。
 // 基本値 / 説明 / キャラクター画像 / 能力値 / 身体部位 / 特性 / インベントリ・装備 / 生涯ログ / その他(JSON編集)
+using System.Globalization;
 using System.Text.Json.Nodes;
 
 namespace InstantaleSaveEditor
@@ -150,9 +151,9 @@ namespace InstantaleSaveEditor
                 if (isInt)
                 {
                     // 整数ならそのまま。小数が入っていたら小数点以下切り捨てで整数化。
-                    // 数値として解釈できない（文字列等）場合のみ型エラー。
-                    if (long.TryParse(tb.Text, out long lv)) _pd[key] = lv;
-                    else if (double.TryParse(tb.Text, out double dv)) _pd[key] = (long)dv;
+                    // 数値として解釈できない（文字列等）場合のみ型エラー。ロケール非依存で解釈する。
+                    if (long.TryParse(tb.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out long lv)) _pd[key] = lv;
+                    else if (double.TryParse(tb.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out double dv)) _pd[key] = (long)dv;
                     else return Fail(key, I18n.T("type.integer"));
                 }
                 else _pd[key] = tb.Text;
@@ -166,7 +167,7 @@ namespace InstantaleSaveEditor
             if (oas == null) { oas = new JsonObject(); _pd["original_ability_scores"] = oas; }
             foreach (var key in AbilityKeys)
             {
-                if (!double.TryParse(_abil[key].Text, out double dv)) return Fail(key, I18n.T("type.number"));
+                if (!double.TryParse(_abil[key].Text, NumberStyles.Float, CultureInfo.InvariantCulture, out double dv)) return Fail(key, I18n.T("type.number"));
                 oas[key] = dv;
             }
 
@@ -177,7 +178,7 @@ namespace InstantaleSaveEditor
                 {
                     string part = r.Cells[0].Tag as string;   // 行に保持した内部キー
                     if (part == null || bp[part] is not JsonObject po) continue;
-                    if (!long.TryParse(Cell(r, 1), out long inj)) return Fail(I18n.T("player.injuryOf", part), I18n.T("type.integer"));
+                    if (!long.TryParse(Cell(r, 1), NumberStyles.Integer, CultureInfo.InvariantCulture, out long inj)) return Fail(I18n.T("player.injuryOf", part), I18n.T("type.integer"));
                     po["injury"] = inj;
                     po["stage"] = Cell(r, 2);
                     po["state"] = Cell(r, 3);
@@ -284,7 +285,7 @@ namespace InstantaleSaveEditor
             foreach (var key in AbilityKeys)
             {
                 t.Controls.Add(L($"{I18n.T("ability." + key)} ({key})"), 0, row);
-                var tb = new TextBox { Width = 100, Text = J.Dbl(oas, key).ToString() };
+                var tb = new TextBox { Width = 100, Text = J.Dbl(oas, key).ToString(CultureInfo.InvariantCulture) };
                 t.Controls.Add(tb, 1, row); _abil[key] = tb; row++;
             }
             g.Controls.Add(t);

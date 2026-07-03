@@ -73,7 +73,22 @@ namespace InstantaleSaveEditor
             _cols = Math.Max(1, s.InventoryGridColumns);
             _rows = Math.Max(1, s.InventoryGridRows);
             if (GridSizeOverride is Size gs) { _cols = Math.Max(1, gs.Width); _rows = Math.Max(1, gs.Height); }
-            _assetRoot = s.GameAssetRoot ?? "";
+
+            // 画像キャッシュの整理。アセット先が変わったら全部捨てる（旧ルート基準の画像を残さない）。
+            // 同じルートなら解決失敗(null)だけ捨てて再試行させる（インポートや倉庫取出で
+            // 画像が後から復元された場合に、プレースホルダ表示と警告が残らないように）。
+            string newRoot = s.GameAssetRoot ?? "";
+            if (!string.Equals(newRoot, _assetRoot, StringComparison.OrdinalIgnoreCase))
+            {
+                foreach (var img in _imgCache.Values) img?.Dispose();
+                _imgCache.Clear();
+            }
+            else
+            {
+                foreach (var k in _imgCache.Where(kv => kv.Value == null).Select(kv => kv.Key).ToList())
+                    _imgCache.Remove(k);
+            }
+            _assetRoot = newRoot;
 
             // 選択が消えていればクリア。
             if (_selectedId != null && (_inv == null || !_inv.ContainsKey(_selectedId))) _selectedId = null;
@@ -148,7 +163,7 @@ namespace InstantaleSaveEditor
                 if (v.TryGetValue<int>(out int i)) return i;
                 if (v.TryGetValue<double>(out double d)) return (long)d;
                 if (v.TryGetValue<decimal>(out decimal m)) return (long)m;
-                if (v.TryGetValue<string>(out string s) && long.TryParse(s, out long ls)) return ls;
+                if (v.TryGetValue<string>(out string s) && long.TryParse(s, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out long ls)) return ls;
             }
             return 0;
         }
@@ -1006,11 +1021,13 @@ namespace InstantaleSaveEditor
     }
 
     // インベントリ1アイテムを既存の ObjectForm で編集するダイアログ。
-    // 編集は ObjectForm がフォーカスアウトで即モデルへ反映し、OK で Apply() により最終確定する。
-    // item は inventory 辞書内の JsonObject 参照そのものなので、確定内容はそのまま辞書へ残る。
+    // ObjectForm はフォーカスアウトで即モデルへ反映するため、編集は複製(_work)に対して行い、
+    // OK 時のみ元アイテム(_item)へ書き戻す。キャンセル時は元アイテムに一切触れない。
     internal sealed class ItemEditDialog : Form
     {
         private readonly ObjectForm _form = new();
+        private readonly JsonObject _item;   // 元（inventory 辞書内の実体）。OK 時のみ更新する
+        private readonly JsonObject _work;   // 編集用の複製。ObjectForm はこちらへ即時反映する
 
         // rarity のプルダウン候補（低→高）。データ上の値は "mythic"。
         private static readonly string[] Rarities =
@@ -1018,6 +1035,8 @@ namespace InstantaleSaveEditor
 
         public ItemEditDialog(string id, JsonObject item)
         {
+            _item = item;
+            _work = (JsonObject)item.DeepClone();
             Text = I18n.T("title.editField", id);
             Width = 560; Height = 660;
             StartPosition = FormStartPosition.CenterParent;
@@ -1055,33 +1074,39 @@ namespace InstantaleSaveEditor
             _form.DefaultImageForDetail = detail => ImagePickerDialog.LowestImageForDetail(Settings.Current?.GameAssetRoot ?? "", detail);
 
             _form.Dock = DockStyle.Fill;
-            _form.Bind(item);
+            _form.Bind(_work);
 
             // item_type を変えたら attributes を新しい種別のスキーマへ作り替え、item_detail 候補も連動させる。
-            // combo の値は通常 Apply() でしか item へ書き戻らないため、ここで即 item_type へ反映する。
+            // combo の値は通常 Apply() でしか書き戻らないため、ここで即 _work の item_type へ反映する。
             // ・入力途中（TextChanged）は item_detail 候補だけ追従（非破壊）。
             // ・種別が確定（一覧選択 / フォーカスアウト）かつ実際に変化したときだけ attributes を作り替える。
             //   入力途中に attributes を消さないため、確定タイミングに限定する。
             var typeCombo = _form.GetCombo("item_type");
             if (typeCombo != null)
             {
-                string lastType = J.Str(item, "item_type");
+                string lastType = J.Str(_work, "item_type");
                 void ApplySchema()
                 {
                     string t = typeCombo.Text.Trim();
-                    item["item_type"] = t;
+                    _work["item_type"] = t;
                     if (t == lastType) return;
                     lastType = t;
                     _form.ApplyAttributeSchema();
                 }
-                typeCombo.TextChanged += (_, _) => { item["item_type"] = typeCombo.Text.Trim(); _form.RefreshAttributeDetailOptions(); };
+                typeCombo.TextChanged += (_, _) => { _work["item_type"] = typeCombo.Text.Trim(); _form.RefreshAttributeDetailOptions(); };
                 typeCombo.SelectedIndexChanged += (_, _) => ApplySchema();
                 typeCombo.Leave += (_, _) => ApplySchema();
             }
 
             var ok = new Button { Text = I18n.T("btn.ok"), Dock = DockStyle.Right, Width = 90, DialogResult = DialogResult.OK };
             var cancel = new Button { Text = I18n.T("btn.cancel"), Dock = DockStyle.Right, Width = 90, DialogResult = DialogResult.Cancel };
-            ok.Click += (_, _) => { if (!_form.Apply()) DialogResult = DialogResult.None; };
+            ok.Click += (_, _) =>
+            {
+                if (!_form.Apply()) { DialogResult = DialogResult.None; return; }
+                // 複製の内容を元アイテムへ書き戻す（同一インスタンスを保ったまま中身だけ差し替える）。
+                _item.Clear();
+                foreach (var kv in _work) _item[kv.Key] = kv.Value?.DeepClone();
+            };
             var bar = new Panel { Dock = DockStyle.Bottom, Height = 30 };
             bar.Controls.Add(ok); bar.Controls.Add(cancel);
 

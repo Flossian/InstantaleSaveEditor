@@ -179,7 +179,7 @@ namespace InstantaleSaveEditor
                 if (v.TryGetValue<int>(out int i)) return i;
                 if (v.TryGetValue<double>(out double d)) return (long)d;
                 if (v.TryGetValue<decimal>(out decimal m)) return (long)m;
-                if (v.TryGetValue<string>(out string s) && long.TryParse(s, out long ls)) return ls;
+                if (v.TryGetValue<string>(out string s) && long.TryParse(s, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out long ls)) return ls;
             }
             return 0;
         }

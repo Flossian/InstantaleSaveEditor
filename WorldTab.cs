@@ -326,10 +326,13 @@ namespace InstantaleSaveEditor
                 case "obj":   // world_data / index など単一オブジェクト
                     _curContainer = null; _curKey = null;
                     _form.ClearComboFields();
-                    _form.Bind(_root[tag[1]].AsObject()); SetBtns(false); break;
+                    if (_root[tag[1]] is JsonObject topObj) _form.Bind(topObj); else _form.Clear();
+                    SetBtns(false); break;
                 case "item":  // セクション内の1レコード（複製/削除可）
-                    _curContainer = _root[tag[1]].AsObject(); _curKey = tag[2];
-                    var itemObj = _curContainer[_curKey].AsObject();
+                    _curContainer = _root[tag[1]] as JsonObject; _curKey = tag[2];
+                    // レコードが object でない（null 等の壊れたデータ）場合はフォームを出さず、削除だけ許す。
+                    if (_curContainer?[_curKey] is not JsonObject itemObj)
+                    { _form.ClearComboFields(); _form.Clear(); SetBtns(_curContainer != null); break; }
                     SetBtns(true);
                     if (tag[1] == "npcs")
                     {
@@ -358,15 +361,16 @@ namespace InstantaleSaveEditor
                     }
                     break;
                 case "facility":  // areas[area].nodes[node].facilities[facility]
-                    _curContainer = J.Obj(J.Obj(_root?["areas"]?[tag[1]]?.AsObject(), "nodes")?[tag[2]]?.AsObject(), "facilities");
+                    _curContainer = J.Obj(J.Obj(_root?["areas"]?[tag[1]] as JsonObject, "nodes")?[tag[2]] as JsonObject, "facilities");
                     _curKey = tag[3];
-                    var facObj = _curContainer[_curKey].AsObject();
+                    if (_curContainer?[_curKey] is not JsonObject facObj)
+                    { _form.ClearComboFields(); _form.Clear(); SetBtns(_curContainer != null); break; }
                     _form.ClearComboFields();
                     // facility_type / tier は FieldOptions（外部 JSON 由来）のテンプレート候補のプルダウンにする。
                     _form.RegisterComboField("facility_type", val => MakeValueCombo(FieldOptions.Get("facility_type"), val));
                     _form.RegisterComboField("tier", val => MakeValueCombo(FieldOptions.Get("tier"), val));
                     // owner は所有者 NPC の ID。NPC 一覧から "ID: 名前" で選べるプルダウンにする。
-                    _form.RegisterComboField("owner", val => MakeNpcCombo(val));
+                    _form.RegisterComboField("owner", val => MakeNpcCombo(val), idPrefixed: true);
                     // description 直後に背景画像(backgrounds/{facility名}/image.png)を差し込む。
                     _bgPanel.LoadImage(_worldDir, J.Str(facObj, "name"));
                     _form.Bind(facObj, _bgPanel, "description");
@@ -399,9 +403,9 @@ namespace InstantaleSaveEditor
             string curArea = J.Str(npcObj, "current_area");
             _form.ClearComboFields();
             _form.RegisterComboField("current_area",
-                val => AreaComboHelper.MakeAreaCombo(areas, val));
+                val => AreaComboHelper.MakeAreaCombo(areas, val), idPrefixed: true);
             _form.RegisterComboField("current_location",
-                val => AreaComboHelper.MakeFacilityCombo(areas, curArea, val));
+                val => AreaComboHelper.MakeFacilityCombo(areas, curArea, val), idPrefixed: true);
             _form.RegisterComboField("category", val => MakeValueCombo(FieldOptions.Get("category"), val));
             _form.RegisterComboField("job", val => MakeValueCombo(FieldOptions.Get("job"), val));
         }
@@ -493,7 +497,7 @@ namespace InstantaleSaveEditor
                     MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
             if (!_form.Apply()) return;   // 表示中の編集を反映してから複製
             string nk = NextKey(_curContainer);
-            var clone = _curContainer[_curKey].DeepClone();
+            var clone = _curContainer[_curKey]?.DeepClone();
             if (clone is JsonObject co && co.ContainsKey("id")) co["id"] = nk;
             _curContainer[nk] = clone;
             Populate();

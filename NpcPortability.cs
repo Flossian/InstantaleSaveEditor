@@ -625,9 +625,11 @@ namespace InstantaleSaveEditor
             string newId = overwrite ? overwriteId : NpcPortability.NextNpcId(_index, _npcs);
             npc["id"] = newId;
             npc["name"] = incomingName;
+            // 施設未選択は空文字ではなく null（実 NPC のスキーマは未設定を null で持つ。PlayerToNpc と同じ規則）。
             npc["current_area"] = areaId;
-            npc["current_location"] = facId;
-            npc["initial_location"] = new JsonObject { ["area"] = areaId, ["node"] = null, ["facility"] = facId };
+            npc["current_location"] = string.IsNullOrEmpty(facId) ? null : JsonValue.Create(facId);
+            npc["initial_location"] = new JsonObject
+            { ["area"] = areaId, ["node"] = null, ["facility"] = string.IsNullOrEmpty(facId) ? null : JsonValue.Create(facId) };
             npc["location"] = new JsonObject { ["area"] = null, ["node"] = null, ["facility"] = null };
 
             // relationship / life_log は取込データの値を保持（引き継ぐ）。チェックを外したものは既定値に戻す。

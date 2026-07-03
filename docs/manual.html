@@ -111,7 +111,7 @@
 <div class="wrap">
 
 <header class="title">
-  <h1>Instantale Save Editor 説明書 <span class="badge">v9.1</span></h1>
+  <h1>Instantale Save Editor 説明書 <span class="badge">v9.2</span></h1>
   <div class="sub">ゲーム <strong>Instantale</strong> のセーブデータ／ワールドデータ編集ツール（非公式）</div>
 </header>
 
@@ -149,11 +149,15 @@
 
 <h2 id="start">1. 基本の流れ</h2>
 <ol>
-  <li><strong>ファイル → 開く</strong> で対象データ（<code>savedata.json</code> または <code>world_data.json</code>）を選びます。</li>
+  <li><strong>ファイル → 開く</strong>（Ctrl+O）で対象データ（<code>savedata.json</code> または <code>world_data.json</code>）を選びます。
+    JSON ファイルを<strong>ウィンドウへドラッグ＆ドロップ</strong>しても開けます。2回目以降は<strong>ファイル → 最近開いたファイル</strong>からも選べます。<span class="badge">v9.2</span></li>
   <li>上部のタブ（<strong>プレイヤー／ワールド／ゲーム変数</strong>）を切り替えて編集します。</li>
   <li>入力欄の値は<strong>フォーカスが外れた時点</strong>（別の欄をクリック等）で反映されます。</li>
-  <li><strong>ファイル → 上書き保存</strong> で書き戻します。</li>
+  <li><strong>ファイル → 上書き保存</strong>（Ctrl+S）で書き戻します。保存結果は下部のステータスバーに表示されます。</li>
 </ol>
+<div class="note">
+  保存していない変更がある状態で別のファイルを開いたりツールを終了しようとすると、<strong>保存するかどうかの確認</strong>が表示されます。<span class="badge">v9.2</span>
+</div>
 <div class="note">
   <code>player_data</code> や <code>game_variables</code> を含まないファイル（<code>world_data.json</code> など）も開けます。該当タブには「ありません」と表示されます。
 </div>
@@ -165,9 +169,10 @@
 <h3>ファイル(F)</h3>
 <table>
   <tr><th>項目</th><th>説明</th></tr>
-  <tr><td>開く...</td><td>セーブ／ワールドデータを読み込みます。</td></tr>
-  <tr><td>上書き保存</td><td>開いているファイルにそのまま保存します。</td></tr>
-  <tr><td>名前を付けて保存...</td><td>別名・別の場所に保存します。</td></tr>
+  <tr><td>開く... (Ctrl+O)</td><td>セーブ／ワールドデータを読み込みます。ウィンドウへの JSON ファイルのドラッグ＆ドロップでも開けます。</td></tr>
+  <tr><td>最近開いたファイル <span class="badge">v9.2</span></td><td>最近開いたファイル（最大 10 件）を一覧から開き直します。</td></tr>
+  <tr><td>上書き保存 (Ctrl+S)</td><td>開いているファイルにそのまま保存します。</td></tr>
+  <tr><td>名前を付けて保存... (Ctrl+Shift+S)</td><td>別名・別の場所に保存します。</td></tr>
   <tr><td>JSONをエクスポート...</td><td>読みやすい整形 JSON を書き出します（中身の確認・バックアップ用。ゲームには読み込めません）。</td></tr>
   <tr><td>終了</td><td>ツールを閉じます。</td></tr>
 </table>

@@ -4,6 +4,7 @@
 //   EffectEditDialog … effects の1要素。type に応じて入力欄を出し分け、
 //                       text_status の effects_per_turn は同ダイアログで再帰編集する。
 // どちらも入力を渡された JsonObject の複製に書き戻し、OK 時のみ ResultNode を返す（キャンセルで無変更）。
+using System.Globalization;
 using System.Text.Json.Nodes;
 
 namespace InstantaleSaveEditor
@@ -155,10 +156,10 @@ namespace InstantaleSaveEditor
             b.Click += (_, _) => act();
             return b;
         }
-        // 整数欄の検証。失敗時はエラー表示して false。
+        // 整数欄の検証。失敗時はエラー表示して false。ロケール非依存で解釈する。
         internal static bool TryInt(TextBox tb, string labelKey, out long v)
         {
-            if (long.TryParse(tb.Text, out v)) return true;
+            if (long.TryParse(tb.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out v)) return true;
             MessageBox.Show(I18n.T("msg.typeError", I18n.T(labelKey), I18n.T("type.integer")), I18n.T("title.typeError"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return false;
         }
@@ -443,8 +444,20 @@ namespace InstantaleSaveEditor
             string newKey = J.Str(d.ResultNode, "name", key);
             if (string.IsNullOrEmpty(newKey) || (newKey != key && _skills.ContainsKey(newKey))) newKey = key;
             d.ResultNode["name"] = newKey;
-            _skills.Remove(key);
-            _skills[newKey] = d.ResultNode;
+            if (newKey == key)
+            {
+                _skills[key] = d.ResultNode;   // 同一キーへの置換は辞書内の位置を保つ（保存 round-trip を崩さない）
+            }
+            else
+            {
+                // 改名時もキーの位置を保つ: key より後ろのエントリを一旦退避し、改名後に入れ直す。
+                var tail = _skills.Select(p => p.Key).SkipWhile(k => k != key).Skip(1).ToList();
+                var moved = tail.Select(k => (k, _skills[k])).ToList();
+                foreach (var k in tail) _skills.Remove(k);
+                _skills.Remove(key);
+                _skills[newKey] = d.ResultNode;
+                foreach (var (k, v) in moved) _skills[k] = v;
+            }
             RefreshList();
         }
 

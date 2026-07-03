@@ -22,6 +22,7 @@
 //   ・除外（NPC に無い）: traits / body_parts / physical_integrity 系 / original_ability_scores /
 //               gold / area_history / story_achievements / current_node。
 //   ・NPC 固有で新設: knowledge=[] / display_position_in_battle=null。
+using System.Globalization;
 using System.Text;
 using System.Text.Json.Nodes;
 
@@ -148,9 +149,9 @@ namespace InstantaleSaveEditor
         {
             string id = _tbId.Text.Trim();
             if (string.IsNullOrEmpty(id)) { Warn(I18n.T("p2n.warn.id")); return null; }
-            if (!long.TryParse(_tbCurHp.Text, out long curHp)) { Warn(I18n.T("p2n.warn.curHp")); return null; }
-            if (!long.TryParse(_tbMaxHp.Text, out long maxHp)) { Warn(I18n.T("p2n.warn.maxHp")); return null; }
-            if (!long.TryParse(_tbOrigMaxHp.Text, out long origMaxHp)) { Warn(I18n.T("p2n.warn.origMaxHp")); return null; }
+            if (!long.TryParse(_tbCurHp.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out long curHp)) { Warn(I18n.T("p2n.warn.curHp")); return null; }
+            if (!long.TryParse(_tbMaxHp.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out long maxHp)) { Warn(I18n.T("p2n.warn.maxHp")); return null; }
+            if (!long.TryParse(_tbOrigMaxHp.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out long origMaxHp)) { Warn(I18n.T("p2n.warn.origMaxHp")); return null; }
 
             // プルダウンは "ID: 名前" 形式のため ID 部分のみ取り出す。
             string curArea = AreaComboHelper.ExtractId(_cbCurArea.Text);
@@ -210,7 +211,7 @@ namespace InstantaleSaveEditor
             bool allOk = true;
             foreach (var key in AbilityKeys)
             {
-                if (long.TryParse(_abil[key].Text, out long v) && v > 0) o[key] = v;
+                if (long.TryParse(_abil[key].Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out long v) && v > 0) o[key] = v;
                 else allOk = false;
             }
             return allOk ? (JsonNode)o : null;

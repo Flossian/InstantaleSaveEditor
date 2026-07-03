@@ -357,9 +357,15 @@ namespace InstantaleSaveEditor
             };
 
             // world へ反映：area と quest を登録し、発注拠点の quests に新クエストを追加
+            // （拠点に quests 配列が無ければ新設する。黙って登録漏れにしない）。connections は触らない。
             areas[areaId] = area;
             quests[questId] = quest;
-            (areas[sid]?["quests"] as JsonArray)?.Add(questId);   // connections は触らない
+            if (areas[sid] is JsonObject settlement)
+            {
+                var qarr = J.Arr(settlement, "quests");
+                if (qarr == null) { qarr = new JsonArray(); settlement["quests"] = qarr; }
+                qarr.Add(questId);
+            }
 
             SaveAsTemplate(quest, area);   // 作成したクエストをテンプレとしても保存（次回以降の流用元になる）
 

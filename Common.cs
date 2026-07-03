@@ -1,4 +1,5 @@
 // 共通部品: コーデック / JSON ヘルパ / JSON編集ダイアログ / 汎用オブジェクトフォーム
+using System.Globalization;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
@@ -143,8 +144,9 @@ namespace InstantaleSaveEditor
         public static JsonNode Loose(string text, bool emptyAsNull = false)
         {
             if (emptyAsNull && string.IsNullOrWhiteSpace(text)) return null;
-            if (long.TryParse(text, out long l)) return JsonValue.Create(l);
-            if (double.TryParse(text, out double d)) return JsonValue.Create(d);
+            // JSON と同じ表記（小数点は "."）で解釈する。OS のロケール（小数点がカンマ等）に依存させない。
+            if (long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out long l)) return JsonValue.Create(l);
+            if (double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out double d)) return JsonValue.Create(d);
             return JsonValue.Create(text);
         }
 
@@ -272,9 +274,9 @@ namespace InstantaleSaveEditor
         protected static DataGridViewTextBoxColumn IntCol(string h, int weight = 20)
             => new() { HeaderText = h, FillWeight = weight };
 
-        // セル値を long として読む。空・不正は 0。
+        // セル値を long として読む。空・不正は 0。ロケール非依存で解釈する。
         protected static long ParseLong(DataGridViewRow r, int col)
-            => long.TryParse(r.Cells[col].Value?.ToString(), out long v) ? v : 0;
+            => long.TryParse(r.Cells[col].Value?.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out long v) ? v : 0;
     }
 
     // ---------------- 高さをドラッグで変えられるテキスト欄（幅はコンテナ幅に追従） ----------------
@@ -353,7 +355,7 @@ namespace InstantaleSaveEditor
     // フォーム上の1項目とその編集ウィジェットの対応。Kind により使うウィジェットが決まる:
     //   bool→Chk / int,dbl,text,strlist→Tb / abilities→Sub(6つの能力値欄) /
     //   json→Holder / combo→Combo / lifelog→Life / relationship→Rel
-    internal sealed class FieldRef { public string Name, Kind; public TextBox Tb; public CheckBox Chk; public JsonHolder Holder; public Dictionary<string, TextBox> Sub; public ComboBox Combo; public LifeLogGrid Life; public RelationshipGrid Rel; }
+    internal sealed class FieldRef { public string Name, Kind; public TextBox Tb; public CheckBox Chk; public JsonHolder Holder; public Dictionary<string, TextBox> Sub; public ComboBox Combo; public bool IdCombo; public LifeLogGrid Life; public RelationshipGrid Rel; }
 
     // 1つの JsonObject の各プロパティを自動でフォーム化する汎用コントロール。
     // 値の型ごとに最適なウィジェットを割り当て、編集はフォーカスアウト時に即モデルへ反映する。
@@ -382,7 +384,8 @@ namespace InstantaleSaveEditor
         private readonly Panel _host = new() { Dock = DockStyle.Fill, AutoScroll = true };  // スクロール領域
         private readonly List<FieldRef> _fields = new();                 // 生成した各項目の参照
         // フィールド名 → ComboBox ファクトリ。Bind 前に RegisterComboField で登録し Bind 後にクリアしないこと。
-        private readonly Dictionary<string, Func<string, ComboBox>> _comboFactories = new();
+        // idPrefixed=true は "ID: 名前" 形式の表示から ID 部分だけを保存するコンボ（エリア/施設/NPC 参照）。
+        private readonly Dictionary<string, (Func<string, ComboBox> factory, bool idPrefixed)> _comboFactories = new();
 
         // relationship の対象キー（"player" 以外は NPC ID 等）を見出し表示名へ変換する任意のフック。
         // 未設定/空文字を返す場合はキーをそのまま表示する。WorldTab が NPC 一覧を引いて名前を返す。
@@ -451,8 +454,10 @@ namespace InstantaleSaveEditor
 
         // 指定フィールドをプルダウン式にする。factory は現在値を受け取り ComboBox を返す。
         // 毎回の Bind 前に呼ぶか、あるいは常時登録しておくこと。
-        public void RegisterComboField(string fieldName, Func<string, ComboBox> factory)
-            => _comboFactories[fieldName] = factory;
+        // idPrefixed=true のとき、保存時に "ID: 名前" 形式のテキストから ID 部分だけを取り出す。
+        // 既定 false は値そのものを保存する（category/job/rarity 等。":" を含む値も壊さない）。
+        public void RegisterComboField(string fieldName, Func<string, ComboBox> factory, bool idPrefixed = false)
+            => _comboFactories[fieldName] = (factory, idPrefixed);
 
         // 登録済みのすべての ComboBox ファクトリを削除する。
         public void ClearComboFields() => _comboFactories.Clear();
@@ -544,10 +549,15 @@ namespace InstantaleSaveEditor
                     case "lifelog": _obj[f.Name] = f.Life.ToArray(); break;
                     case "relationship": _obj[f.Name] = f.Rel.ToObject(); break;
                     case "combo":
-                        // "ID: 名前" 形式のテキストから ID 部分だけ取り出して保存する。
+                        // ID プルダウン（"ID: 名前" 形式）のみ ID 部分を取り出す。
+                        // 値プルダウン（category/job/rarity 等）は ":" を含む値を壊さないよう全文を保存する。
                         string raw = f.Combo.Text.Trim();
-                        int col = raw.IndexOf(':');
-                        _obj[f.Name] = col > 0 ? raw[..col].Trim() : raw;
+                        if (f.IdCombo)
+                        {
+                            int col = raw.IndexOf(':');
+                            _obj[f.Name] = col > 0 ? raw[..col].Trim() : raw;
+                        }
+                        else _obj[f.Name] = raw;
                         break;
                 }
             }
@@ -625,12 +635,12 @@ namespace InstantaleSaveEditor
             if (field == "image_src" && ImageSrcPickerEnabled && val is JsonValue)
             { AddImageSrcRow(t, row, field, val.ToString()); return; }
             // ComboBox ファクトリが登録されていれば優先して使う（文字列値のみ対象）。
-            if (_comboFactories.TryGetValue(field, out var comboFactory) && val is JsonValue)
+            if (_comboFactories.TryGetValue(field, out var combo) && val is JsonValue)
             {
-                var cb = comboFactory(val.ToString());
+                var cb = combo.factory(val.ToString());
                 cb.Dock = DockStyle.Fill;
                 t.Controls.Add(cb, 1, row);
-                _fields.Add(new FieldRef { Name = field, Kind = "combo", Combo = cb });
+                _fields.Add(new FieldRef { Name = field, Kind = "combo", Combo = cb, IdCombo = combo.idPrefixed });
                 return;
             }
             if (val is JsonValue jv)
@@ -651,7 +661,7 @@ namespace InstantaleSaveEditor
                 }
                 else if (jv.TryGetValue<double>(out double dv))
                 {
-                    var tb = new TextBox { Text = dv.ToString(), Width = 160 };
+                    var tb = new TextBox { Text = dv.ToString(CultureInfo.InvariantCulture), Width = 160 };
                     var fr = new FieldRef { Name = field, Kind = "dbl", Tb = tb };
                     tb.Leave += (_, _) => CommitField(fr);
                     t.Controls.Add(tb, 1, row); _fields.Add(fr);
@@ -936,7 +946,7 @@ namespace InstantaleSaveEditor
             }
             else if (jv != null && jv.TryGetValue<double>(out double dv))
             {
-                var tb = new TextBox { Text = dv.ToString(), Width = 160 };
+                var tb = new TextBox { Text = dv.ToString(CultureInfo.InvariantCulture), Width = 160 };
                 tb.Leave += (_, _) => { if (_obj == null) return; map[key] = J.Loose(tb.Text); Ok(tb); };
                 inner.Controls.Add(tb, 1, r);
             }
@@ -1086,7 +1096,7 @@ namespace InstantaleSaveEditor
                 if (abil[key] is JsonValue v)
                 {
                     if (v.TryGetValue<long>(out long lvv)) disp = lvv.ToString();
-                    else if (v.TryGetValue<double>(out double dvv)) disp = dvv.ToString();
+                    else if (v.TryGetValue<double>(out double dvv)) disp = dvv.ToString(CultureInfo.InvariantCulture);
                 }
                 var tb = new TextBox { Width = 64, Text = disp };
                 tb.Leave += (_, _) => CommitAbilities(field, boxes);   // どれか1つ離れたら6項目まとめて確定

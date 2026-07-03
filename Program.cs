@@ -2,7 +2,10 @@
 // セーブデータ(savedata.json)の構造を土台にしたエディタ。
 // タブ構成: プレイヤー / ワールド / ゲーム変数
 // 入出力形式: 最小化UTF-8 (Codec 参照)
+using System.Globalization;
+using System.Runtime.CompilerServices;
 using System.Text;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 
 namespace InstantaleSaveEditor
@@ -13,7 +16,10 @@ namespace InstantaleSaveEditor
     {
         private JsonObject _root;                                           // 編集中のデータ全体
         private string _path;                                               // 現在のファイルパス
+        private byte[] _baseline;                                           // 最後に読込/保存した時点の内容（未保存変更の検出用）
         private readonly Settings _settings;                                // ツール設定（バックアップ・表示）
+
+        private const int MaxRecentFiles = 10;   // 「最近開いたファイル」の保持件数
 
         private readonly TabControl _tabs = new() { Dock = DockStyle.Fill };
         private readonly PlayerTab _player = new();
@@ -24,7 +30,7 @@ namespace InstantaleSaveEditor
 
         // Localize() で文言を再適用するため、可視文言を持つ要素を保持する。
         private TabPage _tpPlayer, _tpWorld, _tpVars;
-        private ToolStripMenuItem _miFile, _miFileOpen, _miFileSave, _miFileSaveAs, _miFileExport, _miFileExit;
+        private ToolStripMenuItem _miFile, _miFileOpen, _miFileRecent, _miFileSave, _miFileSaveAs, _miFileExport, _miFileExit;
         private ToolStripMenuItem _miTools, _miToolCreateQuest, _miToolExtract, _miToolImportNpc, _miToolPlayerToNpc, _miToolCleanup, _miToolEditRaw;
         private ToolStripMenuItem _miSettings, _miSettingsBackup, _miSettingsLang, _miSettingsMisc;
         private ToolStripMenuItem _miAutoBackup;   // メニュー右端の自動バックアップ ON/OFF トグル表示
@@ -49,6 +55,9 @@ namespace InstantaleSaveEditor
             _status.Dock = DockStyle.Bottom;
             Controls.Add(_status);
 
+            // JSON ファイルをウィンドウのどこへドロップしても開けるようにする。
+            EnableFileDrop(this);
+
             Localize();
             // 言語切替に追従して開いているウィンドウへ即時反映する。Dispose で解除する。
             I18n.LanguageChanged += Localize;
@@ -57,13 +66,14 @@ namespace InstantaleSaveEditor
         // 言語切替・初期化時に、このフォームの可視文言を現在言語で再適用する。
         private void Localize()
         {
-            Text = I18n.T("app.title");
+            UpdateTitle();
             _tpPlayer.Text = I18n.T("tab.player");
             _tpWorld.Text = I18n.T("tab.world");
             _tpVars.Text = I18n.T("tab.variables");
 
             _miFile.Text = I18n.T("menu.file");
             _miFileOpen.Text = I18n.T("menu.file.open");
+            _miFileRecent.Text = I18n.T("menu.file.recent");
             _miFileSave.Text = I18n.T("menu.file.save");
             _miFileSaveAs.Text = I18n.T("menu.file.saveAs");
             _miFileExport.Text = I18n.T("menu.file.exportJson");
@@ -98,18 +108,23 @@ namespace InstantaleSaveEditor
         {
             var menu = new MenuStrip { Dock = DockStyle.Top };
             _miFile = new ToolStripMenuItem();
-            _miFileOpen = new ToolStripMenuItem(null, null, (_, _) => OpenFile());
-            _miFileSave = new ToolStripMenuItem(null, null, (_, _) => SaveFile());
-            _miFileSaveAs = new ToolStripMenuItem(null, null, (_, _) => SaveFileAs());
+            // 主要操作には標準的なショートカットを割り当てる（メニュー右側に表示される）。
+            _miFileOpen = new ToolStripMenuItem(null, null, (_, _) => OpenFile()) { ShortcutKeys = Keys.Control | Keys.O };
+            _miFileRecent = new ToolStripMenuItem();
+            _miFileSave = new ToolStripMenuItem(null, null, (_, _) => SaveFile()) { ShortcutKeys = Keys.Control | Keys.S };
+            _miFileSaveAs = new ToolStripMenuItem(null, null, (_, _) => SaveFileAs()) { ShortcutKeys = Keys.Control | Keys.Shift | Keys.S };
             _miFileExport = new ToolStripMenuItem(null, null, (_, _) => ExportPlain());
             _miFileExit = new ToolStripMenuItem(null, null, (_, _) => Close());
             _miFile.DropDownItems.Add(_miFileOpen);
+            _miFile.DropDownItems.Add(_miFileRecent);
+            _miFile.DropDownItems.Add(new ToolStripSeparator());
             _miFile.DropDownItems.Add(_miFileSave);
             _miFile.DropDownItems.Add(_miFileSaveAs);
             _miFile.DropDownItems.Add(new ToolStripSeparator());
             _miFile.DropDownItems.Add(_miFileExport);
             _miFile.DropDownItems.Add(new ToolStripSeparator());
             _miFile.DropDownItems.Add(_miFileExit);
+            RebuildRecentMenu();
 
             _miTools = new ToolStripMenuItem();
             _miToolCreateQuest = new ToolStripMenuItem(null, null, (_, _) => CreateQuest());
@@ -148,6 +163,53 @@ namespace InstantaleSaveEditor
             menu.Items.Add(_miFile); menu.Items.Add(_miTools); menu.Items.Add(_miSettings);
             menu.Items.Add(_miAutoBackup);
             MainMenuStrip = menu; Controls.Add(menu);
+            UpdateMenuState();
+        }
+
+        // ファイル未読み込みの間は、開いているデータを前提とするメニューを無効にする。
+        private void UpdateMenuState()
+        {
+            bool loaded = _root != null;
+            _miFileSave.Enabled = _miFileSaveAs.Enabled = _miFileExport.Enabled = loaded;
+            _miToolCreateQuest.Enabled = _miToolImportNpc.Enabled = _miToolPlayerToNpc.Enabled
+                = _miToolCleanup.Enabled = _miToolEditRaw.Enabled = loaded;
+        }
+
+        // 「最近開いたファイル」のドロップダウンを設定の履歴から作り直す。履歴が空なら無効化する。
+        private void RebuildRecentMenu()
+        {
+            _miFileRecent.DropDownItems.Clear();
+            var list = _settings.RecentFiles;
+            if (list != null)
+                foreach (var p in list)
+                {
+                    string path = p;
+                    // & はニーモニック扱いされて表示が崩れるためエスケープする。
+                    var mi = new ToolStripMenuItem(path.Replace("&", "&&"));
+                    mi.Click += (_, _) => { if (ConfirmUnsavedChanges()) LoadPath(path); };
+                    _miFileRecent.DropDownItems.Add(mi);
+                }
+            _miFileRecent.Enabled = _miFileRecent.DropDownItems.Count > 0;
+        }
+
+        // 履歴の先頭へ追加する（重複除去・上限超過は切り捨て）。設定保存とメニュー再構築まで行う。
+        private void AddRecent(string path)
+        {
+            var list = _settings.RecentFiles ??= new List<string>();
+            list.RemoveAll(p => string.Equals(p, path, StringComparison.OrdinalIgnoreCase));
+            list.Insert(0, path);
+            if (list.Count > MaxRecentFiles) list.RemoveRange(MaxRecentFiles, list.Count - MaxRecentFiles);
+            Settings.Save(_settings);
+            RebuildRecentMenu();
+        }
+
+        // 開けなかったファイルを履歴から取り除く（存在しなければ何もしない）。
+        private void RemoveRecent(string path)
+        {
+            var list = _settings.RecentFiles;
+            if (list == null || list.RemoveAll(p => string.Equals(p, path, StringComparison.OrdinalIgnoreCase)) == 0) return;
+            Settings.Save(_settings);
+            RebuildRecentMenu();
         }
 
         // 設定ダイアログを指定セクションで開く。OK ならウィンドウサイズ等と右端表示を即時反映する。
@@ -195,9 +257,16 @@ namespace InstantaleSaveEditor
             else StartPosition = FormStartPosition.CenterScreen;
         }
 
-        // 終了時、前回サイズ記憶モードなら現在のサイズ（位置記憶 ON なら位置も）を保存する。
+        // 終了時、未保存の変更があれば確認する。続行時は前回サイズ記憶モードなら現在のサイズ
+        // （位置記憶 ON なら位置も）を保存する。
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
+            if (!e.Cancel && !ConfirmUnsavedChanges())
+            {
+                e.Cancel = true;
+                base.OnFormClosing(e);
+                return;
+            }
             if (_settings != null && _settings.WindowSizeMode == WindowSizeMode.RememberLast)
             {
                 // 最大化/最小化中は復元時のサイズ(RestoreBounds)を採用する。
@@ -225,9 +294,68 @@ namespace InstantaleSaveEditor
                + (_path != null ? "  [" + Path.GetFileName(_path) + "]" : "");
 
         // ---------------- ファイル操作 ----------------
+        // タイトルバーにアプリ名と編集中のファイル名を表示する。
+        private void UpdateTitle()
+            => Text = I18n.T("app.title") + (_path != null ? " - " + Path.GetFileName(_path) : "");
+
+        // ドロップ配線済みコントロール（重複配線の防止）。再バインドで親から外れたまま破棄されない
+        // コントロールを溜め込まないよう、弱参照テーブルで保持する。
+        private readonly ConditionalWeakTable<Control, object> _dropWired = new();
+
+        // JSON ファイルのドラッグ＆ドロップ受け付けを再帰的に配線する。
+        // OLE ドロップは親コントロールへ伝播しないため、子にも個別に配線する必要がある。
+        // 後から生成されるコントロールには ControlAdded で追従する。
+        private void EnableFileDrop(Control c)
+        {
+            if (!_dropWired.TryAdd(c, null)) return;   // 同一コントロールの再追加（再バインド時など）は配線済み
+            // 固有のドラッグ／ドロップ動作を持ち得る入力・一覧系コントロールは対象外にする。
+            if (c is not (TextBoxBase or ComboBox or ListBox or ListView or TreeView or DataGridView or UpDownBase))
+            {
+                c.AllowDrop = true;
+                c.DragEnter += OnFileDragEnter;
+                c.DragDrop += OnFileDragDrop;
+            }
+            c.ControlAdded += (_, e) => EnableFileDrop(e.Control);
+            foreach (Control child in c.Controls) EnableFileDrop(child);
+        }
+
+        private void OnFileDragEnter(object sender, DragEventArgs e)
+        { if (GetDroppedJson(e) != null) e.Effect = DragDropEffects.Copy; }
+
+        private void OnFileDragDrop(object sender, DragEventArgs e)
+        {
+            string p = GetDroppedJson(e);
+            if (p != null && ConfirmUnsavedChanges()) LoadPath(p);
+        }
+
+        // ドロップされたデータから開ける JSON ファイルのパスを返す（対象外なら null）。
+        private static string GetDroppedJson(DragEventArgs e)
+        {
+            if (e.Data?.GetData(DataFormats.FileDrop) is not string[] files || files.Length == 0) return null;
+            string p = files[0];
+            return File.Exists(p) && p.EndsWith(".json", StringComparison.OrdinalIgnoreCase) ? p : null;
+        }
+
+        // 未保存の変更があれば保存するか確認する。続行してよいときのみ true。
+        // はい=保存して続行 / いいえ=破棄して続行 / キャンセル=中断。
+        private bool ConfirmUnsavedChanges()
+        {
+            if (_root == null || _baseline == null) return true;
+            // 未確定入力を反映してから比較する。反映に失敗した場合も「変更あり」として確認する。
+            bool applied = ApplyAll();
+            if (applied && Codec.Encode(_root).AsSpan().SequenceEqual(_baseline)) return true;
+            var r = MessageBox.Show(this, I18n.T("msg.unsavedPrompt"), I18n.T("title.unsaved"),
+                MessageBoxButtons.YesNoCancel, MessageBoxIcon.Warning);
+            if (r == DialogResult.Cancel) return false;
+            if (r != DialogResult.Yes) return true;
+            // 反映に失敗している間は保存できない（型エラーは表示済み）。中断して修正してもらう。
+            return applied && SaveFile();
+        }
+
         // ファイルを開いて3タブにバインドする。失敗時はエラー表示。
         private void OpenFile()
         {
+            if (!ConfirmUnsavedChanges()) return;
             // OpenFileDialog.InitialDirectory は環境変数を展開しないため、実パスに解決してから渡す。
             // 実際のセーブ位置は LocalAppData 側（%AppData% ではない）。存在する場合のみ指定する。
             string savesDir = Path.Combine(
@@ -242,20 +370,37 @@ namespace InstantaleSaveEditor
                 Filter = I18n.T("filter.saveJson")
             };
             if (dlg.ShowDialog(this) != DialogResult.OK) return;
-            try { _root = Codec.Load(dlg.FileName); }
+            LoadPath(dlg.FileName);
+        }
+
+        // 指定パスを読み込んで3タブにバインドする（開く・履歴・ドラッグ＆ドロップの共通処理）。
+        private void LoadPath(string path)
+        {
+            JsonObject root;
+            try { root = Codec.Load(path); }
             catch (Exception ex)
             {
                 MessageBox.Show(this, I18n.T("msg.openFailed") + "\n\n" + ex.Message,
                     I18n.T("title.openFailed"), MessageBoxButtons.OK, MessageBoxIcon.Error);
+                RemoveRecent(path);   // 開けないファイルは履歴に残さない
                 return;
             }
-            _path = dlg.FileName;
-            // 次回ダイアログの初期位置に使うため、開いたフォルダを記憶する。
+            _root = root;
+            _path = path;
+            // 数値の表記を UI の書き戻しと同じ形へ揃えておく（未保存変更の誤検知防止）。
+            CanonicalizeNumbers(_root);
+            // 次回ダイアログの初期位置に使うため、開いたフォルダを記憶する（AddRecent が設定保存も行う）。
             _settings.LastOpenedFolder = Path.GetDirectoryName(_path) ?? "";
-            Settings.Save(_settings);
+            AddRecent(_path);
             _player.Bind(_root, _path);
             _world.Bind(_root, _path);
             _vars.Bind(_root);
+            // タブの書き戻しはグリッド再構築等で表記を揃えるため、未保存変更の基準は
+            // 一度反映させた後の内容で取る（開いただけで「変更あり」になる誤検知の防止）。
+            ApplyAll();
+            _baseline = Codec.Encode(_root);
+            UpdateMenuState();
+            UpdateTitle();
             Status("status.loaded");
         }
 
@@ -263,31 +408,74 @@ namespace InstantaleSaveEditor
         private bool ApplyAll()
             => _player.Apply() && _world.ApplyCurrent() && _vars.Apply();
 
-        // 全タブを反映してから、ゲームが読める形式で上書き保存する。
-        private void SaveFile()
+        // 読み込んだ JSON の数値表記を、UI の書き戻し（J.Loose 等の long/double 生成）と同じ形へ揃える。
+        // "10.0" のような表記は書き戻すと "10" になり、値が同じでもバイト比較で未保存変更と
+        // 誤検知されるため、読込直後に正規化しておく。値が変わってしまう場合は元の表記を残す。
+        private static void CanonicalizeNumbers(JsonNode node)
         {
-            if (_root == null) return;
-            if (_path == null) { SaveFileAs(); return; }
-            if (!ApplyAll()) return;
+            switch (node)
+            {
+                case JsonObject o:
+                    foreach (var key in o.Select(p => p.Key).ToList())
+                    { if (Canonical(o[key]) is { } c) o[key] = c; else CanonicalizeNumbers(o[key]); }
+                    break;
+                case JsonArray a:
+                    for (int i = 0; i < a.Count; i++)
+                    { if (Canonical(a[i]) is { } c) a[i] = c; else CanonicalizeNumbers(a[i]); }
+                    break;
+            }
+        }
+
+        // 数値ノードの正規形を返す。数値でない・既に正規形・decimal で同値と確認できない場合は null。
+        private static JsonNode Canonical(JsonNode n)
+        {
+            if (n is not JsonValue v || v.GetValueKind() != JsonValueKind.Number) return null;
+            string raw = v.ToJsonString();
+            JsonNode canon =
+                long.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out long l)
+                    ? JsonValue.Create(l)
+                : double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out double d)
+                    ? JsonValue.Create(d)
+                : null;
+            if (canon == null || canon.ToJsonString() == raw) return null;
+            return decimal.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var d1)
+                && decimal.TryParse(canon.ToJsonString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var d2)
+                && d1 == d2 ? canon : null;
+        }
+
+        // 全タブを反映してから、ゲームが読める形式で上書き保存する。成功したら true。
+        private bool SaveFile()
+        {
+            if (_root == null) return false;
+            if (_path == null) return SaveFileAs();
+            if (!ApplyAll()) return false;
+            byte[] bytes;
             try
             {
                 // 書き込む内容を先に確定し、上書き直前にディスク上のファイルをバックアップする。
-                byte[] bytes = Codec.Encode(_root);
+                bytes = Codec.Encode(_root);
                 BackupManager.BackupBeforeOverwrite(_path, bytes, _settings);
                 File.WriteAllBytes(_path, bytes);
             }
-            catch (Exception ex) { MessageBox.Show(this, ex.Message, I18n.T("title.saveFailed"), MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
-            MessageBox.Show(this, I18n.T("msg.saved"), I18n.T("title.save"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+            catch (Exception ex) { MessageBox.Show(this, ex.Message, I18n.T("title.saveFailed"), MessageBoxButtons.OK, MessageBoxIcon.Error); return false; }
+            _baseline = bytes;
             Status("status.saved");
+            return true;
         }
 
-        // 別名保存（パスを決めてから上書き保存処理へ）。
-        private void SaveFileAs()
+        // 別名保存（パスを決めてから上書き保存処理へ）。成功したら true。
+        private bool SaveFileAs()
         {
-            if (_root == null) return;
+            if (_root == null) return false;
             using var dlg = new SaveFileDialog { Filter = I18n.T("filter.saveJsonSave"), DefaultExt = "json" };
-            if (dlg.ShowDialog(this) != DialogResult.OK) return;
-            _path = dlg.FileName; SaveFile();
+            if (dlg.ShowDialog(this) != DialogResult.OK) return false;
+            string prev = _path;
+            _path = dlg.FileName;
+            // 失敗時は元のパスへ戻す（表示や次回 Ctrl+S の保存先が変わったままにならないように）。
+            if (!SaveFile()) { _path = prev; return false; }
+            AddRecent(_path);
+            UpdateTitle();
+            return true;
         }
 
         // 整形JSONを書き出す（確認用。ゲームには読み込めない）。
