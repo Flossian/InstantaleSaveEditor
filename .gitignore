@@ -15,6 +15,7 @@ savedata*
 data/
 templates/
 lang/
+InstantaleWorldGen/
 
 # ---- その他 ----
 .claude

@@ -20,6 +20,15 @@
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
   </PropertyGroup>
 
+  <!-- InstantaleWorldGen は参考用の別ソース一式(独自 Program.cs 等)のためビルド対象から除外する -->
+  <ItemGroup>
+    <Compile Remove="InstantaleWorldGen\**\*.cs" />
+    <Compile Remove="InstantaleWorldGen\**\*.xaml.cs" />
+    <EmbeddedResource Remove="InstantaleWorldGen\**\*" />
+    <None Remove="InstantaleWorldGen\**\*" />
+    <Content Remove="InstantaleWorldGen\**\*" />
+  </ItemGroup>
+
   <!-- 多言語の埋め込み基底。外部 lang\ が無くても日英が動く。論理名を lang.<code>.json に固定する。 -->
   <ItemGroup>
     <EmbeddedResource Include="lang\ja.json" LogicalName="lang.ja.json" />

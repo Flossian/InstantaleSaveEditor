@@ -1,7 +1,7 @@
 // 列挙的フィールド（NPC の category / job など）の候補テンプレートを供給する。
 // 候補値はソースに直書きせず、JSON から読む:
 //   - 既定: 埋め込みリソース field_options.json（サンプルデータから抽出した固定候補）
-//   - 上書き: exe 隣の外部 field_options.json（あればフィールド単位で差し替え）
+//   - 上書き: exe 隣の setting フォルダの外部 field_options.json（あればフィールド単位で差し替え）
 // { "フィールド名": ["候補1", "候補2", ...], ... } 形式。外部ファイルを編集すれば
 // 候補の追加や他フィールドへの汎用化ができる（再ビルド不要）。
 using System.Reflection;
@@ -14,12 +14,29 @@ namespace InstantaleSaveEditor
     {
         private static Dictionary<string, string[]> _map;   // フィールド名 → 候補配列（初回アクセス時に構築）
 
-        // exe 隣の外部ファイルパス。単一ファイル発行では Assembly.Location が空のため ProcessPath を使う。
+        // exe 隣の setting フォルダの外部ファイルパス。単一ファイル発行では Assembly.Location が空のため ProcessPath を使う。
+        // v9.1 以前は exe 直下に置いていたため、旧ファイルがあれば setting フォルダへ移行する。
         private static string ExternalPath()
         {
-            string dir = Path.GetDirectoryName(Environment.ProcessPath ?? "") ?? AppContext.BaseDirectory;
-            return Path.Combine(dir, "field_options.json");
+            string exeDir = Path.GetDirectoryName(Environment.ProcessPath ?? "") ?? AppContext.BaseDirectory;
+            string dir = Path.Combine(exeDir, "setting");
+            string newPath = Path.Combine(dir, "field_options.json");
+            if (!File.Exists(newPath))
+            {
+                string oldPath = Path.Combine(exeDir, "field_options.json");
+                try
+                {
+                    Directory.CreateDirectory(dir);
+                    if (File.Exists(oldPath)) File.Move(oldPath, newPath);
+                }
+                catch { if (File.Exists(oldPath)) return oldPath; }
+            }
+            return newPath;
         }
+
+        // 起動時に一度だけ呼ぶ。外部ファイルの exe 直下 → setting フォルダへの移行だけを済ませておく
+        // （中身の読込・パースは Get() 初回呼び出し時まで遅延する。未使用のまま終了しても移行は済ませたいため分離）。
+        public static void EnsureMigrated() => ExternalPath();
 
         // 指定フィールドの候補一覧。未定義なら空配列（呼び出し側は自由入力として扱える）。
         public static IReadOnlyList<string> Get(string field)

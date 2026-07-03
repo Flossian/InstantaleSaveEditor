@@ -1,5 +1,5 @@
 // ツール設定（settings.json）と自動バックアップ（BackupManager）。
-// 設定は exe 隣の settings.json にポータブル保存する。既存の保存ロジック・各タブ挙動は変更しない。
+// 設定は exe 隣の setting フォルダの settings.json にポータブル保存する。既存の保存ロジック・各タブ挙動は変更しない。
 using System.IO.Compression;
 using System.Text;
 using System.Text.Json;
@@ -55,12 +55,25 @@ namespace InstantaleSaveEditor
         private static readonly JsonSerializerOptions JsonOpts = new()
         { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
 
-        // settings.json のフルパス（exe と同じディレクトリ）。
+        // settings.json のフルパス（exe 隣の setting フォルダ）。
         // 単一ファイル発行では Assembly.Location が空になるため Environment.ProcessPath を使う。
+        // v9.1 以前は exe 直下に置いていたため、旧ファイルがあれば setting フォルダへ移行する。
         public static string FilePath()
         {
-            string dir = Path.GetDirectoryName(Environment.ProcessPath ?? "") ?? AppContext.BaseDirectory;
-            return Path.Combine(dir, "settings.json");
+            string exeDir = Path.GetDirectoryName(Environment.ProcessPath ?? "") ?? AppContext.BaseDirectory;
+            string dir = Path.Combine(exeDir, "setting");
+            string newPath = Path.Combine(dir, "settings.json");
+            if (!File.Exists(newPath))
+            {
+                string oldPath = Path.Combine(exeDir, "settings.json");
+                try
+                {
+                    Directory.CreateDirectory(dir);
+                    if (File.Exists(oldPath)) File.Move(oldPath, newPath);
+                }
+                catch { if (File.Exists(oldPath)) return oldPath; }
+            }
+            return newPath;
         }
 
         // 設定を読み込む。ファイルが無い/壊れている場合は既定値で返す（例外は出さない）。
@@ -271,7 +284,7 @@ namespace InstantaleSaveEditor
             _lblRetention.Text = I18n.T("settings.retention");
 
             _grpLanguage.Text = I18n.T("settings.group.language");
-            _grpMisc.Text = I18n.T("settings.group.misc");
+            _grpMisc.Text = I18n.T("settings.group.display");
             _lblLang.Text = I18n.T("settings.language");
             _lblSizeMode.Text = I18n.T("settings.windowSize");
             _lblFixedSize.Text = I18n.T("settings.fixedSize");
@@ -360,7 +373,7 @@ namespace InstantaleSaveEditor
             return _grpLanguage;
         }
 
-        // 「その他」グループ（ウィンドウサイズなど。今後の雑多な設定もここに追加する）。
+        // 「表示」グループ（ウィンドウサイズなど画面表示に関する設定）。
         private GroupBox BuildMiscGroup()
         {
             _grpMisc = new GroupBox { Width = 410, Height = 140, Margin = new Padding(3) };

@@ -291,12 +291,30 @@ namespace InstantaleSaveEditor
         // 現在のステータスキー＋引数を現在言語で解決し、ファイル名を併記して返す。
         private string ResolveStatus()
             => I18n.T(_statusKey, _statusArgs ?? Array.Empty<object>())
-               + (_path != null ? "  [" + Path.GetFileName(_path) + "]" : "");
+               + (_path != null ? "  [" + FileLabel() + "]" : "");
 
         // ---------------- ファイル操作 ----------------
         // タイトルバーにアプリ名と編集中のファイル名を表示する。
         private void UpdateTitle()
-            => Text = I18n.T("app.title") + (_path != null ? " - " + Path.GetFileName(_path) : "");
+            => Text = I18n.T("app.title") + (_path != null ? " - " + FileLabel() : "");
+
+        // ファイル名＋（ワールド名）の表示文字列を作る。
+        // ワールド名は world_data.name → 無ければファイル所在のワールドフォルダ名。
+        private string FileLabel()
+        {
+            string name = Path.GetFileName(_path);
+            string world = ResolveWorldName();
+            return string.IsNullOrEmpty(world) ? name : $"{name}（{world}）";
+        }
+
+        // 現在開いているファイルのワールド名を解決する。
+        private string ResolveWorldName()
+        {
+            string name = _root != null ? J.Str(J.Obj(_root, "world_data"), "name") : "";
+            if (!string.IsNullOrWhiteSpace(name)) return name;
+            string dir = WorldTab.ResolveWorldDir(_path);
+            return string.IsNullOrEmpty(dir) ? null : Path.GetFileName(dir);
+        }
 
         // ドロップ配線済みコントロール（重複配線の防止）。再バインドで親から外れたまま破棄されない
         // コントロールを溜め込まないよう、弱参照テーブルで保持する。
@@ -630,6 +648,7 @@ namespace InstantaleSaveEditor
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             var settings = Settings.Load();   // 起動時に設定をロードしてからフォームを生成する
+            FieldOptions.EnsureMigrated();    // field_options.json も同様に exe 直下 → setting フォルダへ移行しておく
             I18n.Init(settings.Language);      // フォーム生成前に言語を確定する（初回書き出し・辞書構築）
             Application.Run(new MainForm(settings));
         }
