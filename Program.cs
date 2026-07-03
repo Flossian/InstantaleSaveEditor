@@ -408,7 +408,7 @@ namespace InstantaleSaveEditor
         private bool ApplyAll()
             => _player.Apply() && _world.ApplyCurrent() && _vars.Apply();
 
-        // 読み込んだ JSON の数値表記を、UI の書き戻し（J.Loose 等の long/double 生成）と同じ形へ揃える。
+        // 読み込んだ JSON の数値表記を、UI の書き戻し（各タブの long/double 生成）と同じ形へ揃える。
         // "10.0" のような表記は書き戻すと "10" になり、値が同じでもバイト比較で未保存変更と
         // 誤検知されるため、読込直後に正規化しておく。値が変わってしまう場合は元の表記を残す。
         private static void CanonicalizeNumbers(JsonNode node)
