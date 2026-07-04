@@ -111,7 +111,7 @@
 <div class="wrap">
 
 <header class="title">
-  <h1>Instantale Save Editor 説明書 <span class="badge">v9.2</span></h1>
+  <h1>Instantale Save Editor 説明書 <span class="badge">v10</span></h1>
   <div class="sub">ゲーム <strong>Instantale</strong> のセーブデータ／ワールドデータ編集ツール（非公式）</div>
 </header>
 
@@ -137,9 +137,11 @@
     <li><a href="#itemio">アイテムの倉庫・エクスポート／インポート <span class="badge">v9</span></a></li>
     <li><a href="#skills">スキルの編集 <span class="badge">v8</span></a></li>
     <li><a href="#image">キャラクター画像の編集</a></li>
+    <li><a href="#worldgen">ワールド生成 <span class="badge">v10</span></a></li>
     <li><a href="#quest">クエスト作成</a></li>
     <li><a href="#npcio">NPC のエクスポート／インポート <span class="badge">v7</span></a></li>
     <li><a href="#player2npc">プレイヤーを NPC 化 <span class="badge">v7</span></a></li>
+    <li><a href="#player2preset">プレイヤーをプリセット化 <span class="badge">v10</span></a></li>
     <li><a href="#cleanup">ワールドデータのクリーンアップ <span class="badge">v9</span></a></li>
     <li><a href="#settings">設定（言語・バックアップ・ウィンドウ） <span class="badge">v7</span></a></li>
     <li><a href="#files">データの保存場所</a></li>
@@ -179,10 +181,12 @@
 <h3>ツール(T)</h3>
 <table>
   <tr><th>項目</th><th>説明</th></tr>
+  <tr><td>ワールドを生成... <span class="badge">v10</span></td><td>名前・シード・集落数を指定して新しいワールドを生成します。<a href="#worldgen">詳細</a>。</td></tr>
   <tr><td>クエスト作成（テンプレから）...</td><td>テンプレートと部品からダンジョンとクエストを生成します。<a href="#quest">詳細</a>。</td></tr>
   <tr><td>クエストをテンプレ化...</td><td>既存の world_data / savedata からクエストのテンプレと部品（敵・ボス・イベント）を <code>templates/</code> フォルダへ書き出します。<a href="#quest">詳細</a>。</td></tr>
   <tr><td>NPCをインポート... <span class="badge">v7</span></td><td>NPC パッケージ（zip）を読み込み、配置先を指定して現在のワールドへ取り込みます。<a href="#npcio">詳細</a>。</td></tr>
   <tr><td>プレイヤーをNPCに... <span class="badge">v7</span></td><td>プレイヤーを NPC に変換して <code>npcs</code> へ追加、または zip として書き出します。<a href="#player2npc">詳細</a>。</td></tr>
+  <tr><td>プレイヤーをプリセット化... <span class="badge">v10</span></td><td>プレイヤーをゲームのキャラ作成画面で選べるキャラクタープリセットとして出力します。<a href="#player2preset">詳細</a>。</td></tr>
   <tr><td>ワールドデータをクリーンアップ... <span class="badge">v9</span></td><td>ストーリークエストの進行を未完了に戻し、全 NPC のログ消去・関係を初期化します。<a href="#cleanup">詳細</a>。</td></tr>
   <tr><td>全体をJSONで編集...</td><td>データ全体を JSON テキストとして直接編集します（上級者向け）。</td></tr>
 </table>
@@ -190,7 +194,7 @@
 <table>
   <tr><th>項目</th><th>説明</th></tr>
   <tr><td>バックアップ...</td><td>上書き保存時の自動バックアップの ON/OFF・保存先・世代の自動削除を設定します。<a href="#settings">詳細</a>。</td></tr>
-  <tr><td>言語...</td><td>UI の表示言語（日本語／英語など）を切り替えます。<a href="#settings">詳細</a>。</td></tr>
+  <tr><td>言語...</td><td>UI の表示言語（日本語／英語／簡体字中国語など）を切り替えます。<a href="#settings">詳細</a>。</td></tr>
   <tr><td>その他...</td><td>ウィンドウサイズの記憶／固定などを設定します。<a href="#settings">詳細</a>。</td></tr>
 </table>
 <div class="note">
@@ -213,6 +217,9 @@
   <tr><td>エリア履歴(area_history)</td><td>エリアごとの滞在日数・秩序度・実績などを表（グリッド）で編集します。<a href="#areahistory">詳細</a>。</td></tr>
   <tr><td>その他（JSON編集）</td><td>記憶・現在ログなど、構造が複雑な項目は「JSON編集...」ボタンで丸ごと編集します。</td></tr>
 </table>
+<div class="note">
+  タブ最上部の<strong>「JSON直接編集」</strong>ボタンで、<code>player_data</code> 全体を生の JSON テキストとして編集できます（上級者向け）。<span class="badge">v10</span>
+</div>
 
 <h2 id="world">4. ワールドタブ</h2>
 <p>
@@ -220,6 +227,7 @@
 </p>
 <ul>
   <li>長い文章はリサイズ可能なテキスト枠、配列や複雑な構造は「JSON編集...」ボタンで編集します。</li>
+  <li>ツリー上部の<strong>「JSON直接編集」</strong>ボタンで、選択中の項目（world_data／index／NPC・エリア等の各レコード）を生の JSON テキストとして丸ごと編集できます。フォームでは直せない壊れたデータの修復にも使えます。<span class="badge">v10</span></li>
   <li>NPC を選ぶと説明文の下に<strong>画像パネル</strong>（<a href="#image">詳細</a>）、facility（拠点）を選ぶと<strong>背景画像</strong>（クリックで原寸表示。差し替え不可）が表示されます。</li>
   <li>ダンジョン（<code>size</code> が <code>dungeon</code> の <code>areas</code>）は <strong>dungeon</strong> として別ツリーに表示されます（操作は通常の <code>areas</code> と同じ）。</li>
   <li><strong>npcs</strong> / <strong>quests</strong> / <strong>dungeon</strong> は<strong>所属拠点（area）ごとの見出し</strong>（「id: 名前 (件数)」。選択不可）でグループ化されます。拠点不明は「（エリアなし）」、死亡 NPC は<strong>「死者」</strong>グループへ。</li>
@@ -381,7 +389,28 @@
   元の縮小色画像はバックアップに退避されるので、<strong>「立ち絵（縮小色）」の「使用する」</strong>を押せば元に戻せます。
 </div>
 
-<h2 id="quest">13. クエスト作成</h2>
+<h2 id="worldgen">13. ワールド生成 <span class="badge">v10</span></h2>
+<p>
+  <strong>ツール → ワールドを生成</strong> から、新しいワールドをまるごと自動生成します。ファイルを開いていなくても使えます。
+</p>
+<table>
+  <tr><th>項目</th><th>説明</th></tr>
+  <tr><td>名前</td><td>ワールド名。空欄なら名前プールからランダムに決まります。</td></tr>
+  <tr><td>シード</td><td>生成の乱数シード。<strong>同じシード・同じ設定なら同じワールド</strong>が再現されます。🎲 ボタンでランダムに振り直せます。</td></tr>
+  <tr><td>集落数</td><td>生成する集落の数（既定 9）。</td></tr>
+</table>
+<ol>
+  <li><strong>「生成」</strong>を押すと、生成されたワールドが<strong>未保存データ</strong>としてエディタ本体へ読み込まれ、ワールドタブが開きます（タイトルバーに「（未保存）」と表示されます）。</li>
+  <li>内容を確認・編集し、<strong>名前を付けて保存</strong>（Ctrl+Shift+S）で書き出します（既定のファイル名は <code>world_data.json</code>）。ゲームで遊ぶには <code>worlds\{ワールド名}\world_data.json</code> として配置します。</li>
+</ol>
+<div class="warn">
+  <strong>集落数は 9 を推奨します。</strong>ゲーム側は集落 9 個のワールドを前提としており、9 以外にするとゲームがクラッシュして読み込めない恐れがあります（9 以外を指定すると生成前に警告が出ます）。
+</div>
+<div class="note">
+  生成に使う名前プール（ワールド名・エリア名・NPC 名・施設名など）は、exe と同じ場所の <code>namelist</code> フォルダの JSON を書き換えると再ビルドなしでカスタマイズできます（無い・空のキーは内蔵の既定値が使われます）。
+</div>
+
+<h2 id="quest">14. クエスト作成</h2>
 <p>
   <strong>ツール → クエスト作成（テンプレから）</strong> から開く合成ビルダーです。文章類（タイトル・依頼主名・依頼概要・発言、ダンジョン名・描写・場所）は<strong>自由入力</strong>でき、各欄の<strong>「テンプレ」</strong>で保存済みテンプレ（<code>templates/quests/</code>）の値を流用、<strong>「テンプレ一括読込」</strong>で各欄へまとめて流し込めます。
 </p>
@@ -396,7 +425,7 @@
   使用後は必ずゲームで動作を確認してください。
 </div>
 
-<h2 id="npcio">14. NPC のエクスポート／インポート <span class="badge">v7</span></h2>
+<h2 id="npcio">15. NPC のエクスポート／インポート <span class="badge">v7</span></h2>
 <p>
   NPC を <strong>JSON＋画像をまとめた zip パッケージ</strong>として書き出し、別のワールドへ取り込めます。
 </p>
@@ -424,7 +453,7 @@
   画像は <code>characters/{名前}/</code> へ展開されます。
 </div>
 
-<h2 id="player2npc">15. プレイヤーを NPC 化 <span class="badge">v7</span></h2>
+<h2 id="player2npc">16. プレイヤーを NPC 化 <span class="badge">v7</span></h2>
 <p>
   <strong>ツール → プレイヤーをNPCに</strong> から、プレイヤー（<code>player_data</code>）を NPC オブジェクトへ変換します。
   名前・年齢・性格・スキル・インベントリ・画像などはそのまま流用され、能力値は<strong>整数へ自動換算</strong>されます。
@@ -439,7 +468,29 @@
   生成後は<strong>ゲームで動作を確認</strong>してください。
 </div>
 
-<h2 id="cleanup">16. ワールドデータのクリーンアップ <span class="badge">v9</span></h2>
+<h2 id="player2preset">17. プレイヤーをプリセット化 <span class="badge">v10</span></h2>
+<p>
+  <strong>ツール → プレイヤーをプリセット化</strong> から、プレイヤー（<code>player_data</code>）を
+  <strong>ゲームのキャラ作成画面で選べるキャラクタープリセット</strong>に変換して書き出します。
+  育てたキャラを別のワールドで最初から使いたいときなどに使います。
+</p>
+<ul>
+  <li>名前・プロフィール・外見・区分・年齢・スキル・特性はそのまま引き継ぎます（スキルの使用回数は最大値に戻ります）。</li>
+  <li>能力値は元の値（<code>original_ability_scores</code>）を<strong>四捨五入して自動換算</strong>します。</li>
+  <li>性別はセーブに存在しないため、区分（category）の語から自動判別します。</li>
+  <li>所持金は編集でき、<strong>使用ポイント（point_use）</strong>は能力値・年齢・スキル・特性・所持金から自動計算されます（ゲーム内で再計算されるため編集不可）。</li>
+  <li>顔画像・立ち絵などの画像 5 種と <code>prompts.json</code> は、ワールド側のキャラフォルダから複製されます。</li>
+</ul>
+<div class="note">
+  出力先は Instantale のデータフォルダ内の <code>characters\{名前}\</code>（<code>saves</code> や <code>worlds</code> と同じ階層）です。
+  同名のプリセットがある場合は上書き確認が表示されます。
+</div>
+<div class="warn">
+  リバースエンジニアリングに基づく変換のため、完全な互換は保証されません。
+  出力後は<strong>ゲームのキャラ作成画面で動作を確認</strong>してください。
+</div>
+
+<h2 id="cleanup">18. ワールドデータのクリーンアップ <span class="badge">v9</span></h2>
 <p>
   <strong>ツール → ワールドデータをクリーンアップ</strong> から、ワールドを「遊び始める前」に近い状態へ一括で戻します。
   自分で作ったワールドを配布用に整えるときなどに使います。
@@ -454,12 +505,12 @@
   この操作は<strong>元に戻せません</strong>（保存するまではファイルには反映されません）。実行前に必ずバックアップを取ってください。
 </div>
 
-<h2 id="settings">17. 設定（言語・バックアップ・ウィンドウ・ゲーム導入先） <span class="badge">v7</span></h2>
-<p><strong>設定</strong>メニューから、UI 言語・自動バックアップ・ウィンドウの挙動を変更できます。設定は exe と同じ場所の <code>settings.json</code> に保存されます。</p>
+<h2 id="settings">19. 設定（言語・バックアップ・ウィンドウ・ゲーム導入先） <span class="badge">v7</span></h2>
+<p><strong>設定</strong>メニューから、UI 言語・自動バックアップ・ウィンドウの挙動を変更できます。設定は exe と同じ場所の <code>setting\settings.json</code> に保存されます（v9.2 以前の exe 直下の <code>settings.json</code> は初回起動時に自動で移動します <span class="badge">v10</span>）。</p>
 
 <h3>言語</h3>
 <p>
-  UI の表示言語を切り替えます（標準で<strong>日本語／英語</strong>）。選んだ瞬間に画面へ反映されます。
+  UI の表示言語を切り替えます（標準で<strong>日本語／英語／簡体字中国語</strong> <span class="badge">v10</span>）。選んだ瞬間に画面へ反映されます。
   exe 隣の <code>lang</code> フォルダに言語ファイル（<code>&lt;コード&gt;.json</code>）を追加すれば、独自の言語を増やせます。
 </p>
 
@@ -494,18 +545,22 @@
   ウィンドウサイズを<strong>前回のサイズを記憶</strong>するか<strong>固定サイズ</strong>で起動するかを選べます。起動位置の記憶も指定できます。
 </p>
 
-<h2 id="files">18. データの保存場所</h2>
+<h2 id="files">20. データの保存場所</h2>
 <table>
   <tr><th>種類</th><th>場所</th></tr>
   <tr><td>セーブデータ</td><td><code>%LocalAppData%\Darmabeko\Instantale\saves\{ワールド名}\savedata.json</code></td></tr>
   <tr><td>ワールドデータ</td><td><code>worlds\{ワールド名}\world_data.json</code></td></tr>
   <tr><td>キャラクター画像</td><td><code>worlds\{ワールド名}\characters\{キャラ名}\*.png</code></td></tr>
+  <tr><td>キャラクタープリセット <span class="badge">v10</span></td><td><code>%LocalAppData%\Darmabeko\Instantale\characters\{名前}\</code>（<a href="#player2preset">プレイヤーをプリセット化</a>の出力先）</td></tr>
 </table>
+<div class="note">
+  ツール側のファイル（設定 <code>setting\</code>・言語 <code>lang\</code>・名前プール <code>namelist\</code>・NPC <code>npc\</code>・アイテム倉庫 <code>item\</code>・テンプレ <code>templates\</code>）は、すべて exe と同じ場所に作られます（ポータブル）。
+</div>
 <p class="sub" style="color:var(--muted)">
   ※ <code>%AppData%</code> はエクスプローラーのアドレス欄にそのまま入力すると開けます。
 </p>
 
-<h2 id="faq">19. 困ったときは</h2>
+<h2 id="faq">21. 困ったときは</h2>
 <ul>
   <li><strong>編集が反映されない</strong> … 入力欄から<strong>フォーカスを外す</strong>（別の場所をクリック）と反映されます。最後に「上書き保存」を忘れずに。</li>
   <li><strong>ゲームがセーブを読み込めなくなった</strong> … 自動バックアップ（<code>backups\</code> 内の zip）または手動コピーから戻してください。</li>

@@ -93,6 +93,7 @@ namespace InstantaleSaveEditor
 
             var sections = new Control[]
             {
+                BuildJsonEdit(),
                 BuildBasic(), BuildDescriptions(), BuildImages(), BuildAbilities(), BuildBody(),
                 BuildSkills(), BuildTraits(), BuildInventoryAndEquip(), BuildLifeLog(), BuildAreaHistory(), BuildOpaque(),
             };
@@ -211,6 +212,29 @@ namespace InstantaleSaveEditor
         private readonly Dictionary<string, TextBox> _descs = new();   // 説明欄(キー→欄)
 
         // ---------------- 各セクション ----------------
+        // player_data 全体を生 JSON で直接編集するボタン。OK なら差し替えてタブを再構築する。
+        private Control BuildJsonEdit()
+        {
+            var flow = new FlowLayoutPanel { AutoSize = true, Margin = new Padding(4) };
+            var btn = new Button { Text = I18n.T("btn.editJsonDirect"), AutoSize = true, Margin = new Padding(4) };
+            btn.Click += (_, _) =>
+            {
+                if (!Apply()) return;   // 表示中の編集を反映してから開く
+                using var d = new JsonEditDialog(I18n.T("title.editField", "player_data"), _pd);
+                if (d.ShowDialog(this) != DialogResult.OK) return;
+                if (d.ResultNode is not JsonObject obj)
+                {
+                    // player_data はオブジェクトでなければセーブが壊れるため差し替えを拒否する。
+                    MessageBox.Show(this, I18n.T("msg.jsonNotObject", "player_data"), I18n.T("title.error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return;
+                }
+                _root["player_data"] = obj;
+                Bind(_root, _filePath);   // 差し替え後のデータでUIを再構築
+            };
+            flow.Controls.Add(btn);
+            return flow;
+        }
+
         private GroupBox BuildBasic()
         {
             var g = Group(I18n.T("player.group.basic"), 440);

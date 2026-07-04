@@ -31,7 +31,7 @@ namespace InstantaleSaveEditor
         // Localize() で文言を再適用するため、可視文言を持つ要素を保持する。
         private TabPage _tpPlayer, _tpWorld, _tpVars;
         private ToolStripMenuItem _miFile, _miFileOpen, _miFileRecent, _miFileSave, _miFileSaveAs, _miFileExport, _miFileExit;
-        private ToolStripMenuItem _miTools, _miToolCreateQuest, _miToolExtract, _miToolImportNpc, _miToolPlayerToNpc, _miToolCleanup, _miToolEditRaw;
+        private ToolStripMenuItem _miTools, _miToolGenerateWorld, _miToolCreateQuest, _miToolExtract, _miToolImportNpc, _miToolPlayerToNpc, _miToolPlayerToPreset, _miToolCleanup, _miToolEditRaw;
         private ToolStripMenuItem _miSettings, _miSettingsBackup, _miSettingsLang, _miSettingsMisc;
         private ToolStripMenuItem _miAutoBackup;   // メニュー右端の自動バックアップ ON/OFF トグル表示
         private string _statusKey = "status.initial";   // 現在のステータス文言キー（言語切替時に再解決する）
@@ -80,10 +80,12 @@ namespace InstantaleSaveEditor
             _miFileExit.Text = I18n.T("menu.file.exit");
 
             _miTools.Text = I18n.T("menu.tools");
+            _miToolGenerateWorld.Text = I18n.T("menu.tools.generateWorld");
             _miToolCreateQuest.Text = I18n.T("menu.tools.createQuest");
             _miToolExtract.Text = I18n.T("menu.tools.extractTemplates");
             _miToolImportNpc.Text = I18n.T("menu.tools.importNpc");
             _miToolPlayerToNpc.Text = I18n.T("menu.tools.playerToNpc");
+            _miToolPlayerToPreset.Text = I18n.T("menu.tools.playerToPreset");
             _miToolCleanup.Text = I18n.T("menu.tools.cleanup");
             _miToolEditRaw.Text = I18n.T("menu.tools.editRaw");
 
@@ -127,17 +129,22 @@ namespace InstantaleSaveEditor
             RebuildRecentMenu();
 
             _miTools = new ToolStripMenuItem();
+            _miToolGenerateWorld = new ToolStripMenuItem(null, null, (_, _) => OpenWorldGenerator());
             _miToolCreateQuest = new ToolStripMenuItem(null, null, (_, _) => CreateQuest());
             _miToolExtract = new ToolStripMenuItem(null, null, (_, _) => ExtractTemplates());
             _miToolImportNpc = new ToolStripMenuItem(null, null, (_, _) => ImportNpc());
             _miToolPlayerToNpc = new ToolStripMenuItem(null, null, (_, _) => PlayerToNpc());
+            _miToolPlayerToPreset = new ToolStripMenuItem(null, null, (_, _) => PlayerToPreset());
             _miToolCleanup = new ToolStripMenuItem(null, null, (_, _) => CleanupWorld());
             _miToolEditRaw = new ToolStripMenuItem(null, null, (_, _) => EditRaw());
+            _miTools.DropDownItems.Add(_miToolGenerateWorld);
+            _miTools.DropDownItems.Add(new ToolStripSeparator());
             _miTools.DropDownItems.Add(_miToolCreateQuest);
             _miTools.DropDownItems.Add(_miToolExtract);
             _miTools.DropDownItems.Add(new ToolStripSeparator());
             _miTools.DropDownItems.Add(_miToolImportNpc);
             _miTools.DropDownItems.Add(_miToolPlayerToNpc);
+            _miTools.DropDownItems.Add(_miToolPlayerToPreset);
             _miTools.DropDownItems.Add(new ToolStripSeparator());
             _miTools.DropDownItems.Add(_miToolCleanup);
             _miTools.DropDownItems.Add(_miToolEditRaw);
@@ -172,7 +179,7 @@ namespace InstantaleSaveEditor
             bool loaded = _root != null;
             _miFileSave.Enabled = _miFileSaveAs.Enabled = _miFileExport.Enabled = loaded;
             _miToolCreateQuest.Enabled = _miToolImportNpc.Enabled = _miToolPlayerToNpc.Enabled
-                = _miToolCleanup.Enabled = _miToolEditRaw.Enabled = loaded;
+                = _miToolPlayerToPreset.Enabled = _miToolCleanup.Enabled = _miToolEditRaw.Enabled = loaded;
         }
 
         // 「最近開いたファイル」のドロップダウンを設定の履歴から作り直す。履歴が空なら無効化する。
@@ -295,8 +302,11 @@ namespace InstantaleSaveEditor
 
         // ---------------- ファイル操作 ----------------
         // タイトルバーにアプリ名と編集中のファイル名を表示する。
+        // パスなしのデータ（生成直後のワールド）はワールド名＋未保存の旨を出す。
         private void UpdateTitle()
-            => Text = I18n.T("app.title") + (_path != null ? " - " + FileLabel() : "");
+            => Text = I18n.T("app.title")
+               + (_path != null ? " - " + FileLabel()
+                : _root != null ? " - " + I18n.T("title.generatedUnsaved", ResolveWorldName() ?? "") : "");
 
         // ファイル名＋（ワールド名）の表示文字列を作る。
         // ワールド名は world_data.name → 無ければファイル所在のワールドフォルダ名。
@@ -486,6 +496,9 @@ namespace InstantaleSaveEditor
         {
             if (_root == null) return false;
             using var dlg = new SaveFileDialog { Filter = I18n.T("filter.saveJsonSave"), DefaultExt = "json" };
+            // パスなしのデータ（生成直後のワールド）はゲームが読むファイル名を既定にする。
+            if (_path == null)
+                dlg.FileName = J.Obj(_root, "player_data") == null ? "world_data.json" : "savedata.json";
             if (dlg.ShowDialog(this) != DialogResult.OK) return false;
             string prev = _path;
             _path = dlg.FileName;
@@ -506,6 +519,37 @@ namespace InstantaleSaveEditor
             File.WriteAllText(dlg.FileName, _root.ToJsonString(Codec.Pretty), new UTF8Encoding(false));
             MessageBox.Show(this, I18n.T("msg.exportedPlain"),
                 I18n.T("title.export"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        // ---------------- ワールド生成 ----------------
+        private WorldGenWindow _worldGenWindow;   // 開いている生成ウィンドウ（ノンモーダル・1枚のみ）
+
+        // ワールド生成ウィンドウを開く。既に開いていれば前面化するだけ。
+        private void OpenWorldGenerator()
+        {
+            if (_worldGenWindow is { IsDisposed: false }) { _worldGenWindow.Activate(); return; }
+            _worldGenWindow = new WorldGenWindow(ConfirmUnsavedChanges, LoadGeneratedWorld);
+            _worldGenWindow.Show(this);
+        }
+
+        // 生成されたワールドを未保存データとして全タブへ読み込む（ファイルパスなし。
+        // 保存は Ctrl+S →「名前を付けて保存」）。未保存確認は生成ウィンドウ側が事前に行う。
+        private void LoadGeneratedWorld(JsonObject root)
+        {
+            _root = root;
+            _path = null;
+            // 数値の表記を UI の書き戻しと同じ形へ揃えておく（未保存変更の誤検知防止）。
+            CanonicalizeNumbers(_root);
+            _player.Bind(_root, null);
+            _world.Bind(_root, null);
+            _vars.Bind(_root);
+            // 生成直後を未保存変更の基準にする。手を加えず再生成した場合は確認なしで置き換わる。
+            ApplyAll();
+            _baseline = Codec.Encode(_root);
+            UpdateMenuState();
+            UpdateTitle();
+            Status("status.worldGenerated", ResolveWorldName() ?? "");
+            _tabs.SelectedTab = _tpWorld;   // 生成結果をすぐ確認できるようワールドタブを開く
         }
 
         // クエスト作成ダイアログを開き、OK ならワールドタブを再構築して結果を通知する。
@@ -606,6 +650,20 @@ namespace InstantaleSaveEditor
             }
         }
 
+        // 現在の player_data をキャラクタープリセット（キャラ作成画面のテンプレート）として
+        // {Instantale}\characters\{名前}\ へ書き出す。
+        private void PlayerToPreset()
+        {
+            if (_root == null) { MessageBox.Show(this, I18n.T("msg.openFileFirst")); return; }
+            if (J.Obj(_root, "player_data") == null)
+            { MessageBox.Show(this, I18n.T("msg.noPlayerData")); return; }
+            if (!_player.Apply()) return;   // プレイヤータブの未確定入力を反映してから変換する
+
+            using var dlg = new PlayerToPresetDialog(_root, _path, WorldTab.ResolveWorldDir(_path));
+            if (dlg.ShowDialog(this) == DialogResult.OK)
+                Status("status.presetExported");
+        }
+
         // ワールドデータをクリーンアップする。確認後、ストーリークエストの status を incomplete に戻し、
         // 全 NPC の life_log / current_log を空に、relationship を初期値に戻す。実行後は world タブを再構築する。
         private void CleanupWorld()
@@ -650,6 +708,7 @@ namespace InstantaleSaveEditor
             var settings = Settings.Load();   // 起動時に設定をロードしてからフォームを生成する
             FieldOptions.EnsureMigrated();    // field_options.json も同様に exe 直下 → setting フォルダへ移行しておく
             I18n.Init(settings.Language);      // フォーム生成前に言語を確定する（初回書き出し・辞書構築）
+            Application.AddMessageFilter(new ComboWheelGuard());   // 閉じたプルダウンへのホイールで値が変わるのを防ぐ
             Application.Run(new MainForm(settings));
         }
     }

@@ -21,7 +21,7 @@ namespace InstantaleSaveEditor
         private readonly ObjectForm _form = new() { Dock = DockStyle.Fill };
         private readonly NpcImagePanel _npcPanel = new();         // NPC選択時にフォームへ注入する画像パネル
         private readonly BackgroundImagePanel _bgPanel = new();   // facility選択時にフォームへ注入する背景画像パネル
-        private Button _btnDup, _btnDel, _btnExport, _btnRefresh;
+        private Button _btnDup, _btnDel, _btnExport, _btnRefresh, _btnJson;
 
         private string _curKind;            // obj / sec / item / facility（node 階層はツリーに出さない）
         private JsonObject _curContainer;   // 選択レコードを保持する辞書（複製/削除の対象）
@@ -45,12 +45,16 @@ namespace InstantaleSaveEditor
             _btnExport = new Button { Width = 100, Visible = false };
             // メモリ上のデータから左ツリーを再構築する（名前変更などをファイル保存/再読込なしで反映）。
             _btnRefresh = new Button { Width = 100 };
+            // 選択中の項目（world_data/index/item/facility）を生 JSON で直接編集する。
+            _btnJson = new Button { Width = 110, Enabled = false };
             _btnDup.Click += (_, _) => Duplicate();
             _btnDel.Click += (_, _) => Delete();
 
             _btnExport.Click += (_, _) => ExportNpc();
             _btnRefresh.Click += (_, _) => RefreshTree();
-            ops.Controls.AddRange(new Control[] { _btnDup, _btnDel, _btnExport, _btnRefresh });
+            _btnJson.Click += (_, _) => EditJson();
+            // エクスポートは NPC 選択時のみ表示されるため、常設ボタンの並びが動かないよう右端に置く。
+            ops.Controls.AddRange(new Control[] { _btnDup, _btnDel, _btnRefresh, _btnJson, _btnExport });
             right.Controls.Add(ops, 0, 0);
             right.Controls.Add(_form, 0, 1);
             split.Panel2.Controls.Add(right);
@@ -71,6 +75,7 @@ namespace InstantaleSaveEditor
 
             _btnExport.Text = I18n.T("btn.export");
             _btnRefresh.Text = I18n.T("btn.refreshTree");
+            _btnJson.Text = I18n.T("btn.editJsonDirect");
         }
 
         // 言語切替時にボタン文言を更新し、ツリー見出しの翻訳を反映するため作り直す。
@@ -316,7 +321,8 @@ namespace InstantaleSaveEditor
             // Apply() でしか書き戻されないため、ここで呼ばないと切替時に失われる。
             _form.Apply();
             _btnExport.Visible = false;
-            if (node?.Tag is not string[] tag) { _form.Clear(); SetBtns(false); return; }
+            if (node?.Tag is not string[] tag)
+            { _curContainer = null; _curKey = null; _form.Clear(); SetBtns(false); _btnJson.Enabled = false; return; }
             _curKind = tag[0];
             // inventory / skills のグリッド表示は NPC のときだけ有効化する（下の各分岐で上書き）。
             _form.InventoryGridEnabled = tag[0] == "item" && tag[1] == "npcs";
@@ -324,7 +330,9 @@ namespace InstantaleSaveEditor
             switch (tag[0])
             {
                 case "obj":   // world_data / index など単一オブジェクト
-                    _curContainer = null; _curKey = null;
+                    // JSON直接編集で差し替えられるよう _root をコンテナとして保持する
+                    //（複製/削除ボタンは SetBtns(false) で無効のまま）。
+                    _curContainer = _root; _curKey = tag[1];
                     _form.ClearComboFields();
                     if (_root[tag[1]] is JsonObject topObj) _form.Bind(topObj); else _form.Clear();
                     SetBtns(false); break;
@@ -376,8 +384,12 @@ namespace InstantaleSaveEditor
                     _form.Bind(facObj, _bgPanel, "description");
                     SetBtns(true); break;
                 default:      // セクション見出しなど
+                    _curContainer = null; _curKey = null;
                     _form.Clear(); SetBtns(false); break;
             }
+            // JSON直接編集は編集対象（コンテナ＋キー）が定まっていれば有効。
+            // レコードが object でない壊れたデータでも、生 JSON で修復できるよう許可する。
+            _btnJson.Enabled = _curContainer != null && _curKey != null;
         }
 
         // 複製/削除ボタンはレコード（item/facility）選択時のみ有効。
@@ -501,6 +513,24 @@ namespace InstantaleSaveEditor
             if (clone is JsonObject co && co.ContainsKey("id")) co["id"] = nk;
             _curContainer[nk] = clone;
             Populate();
+        }
+
+        // 選択中の項目を生 JSON で直接編集する。OK なら差し替えてフォームを再バインドし、ツリーの表示名も更新する。
+        private void EditJson()
+        {
+            if (_curContainer == null || _curKey == null) return;
+            if (!_form.Apply()) return;   // 表示中の編集を反映してから開く
+            var node = _tree.SelectedNode;
+            using var d = new JsonEditDialog(I18n.T("title.editField", node?.Text ?? _curKey), _curContainer[_curKey]);
+            if (d.ShowDialog(this) != DialogResult.OK) return;
+            _curContainer[_curKey] = d.ResultNode;
+            // ツリーの表示名を差し替え後の内容で更新する（グループ分け自体の変更はツリー再構築で反映）。
+            if (node?.Tag is string[] tag)
+            {
+                if (tag[0] == "item") node.Text = SectionItemNode(tag[1], _curContainer, _curKey).Text;
+                else if (tag[0] == "facility") node.Text = $"{_curKey}: {Label(_curContainer[_curKey])}";
+            }
+            OnSelect(node);   // 差し替え後のオブジェクトへフォームを再バインド
         }
 
         // 選択中の NPC を JSON＋画像の zip として npc\ ライブラリへエクスポートする。

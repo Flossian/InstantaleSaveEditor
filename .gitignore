@@ -14,7 +14,6 @@ savedata*
 *_plain.json
 data/
 templates/
-lang/
 InstantaleWorldGen/
 
 # ---- その他 ----

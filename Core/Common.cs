@@ -142,6 +142,14 @@ namespace InstantaleSaveEditor
         public static JsonObject Obj(JsonObject o, string k) => o != null && o.TryGetPropertyValue(k, out var n) ? n as JsonObject : null;
         public static JsonArray Arr(JsonObject o, string k) => o != null && o.TryGetPropertyValue(k, out var n) ? n as JsonArray : null;
 
+        // 文字列配列を組み立てる。
+        public static JsonArray StrArr(IEnumerable<string> items)
+        {
+            var a = new JsonArray();
+            foreach (var s in items) a.Add(s);
+            return a;
+        }
+
         // JSON編集ボタン横などに出す短い要約表示（"null" / "[配列 n件]" / "{辞書 nキー}" / スカラ値）。
         public static string Preview(JsonNode v)
             => v is null ? "null"
@@ -265,6 +273,37 @@ namespace InstantaleSaveEditor
         // セル値を long として読む。空・不正は 0。ロケール非依存で解釈する。
         protected static long ParseLong(DataGridViewRow r, int col)
             => long.TryParse(r.Cells[col].Value?.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out long v) ? v : 0;
+    }
+
+    // ---------------- ComboBox のホイール誤操作ガード ----------------
+    // WinForms はフォーカスの残った ComboBox にマウスホイールを届けるため、画面をスクロールした
+    // つもりで値が変わってしまう。ドロップダウンが閉じている ComboBox へのホイールは値を変えず、
+    // 包んでいるスクロール領域のスクロールへ回す（ドロップダウン展開中は従来通り候補移動に使える）。
+    // Application.AddMessageFilter で登録し、アプリ内の全 ComboBox に一括で効く。
+    internal sealed class ComboWheelGuard : IMessageFilter
+    {
+        private const int WM_MOUSEWHEEL = 0x020A;
+
+        public bool PreFilterMessage(ref Message m)
+        {
+            if (m.Msg != WM_MOUSEWHEEL) return false;
+            // 宛先（フォーカス中コントロール）が閉じた ComboBox のときだけ横取りする。
+            // DropDown スタイルは内部エディット子ウィンドウが宛先になるため FromChildHandle で親を引く。
+            if (Control.FromChildHandle(m.HWnd) is not ComboBox cb || cb.DroppedDown) return false;
+
+            // 包んでいるスクロール可能な親を代わりにスクロールする（ScrollableControl 標準と同じ delta ピクセル）。
+            int delta = unchecked((short)((long)m.WParam >> 16));
+            for (Control c = cb.Parent; c != null; c = c.Parent)
+            {
+                if (c is ScrollableControl sc && sc.VerticalScroll.Visible)
+                {
+                    var p = sc.AutoScrollPosition;
+                    sc.AutoScrollPosition = new Point(-p.X, -p.Y - delta);
+                    break;
+                }
+            }
+            return true;   // ComboBox には届けない（値を変えない）
+        }
     }
 
     // ---------------- 高さをドラッグで変えられるテキスト欄（幅はコンテナ幅に追従） ----------------
