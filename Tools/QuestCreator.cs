@@ -111,6 +111,7 @@ namespace InstantaleSaveEditor
         }
 
         // ---------------- テンプレ・部品ライブラリの読み込み ----------------
+        // templates/quests 配下の全 JSON をクエスト・テンプレとして読み込む（出典→難易度順に整列）。
         private void LoadTemplates()
         {
             string dir = QuestsDir;
@@ -263,6 +264,7 @@ namespace InstantaleSaveEditor
             return Convert.ToHexString(bytes)[..8].ToLowerInvariant();
         }
 
+        // ファイル名に使えない文字を除去し、空白を '_' で連結して 60 文字までに切り詰める。
         private static string Sanitize(string s)
         {
             if (string.IsNullOrWhiteSpace(s)) return "item";
@@ -527,6 +529,7 @@ namespace InstantaleSaveEditor
             t.Controls.Add(btns, 2, r); r++;
         }
 
+        // ボスのセクション（単一選択）。ライブラリから選択 / なしに戻す / JSON編集。
         private void AddBossSection(TableLayoutPanel t, ref int r)
         {
             AddSectionHeader(t, ref r, "── " + I18n.T("quest.section.boss") + " ──");
@@ -576,6 +579,7 @@ namespace InstantaleSaveEditor
         private static string LocationsCsv(JsonObject area)
             => string.Join(", ", (J.Arr(area, "locations") ?? new JsonArray()).Select(x => x?.ToString()));
 
+        // 雰囲気の候補（既定4種＋テンプレから抽出した実値）。
         private IEnumerable<string> Atmospheres()
         {
             var set = new List<string> { "dangerous", "scary", "eerie", "mystic" };

@@ -56,6 +56,7 @@ namespace InstantaleSaveEditor
             Cursor = Cursors.Hand,
         };
 
+        // 顔画像列＋立ち絵4列を横一列に並べる（収まらない分は横スクロール）。
         private void Build()
         {
             var flow = new FlowLayoutPanel
@@ -71,6 +72,7 @@ namespace InstantaleSaveEditor
             Controls.Add(flow);
         }
 
+        // 顔画像の列（サムネイル＋顔切り抜き・取込み・フォルダを開くボタン）。
         private Panel BuildFaceColumn()
         {
             const int btnY = 22 + FaceH + 4;          // 顔画像の直下
@@ -125,6 +127,7 @@ namespace InstantaleSaveEditor
             }
         }
 
+        // 立ち絵1列分（サムネイル＋「使用する」ボタン）。
         private Panel BuildStandColumn(int idx)
         {
             const int btnY = 22 + StandH + 4;
@@ -161,6 +164,7 @@ namespace InstantaleSaveEditor
             else ApplyToReducedColor(idx);
         }
 
+        // アクティブな立ち絵の「使用する」ボタンを強調表示し、外部枠の押下可否も更新する。
         private void UpdateButtonStyles()
         {
             for (int i = 0; i < StandCount; i++)
@@ -270,6 +274,7 @@ namespace InstantaleSaveEditor
             catch { }
         }
 
+        // 顔画像「取込」: 指定画像を PNG 変換して face_image.png へ保存し、表示を更新する。
         private void ImportFace()
         {
             if (string.IsNullOrEmpty(_charDir)) return;
@@ -318,6 +323,7 @@ namespace InstantaleSaveEditor
             }
         }
 
+        // 「顔画像指定」: アクティブな立ち絵から矩形を選んで切り抜き、face_image.png として保存する。
         private void CropFace()
         {
             if (string.IsNullOrEmpty(_charDir)) return;

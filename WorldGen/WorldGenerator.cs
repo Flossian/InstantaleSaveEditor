@@ -386,6 +386,7 @@ namespace InstantaleSaveEditor
         }
 
         // ---------------- ダンジョン ----------------
+        // ダンジョン area を生成する（dungeon_location 施設 3〜5 個の単一ノード構成。NPC は置かない）。
         private JsonObject BuildDungeon(string areaId, string name)
         {
             var facilities = new JsonObject();
@@ -546,6 +547,7 @@ namespace InstantaleSaveEditor
             return name;
         }
 
+        // 施設主 NPC を生成して _npcs へ登録する（職業=施設タイプ、配置=その施設）。
         private void AddOwnerNpc(string id, string job, string areaId, string facilityId, int areaDifficulty)
         {
             string cat = _rng.Pick(Require(_npcNames.AdultCategories, "npc.json (adult_categories)"));
@@ -556,6 +558,7 @@ namespace InstantaleSaveEditor
                 initArea: areaId, initFacility: facilityId, cat, areaDifficulty);
         }
 
+        // 冒険者 NPC を生成して _npcs へ登録する（職業=adventure、配置=ギルド）。
         private void AddAdventurerNpc(string id, string areaId, string guildFacilityId, int areaDifficulty)
         {
             string cat = _rng.Pick(Require(_npcNames.AdultCategories, "npc.json (adult_categories)"));
@@ -662,6 +665,7 @@ namespace InstantaleSaveEditor
         }
 
         // ---------------- クエスト ----------------
+        // ダンジョンに対応する通常クエストを生成する（敵2〜3体、難易度2以上は中ボス追加、イベント1〜2件、ボス1体）。
         private JsonObject BuildQuest(string id, string dungeonAreaId, string settlementId, int difficulty)
         {
             var questPool = _questNames.Names();

@@ -184,7 +184,6 @@ namespace InstantaleSaveEditor
     // 設定ダイアログで開くセクション。メニューから対象を指定して開く。
     internal enum SettingsSection { Backup, Language, Misc }
 
-    // 設定ダイアログ（モーダル）。指定セクション（バックアップ / 言語 / その他）のみ表示する。OK で settings.json を保存する。
     // 言語コンボの項目。表示名を見せ、値はコードを保持する。
     internal sealed class LangItem
     {
@@ -193,6 +192,7 @@ namespace InstantaleSaveEditor
         public override string ToString() => Name;   // ComboBox はこの文字列を表示する
     }
 
+    // 設定ダイアログ（モーダル）。指定セクション（バックアップ / 言語 / その他）のみ表示する。OK で settings.json を保存する。
     internal sealed class SettingsForm : Form
     {
         private readonly Settings _s;

@@ -133,6 +133,7 @@ namespace InstantaleSaveEditor
         }
 
         // ---- 小ヘルパ（EffectEditDialog と共有）----
+        // ラベル(左)＋フィールド(右)の1行を追加する。
         internal static void AddRow(TableLayoutPanel t, ref int row, string label, Control field)
         {
             t.RowStyles.Add(new RowStyle(SizeType.AutoSize));

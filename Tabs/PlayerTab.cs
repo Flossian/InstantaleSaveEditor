@@ -235,6 +235,7 @@ namespace InstantaleSaveEditor
             return flow;
         }
 
+        // 基本値セクション。BasicSpec の各項目を1行ずつ生成し、位置系(ComboKeys)はプルダウンにする。
         private GroupBox BuildBasic()
         {
             var g = Group(I18n.T("player.group.basic"), 440);
@@ -269,6 +270,7 @@ namespace InstantaleSaveEditor
             return g;
         }
 
+        // 説明3項目（プロフィール/性格/外見）の複数行リサイズ欄。
         private GroupBox BuildDescriptions()
         {
             var g = new GroupBox { Text = I18n.T("player.group.descriptions"), AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Margin = new Padding(4), Padding = new Padding(8) };
@@ -300,6 +302,7 @@ namespace InstantaleSaveEditor
             return g;
         }
 
+        // 基礎能力値6項目（original_ability_scores）。小数のまま編集する。
         private GroupBox BuildAbilities()
         {
             var g = Group(I18n.T("player.group.abilities"), 230);
@@ -420,6 +423,7 @@ namespace InstantaleSaveEditor
             return g;
         }
 
+        // エリア履歴(area_history)をグリッドで表示・編集する。各行は滞在日数/最終滞在/治安/実績。
         private GroupBox BuildAreaHistory()
         {
             // グリップで高さを変えられるよう、枠はグリッド高に追従する AutoSize にする。

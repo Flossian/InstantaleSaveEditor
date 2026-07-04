@@ -892,6 +892,7 @@ namespace InstantaleSaveEditor
             _warn.Visible = _grid.ImagesUnavailable;
         }
 
+        // 新規アイテム（1×1 のテンプレ雛形）を空き位置へ追加する。
         private void AddItem()
         {
             if (_inv == null) return;
@@ -899,6 +900,7 @@ namespace InstantaleSaveEditor
             Reload();
         }
 
+        // 指定アイテムを ItemEditDialog（複製を編集し OK 時のみ反映）で編集する。
         private void EditItem(string id)
         {
             if (_inv == null || id == null || _inv[id] is not JsonObject item) return;
@@ -907,6 +909,7 @@ namespace InstantaleSaveEditor
             Reload();
         }
 
+        // 選択中のアイテムを確認の上インベントリから削除する。
         private void DeleteItem()
         {
             string id = _grid.SelectedId;
