@@ -1,0 +1,22 @@
+{
+  "AutoBackupEnabled": true,
+  "BackupBaseFolderOverride": "",
+  "AutoDeleteOldBackups": false,
+  "BackupRetentionCount": 10,
+  "Language": "ja",
+  "WindowSizeMode": "RememberLast",
+  "FixedWindowWidth": 1040,
+  "FixedWindowHeight": 760,
+  "RememberWindowPosition": false,
+  "SavedWindowWidth": 0,
+  "SavedWindowHeight": 0,
+  "SavedWindowX": 0,
+  "SavedWindowY": 0,
+  "GameAssetRoot": "",
+  "InventoryGridColumns": 4,
+  "InventoryGridRows": 6,
+  "NpcExportPerWorld": true,
+  "LastOpenedFolder": "",
+  "LastImportNpcWorld": "",
+  "RecentFiles": []
+}
