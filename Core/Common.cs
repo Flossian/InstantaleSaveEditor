@@ -425,6 +425,16 @@ namespace InstantaleSaveEditor
         public Func<string, bool> PartyNpcIsDead { get; set; }
         public Func<IEnumerable<(string id, string name, bool dead)>> PartyNpcCandidates { get; set; }
 
+        // connections（接続先ID配列）専用 GUI のためのフック。ConnectionCandidates が設定されている時のみ有効。
+        // ConnectionNamer: ID → 表示名（未解決なら null）。ConnectionCandidates: 追加候補の (ID, 名前) 一覧
+        //（自分自身の除外は呼び出し側の責務）。WorldTab が area（他エリア）/facility（同一エリア内施設）を渡す。
+        // ConnectionAdded / ConnectionRemoved: 追加・削除の確定後に相手 ID を通知する
+        //（相手側の connections も書き換えて双方向を保つ等の後処理用）。
+        public Func<string, string> ConnectionNamer { get; set; }
+        public Func<IEnumerable<(string id, string name)>> ConnectionCandidates { get; set; }
+        public Action<string> ConnectionAdded { get; set; }
+        public Action<string> ConnectionRemoved { get; set; }
+
         // attributes 内の item_detail プルダウン候補を、現在の item_type から供給する任意フック。
         // 設定時は item_detail を item_type 連動のプルダウンとして表示する（ItemEditDialog が設定）。
         // 未設定なら item_detail は通常のテキスト欄になる。
@@ -649,6 +659,9 @@ namespace InstantaleSaveEditor
             // party（メンバーID配列）はメンバーの追加/削除を GUI で行う専用欄で表示する。
             if (field == "party" && PartyNpcCandidates != null && val is JsonArray pa)
             { AddPartyRow(t, row, pa); return; }
+            // connections（接続先ID配列）はフック設定時のみ "ID: 名前" 一覧＋追加/削除で表示する（area/facility 共通）。
+            if (field == "connections" && ConnectionCandidates != null && val is JsonArray)
+            { AddConnectionsRow(t, row); return; }
             // config（status / level_of_detail などのスカラ設定）は JSON 編集ボタンにせず、
             // 中身を項目ごとの欄に展開する（quest/story_quest/NPC/area の config 共通）。
             if (field == "config" && IsScalarMap(val))
@@ -1245,6 +1258,74 @@ namespace InstantaleSaveEditor
 
             Fill();
             t.Controls.Add(outer, 1, row);
+        }
+
+        // connections（接続先ID配列）を、スキル一覧と同じ「一覧＋ボタンバー」形式で編集する。
+        // 上段に候補プルダウン＋「追加」「削除」ボタン、下段に "ID: 名前" の ListBox。
+        // 追加・削除は即 _obj["connections"] へ反映し、ConnectionAdded/Removed で相手側にも通知して双方向を保つ。
+        // FieldRef は登録せず Apply() の対象にしない。
+        private void AddConnectionsRow(TableLayoutPanel t, int row)
+        {
+            var panel = new Panel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Dock = DockStyle.Top };
+            var list = new ListBox { Dock = DockStyle.Top, Height = 110 };
+            var bar = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(0, 4, 0, 4) };
+            var combo = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 240, Margin = new Padding(2) };
+            var add = new Button { Text = I18n.T("btn.add"), Width = 70, Margin = new Padding(2) };
+            var del = new Button { Text = I18n.T("btn.delete"), Width = 70, Margin = new Padding(2) };
+
+            // 現在の connections 配列（無ければ作って _obj に差し込む）。
+            JsonArray Conns() => (_obj?["connections"] as JsonArray) ?? (JsonArray)(_obj != null ? (_obj["connections"] = new JsonArray()) : new JsonArray());
+            var ids = new List<string>();                       // 一覧の行 → 接続先 ID
+            var candidates = new List<(string id, string name)>();  // プルダウンの行 → 候補
+
+            void Refresh()
+            {
+                list.Items.Clear(); ids.Clear();
+                foreach (var n in Conns())
+                {
+                    string id = n?.ToString() ?? "";
+                    ids.Add(id);
+                    string name = ConnectionNamer?.Invoke(id);
+                    list.Items.Add(name != null ? $"{id}: {name}" : I18n.T("conn.unknown", id));
+                }
+                combo.Items.Clear(); candidates.Clear();
+                foreach (var c in (ConnectionCandidates?.Invoke() ?? Enumerable.Empty<(string, string)>())
+                    .Where(c => !ids.Contains(c.Item1))
+                    .OrderBy(c => c.Item1.Length).ThenBy(c => c.Item1))
+                {
+                    candidates.Add(c);
+                    combo.Items.Add($"{c.Item1}: {c.Item2}");
+                }
+                if (combo.Items.Count > 0) combo.SelectedIndex = 0;
+                add.Enabled = combo.Items.Count > 0;
+            }
+
+            add.Click += (_, _) =>
+            {
+                int i = combo.SelectedIndex;
+                if (i < 0 || i >= candidates.Count) return;
+                string id = candidates[i].id;
+                if (FindIndex(Conns(), id) < 0) Conns().Add(id);
+                ConnectionAdded?.Invoke(id);   // 相手側へも接続を張る（双方向化。WorldTab が実装）
+                Refresh();
+            };
+            del.Click += (_, _) =>
+            {
+                int i = list.SelectedIndex;
+                if (i < 0 || i >= ids.Count) return;
+                string id = ids[i];
+                int idx = FindIndex(Conns(), id);
+                if (idx >= 0) Conns().RemoveAt(idx);
+                ConnectionRemoved?.Invoke(id);   // 相手側の接続も外す（双方向化。WorldTab が実装）
+                Refresh();
+            };
+
+            bar.Controls.Add(combo); bar.Controls.Add(add); bar.Controls.Add(del);
+            // Dock=Top は後入れが上。下から: 一覧 → ボタン列。
+            panel.Controls.Add(list);
+            panel.Controls.Add(bar);
+            Refresh();
+            t.Controls.Add(panel, 1, row);
         }
 
         // JsonArray 内で文字列値が id に一致する最初の位置を返す（無ければ -1）。

@@ -175,6 +175,7 @@
 
   "party.player": "player（玩家）",
   "party.unknownNpc": "{0}（未知 NPC）",
+  "conn.unknown": "{0}（未知的连接目标）",
   "suffix.dead": "（已死亡）",
 
   "dialog.settings.title": "设置",

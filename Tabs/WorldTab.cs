@@ -321,6 +321,11 @@ namespace InstantaleSaveEditor
             // Apply() でしか書き戻されないため、ここで呼ばないと切替時に失われる。
             _form.Apply();
             _btnExport.Visible = false;
+            // connections の専用欄は area/facility 選択時のみ有効化する（下の各分岐で設定）。
+            _form.ConnectionNamer = null;
+            _form.ConnectionCandidates = null;
+            _form.ConnectionAdded = null;
+            _form.ConnectionRemoved = null;
             if (node?.Tag is not string[] tag)
             { _curContainer = null; _curKey = null; _form.Clear(); SetBtns(false); _btnJson.Enabled = false; return; }
             _curKind = tag[0];
@@ -365,6 +370,8 @@ namespace InstantaleSaveEditor
                     else
                     {
                         _form.ClearComboFields();
+                        // area の connections（隣接エリアID配列）は一覧＋追加/削除の専用欄にする。
+                        if (tag[1] == "areas") SetAreaConnectionHooks(tag[2]);
                         _form.Bind(itemObj);
                     }
                     break;
@@ -379,6 +386,8 @@ namespace InstantaleSaveEditor
                     _form.RegisterComboField("tier", val => MakeValueCombo(FieldOptions.Get("tier"), val));
                     // owner は所有者 NPC の ID。NPC 一覧から "ID: 名前" で選べるプルダウンにする。
                     _form.RegisterComboField("owner", val => MakeNpcCombo(val), idPrefixed: true);
+                    // connections（接続施設ID配列）は同一エリア内の施設のみを候補にした専用欄にする。
+                    SetFacilityConnectionHooks(tag[1], tag[3]);
                     // description 直後に背景画像(backgrounds/{facility名}/image.png)を差し込む。
                     _bgPanel.LoadImage(_worldDir, J.Str(facObj, "name"));
                     _form.Bind(facObj, _bgPanel, "description");
@@ -405,6 +414,60 @@ namespace InstantaleSaveEditor
             foreach (var kv in npcs)
                 if (kv.Value is JsonObject o && J.Str(o, "name") == key) return key;
             return null;
+        }
+
+        // area の connections（隣接エリアID配列）用フック。候補は自分以外の拠点エリア
+        //（size=="dungeon" は除外。ダンジョンへの導線はクエスト経由のため接続対象にしない）。
+        // 追加・削除時は相手エリアの connections も書き換えて双方向を保つ。
+        private void SetAreaConnectionHooks(string selfId)
+        {
+            var areas = _root?["areas"]?.AsObject();
+            _form.ConnectionNamer = id => areas?[id] is JsonObject o ? J.Str(o, "name", id) : null;
+            _form.ConnectionCandidates = () => areas == null
+                ? Enumerable.Empty<(string, string)>()
+                : areas.Where(kv => kv.Key != selfId
+                              && !(kv.Value is JsonObject d && J.Str(d, "size") == "dungeon"))
+                       .Select(kv => (kv.Key, kv.Value is JsonObject o ? J.Str(o, "name", kv.Key) : kv.Key));
+            _form.ConnectionAdded = id => { if (areas?[id] is JsonObject o) AddConnection(o, selfId); };
+            _form.ConnectionRemoved = id => { if (areas?[id] is JsonObject o) RemoveConnection(o, selfId); };
+        }
+
+        // facility の connections（接続施設ID配列）用フック。候補は同一エリア内（全ノード）の自分以外の施設。
+        // 追加・削除時は相手施設の connections も書き換えて双方向を保つ。
+        private void SetFacilityConnectionHooks(string areaId, string selfFid)
+        {
+            JsonObject Peer(string id) => EnumAreaFacilities(areaId).FirstOrDefault(p => p.id == id).fo;
+            _form.ConnectionNamer = id => Peer(id) is JsonObject o ? J.Str(o, "name", id) : null;
+            _form.ConnectionCandidates = () => EnumAreaFacilities(areaId)
+                .Where(p => p.id != selfFid)
+                .Select(p => (p.id, J.Str(p.fo, "name", p.id)));
+            _form.ConnectionAdded = id => { if (Peer(id) is JsonObject o) AddConnection(o, selfFid); };
+            _form.ConnectionRemoved = id => { if (Peer(id) is JsonObject o) RemoveConnection(o, selfFid); };
+        }
+
+        // target の connections 配列（無ければ新設）へ id を重複なしで追加する。
+        private static void AddConnection(JsonObject target, string id)
+        {
+            if (target["connections"] is not JsonArray arr) target["connections"] = arr = new JsonArray();
+            if (!arr.Any(n => (n?.ToString() ?? "") == id)) arr.Add(id);
+        }
+
+        // target の connections 配列から id を（重複していても）すべて取り除く。
+        private static void RemoveConnection(JsonObject target, string id)
+        {
+            if (target["connections"] is not JsonArray arr) return;
+            for (int i = arr.Count - 1; i >= 0; i--)
+                if ((arr[i]?.ToString() ?? "") == id) arr.RemoveAt(i);
+        }
+
+        // 指定エリア配下の全ノードの facility を (ID, オブジェクト) で列挙する。
+        private IEnumerable<(string id, JsonObject fo)> EnumAreaFacilities(string areaId)
+        {
+            if (J.Obj(_root?["areas"]?[areaId] as JsonObject, "nodes") is not JsonObject nodes) yield break;
+            foreach (var nk in nodes)
+                if (J.Obj(nk.Value as JsonObject, "facilities") is JsonObject facs)
+                    foreach (var fk in facs)
+                        if (fk.Value is JsonObject fo) yield return (fk.Key, fo);
         }
 
         // NPC の current_area / current_location をエリア/ノードのプルダウンにする。

@@ -175,6 +175,7 @@
 
   "party.player": "player (Player)",
   "party.unknownNpc": "{0} (unknown NPC)",
+  "conn.unknown": "{0} (unknown connection)",
   "suffix.dead": " (dead)",
 
   "dialog.settings.title": "Settings",

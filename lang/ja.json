@@ -175,6 +175,7 @@
 
   "party.player": "player（プレイヤー）",
   "party.unknownNpc": "{0}（不明なNPC）",
+  "conn.unknown": "{0}（不明な接続先）",
   "suffix.dead": "（死亡）",
 
   "dialog.settings.title": "設定",
