@@ -291,8 +291,8 @@ namespace InstantaleSaveEditor
             "mythic" => Color.OrangeRed,
             "legendary" => Color.Gold,
             "epic" => Color.MediumOrchid,
-            "rare" => Color.DodgerBlue,
-            "magical" => Color.MediumSeaGreen,   // magical は緑系
+            "magical" => Color.DodgerBlue,       // ゲーム内準拠: magical は青系
+            "rare" => Color.MediumSeaGreen,      // ゲーム内準拠: rare は緑系
             _ => Color.Gray,
         };
 
@@ -1034,7 +1034,7 @@ namespace InstantaleSaveEditor
 
         // rarity のプルダウン候補（低→高）。データ上の値は "mythic"。
         private static readonly string[] Rarities =
-        { "common", "magical", "rare", "epic", "legendary", "mythic" };
+        { "common", "rare", "magical", "epic", "legendary", "mythic" };
 
         public ItemEditDialog(string id, JsonObject item)
         {
