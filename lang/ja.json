@@ -140,6 +140,8 @@
   "btn.unlock": "ロック解除",
   "btn.unlocked": "解除済み",
   "btn.export": "エクスポート",
+  "btn.exportNpcZip": "NPCエクスポート（zip）",
+  "btn.exportNpcPreset": "プリセットとして出力",
   "btn.browse": "参照...",
   "btn.jsonEdit": "JSON編集...",
   "btn.editJsonDirect": "JSON直接編集",
@@ -380,6 +382,7 @@
   "p2n.exported": "「{0}」をNPCパッケージとして書き出しました。\n{1}",
 
   "p2p.title": "プレイヤーをプリセット化",
+  "p2p.titleNpc": "NPCをプリセット化",
   "p2p.header.reuse": "── 流用項目（確認） ──",
   "p2p.header.abilities": "── 能力値（自動換算: 四捨五入） ──",
   "p2p.header.edit": "── プリセット固有 ──",

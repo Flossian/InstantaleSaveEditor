@@ -140,6 +140,8 @@
   "btn.unlock": "解除锁定",
   "btn.unlocked": "已解除",
   "btn.export": "导出",
+  "btn.exportNpcZip": "导出NPC（zip）",
+  "btn.exportNpcPreset": "导出为角色预设",
   "btn.browse": "浏览...",
   "btn.jsonEdit": "编辑 JSON...",
   "btn.editJsonDirect": "直接编辑 JSON",
@@ -380,6 +382,7 @@
   "p2n.exported": "已将「{0}」导出为 NPC 包。\n{1}",
 
   "p2p.title": "将玩家导出为角色预设",
+  "p2p.titleNpc": "将NPC导出为角色预设",
   "p2p.header.reuse": "── 沿用项目（确认） ──",
   "p2p.header.abilities": "── 属性值（自动换算：四舍五入） ──",
   "p2p.header.edit": "── 预设专属 ──",

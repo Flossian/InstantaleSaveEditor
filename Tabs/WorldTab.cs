@@ -17,11 +17,15 @@ namespace InstantaleSaveEditor
 
         private JsonObject _root;
         private string _worldDir;  // worlds/{スロット}/ のパス。NPC画像フォルダの解決に使う。
+        private string _filePath;  // 開いたファイルのパス。プリセット出力基底（{Instantale}\characters）の解決に使う。
         private readonly TreeView _tree = new() { Dock = DockStyle.Fill, HideSelection = false };
         private readonly ObjectForm _form = new() { Dock = DockStyle.Fill };
         private readonly NpcImagePanel _npcPanel = new();         // NPC選択時にフォームへ注入する画像パネル
         private readonly BackgroundImagePanel _bgPanel = new();   // facility選択時にフォームへ注入する背景画像パネル
         private Button _btnDup, _btnDel, _btnExport, _btnRefresh, _btnJson;
+        // エクスポート方式（zip / プリセット）を選ばせるメニュー。ボタン押下でボタン直下に表示する。
+        private readonly ContextMenuStrip _exportMenu = new();
+        private ToolStripMenuItem _miExportZip, _miExportPreset;
 
         private string _curKind;            // obj / sec / item / facility（node 階層はツリーに出さない）
         private JsonObject _curContainer;   // 選択レコードを保持する辞書（複製/削除の対象）
@@ -50,7 +54,12 @@ namespace InstantaleSaveEditor
             _btnDup.Click += (_, _) => Duplicate();
             _btnDel.Click += (_, _) => Delete();
 
-            _btnExport.Click += (_, _) => ExportNpc();
+            _miExportZip = new ToolStripMenuItem();
+            _miExportPreset = new ToolStripMenuItem();
+            _miExportZip.Click += (_, _) => ExportNpc();
+            _miExportPreset.Click += (_, _) => ExportNpcPreset();
+            _exportMenu.Items.AddRange(new ToolStripItem[] { _miExportZip, _miExportPreset });
+            _btnExport.Click += (_, _) => _exportMenu.Show(_btnExport, new Point(0, _btnExport.Height));
             _btnRefresh.Click += (_, _) => RefreshTree();
             _btnJson.Click += (_, _) => EditJson();
             // エクスポートは NPC 選択時のみ表示されるため、常設ボタンの並びが動かないよう右端に置く。
@@ -74,6 +83,8 @@ namespace InstantaleSaveEditor
             _btnDel.Text = I18n.T("btn.delete");
 
             _btnExport.Text = I18n.T("btn.export");
+            _miExportZip.Text = I18n.T("btn.exportNpcZip");
+            _miExportPreset.Text = I18n.T("btn.exportNpcPreset");
             _btnRefresh.Text = I18n.T("btn.refreshTree");
             _btnJson.Text = I18n.T("btn.editJsonDirect");
         }
@@ -83,7 +94,7 @@ namespace InstantaleSaveEditor
 
         protected override void Dispose(bool disposing)
         {
-            if (disposing) I18n.LanguageChanged -= OnLanguageChanged;
+            if (disposing) { I18n.LanguageChanged -= OnLanguageChanged; _exportMenu.Dispose(); }
             base.Dispose(disposing);
         }
 
@@ -91,6 +102,7 @@ namespace InstantaleSaveEditor
         public void Bind(JsonObject root, string filePath = null)
         {
             _root = root;
+            _filePath = filePath;
             _worldDir = ResolveWorldDir(filePath);
             SkillOptions.Collect(root);   // スキル/効果の候補をセーブ全体（player＋NPC）から抽出し直す
             Populate();
@@ -617,6 +629,15 @@ namespace InstantaleSaveEditor
                 return;
             }
             MessageBox.Show(I18n.T("msg.npcExported", name, dest), I18n.T("title.export"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        // 選択中の NPC をキャラクタープリセットとして出力する（プレイヤーのプリセット化と同じ変換・出力先）。
+        private void ExportNpcPreset()
+        {
+            if (_curContainer == null || _curKey == null || _curContainer[_curKey] is not JsonObject npc) return;
+            if (!_form.Apply()) return;   // 表示中の編集を反映してから書き出す
+            using var dlg = new PlayerToPresetDialog(npc, _filePath, _worldDir, isNpc: true);
+            dlg.ShowDialog(FindForm());
         }
 
         // 選択レコード（item/facility）を確認の上で削除する。

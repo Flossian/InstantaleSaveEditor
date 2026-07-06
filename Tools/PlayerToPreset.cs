@@ -1,4 +1,6 @@
 // プレイヤーをキャラクタープリセット（ゲームのキャラ作成画面で選べるテンプレート）として出力する。
+// 変換元は player_data のほか NPC（npcs[id]）も渡せる（ワールドタブのエクスポートから使用）。
+// NPC は original_ability_scores を持たないため ability_scores（整数）を能力値の参照元にする。
 // ゲームが生成するプリセットの構成: {Instantale データ基底}\characters\{名前}\
 //   ・character_sheet.json …… XOR 難読化 JSON（schema_version / language / character_vm）
 //   ・face_image.png / generated_image.png / no_bg_image.png /
@@ -37,7 +39,8 @@ namespace InstantaleSaveEditor
             "pixelated_image_original.png", "reduced_color_image.png", "prompts.json",
         };
 
-        private readonly JsonObject _pd;          // player_data
+        private readonly JsonObject _pd;          // 変換元キャラ（player_data または npcs[id]）
+        private readonly JsonObject _abilities;   // 能力値の参照元（player は original_ability_scores・小数、NPC は ability_scores・整数）
         private readonly string _worldDir;        // worlds/{スロット}/ のパス。画像複製元の推定に使う
         private readonly string _charactersRoot;  // 出力基底（{Instantale}\characters）
 
@@ -46,13 +49,14 @@ namespace InstantaleSaveEditor
 
         public string ResultSummary { get; private set; }
 
-        public PlayerToPresetDialog(JsonObject root, string filePath, string worldDir)
+        public PlayerToPresetDialog(JsonObject character, string filePath, string worldDir, bool isNpc = false)
         {
-            _pd = J.Obj(root, "player_data");
+            _pd = character;
+            _abilities = J.Obj(_pd, "original_ability_scores") ?? J.Obj(_pd, "ability_scores");
             _worldDir = worldDir;
             _charactersRoot = ResolveCharactersRoot(filePath);
 
-            Text = I18n.T("p2p.title");
+            Text = I18n.T(isNpc ? "p2p.titleNpc" : "p2p.title");
             Width = 640; Height = 720; StartPosition = FormStartPosition.CenterParent;
             MinimizeBox = false; MaximizeBox = false;
 
@@ -71,7 +75,7 @@ namespace InstantaleSaveEditor
 
             // ── 能力値（自動換算: original_ability_scores を四捨五入） ──
             Header(t, ref r, I18n.T("p2p.header.abilities"));
-            var oas = J.Obj(_pd, "original_ability_scores");
+            var oas = _abilities;
             foreach (var key in AbilityKeys)
                 RoText(t, ref r, $"{I18n.T("ability." + key)} ({key})", RoundedAbility(oas, key).ToString());
 
@@ -152,7 +156,7 @@ namespace InstantaleSaveEditor
         // 実プリセットと同じキー順で character_sheet.json 全体を組み立てる。
         private JsonObject BuildSheet(long gold, long pointUse)
         {
-            var oas = J.Obj(_pd, "original_ability_scores");
+            var oas = _abilities;
             var vm = new JsonObject
             {
                 ["name"] = J.Str(_pd, "name"),
@@ -236,7 +240,7 @@ namespace InstantaleSaveEditor
         //           + ゴールド換算（10ゴールドごとに1ポイント・端数切り上げ）。
         private long EstimatePointUse(long gold)
         {
-            var oas = J.Obj(_pd, "original_ability_scores");
+            var oas = _abilities;
             long total = 0;
             foreach (var key in AbilityKeys)
                 total += AbilityCost[Math.Clamp(RoundedAbility(oas, key), 6, 30)];

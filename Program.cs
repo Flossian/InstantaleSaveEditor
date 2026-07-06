@@ -659,7 +659,7 @@ namespace InstantaleSaveEditor
             { MessageBox.Show(this, I18n.T("msg.noPlayerData")); return; }
             if (!_player.Apply()) return;   // プレイヤータブの未確定入力を反映してから変換する
 
-            using var dlg = new PlayerToPresetDialog(_root, _path, WorldTab.ResolveWorldDir(_path));
+            using var dlg = new PlayerToPresetDialog(J.Obj(_root, "player_data"), _path, WorldTab.ResolveWorldDir(_path));
             if (dlg.ShowDialog(this) == DialogResult.OK)
                 Status("status.presetExported");
         }

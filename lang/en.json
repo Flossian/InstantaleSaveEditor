@@ -140,6 +140,8 @@
   "btn.unlock": "Unlock",
   "btn.unlocked": "Unlocked",
   "btn.export": "Export",
+  "btn.exportNpcZip": "Export NPC (zip)",
+  "btn.exportNpcPreset": "Export as Character Preset",
   "btn.browse": "Browse...",
   "btn.jsonEdit": "Edit JSON...",
   "btn.editJsonDirect": "Edit JSON Directly",
@@ -380,6 +382,7 @@
   "p2n.exported": "Exported \"{0}\" as an NPC package.\n{1}",
 
   "p2p.title": "Export Player as Character Preset",
+  "p2p.titleNpc": "Export NPC as Character Preset",
   "p2p.header.reuse": "── Carried-over fields (review) ──",
   "p2p.header.abilities": "── Ability scores (auto-converted: rounded) ──",
   "p2p.header.edit": "── Preset-specific ──",
