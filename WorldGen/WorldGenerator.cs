@@ -59,6 +59,7 @@ namespace InstantaleSaveEditor
         private double _adventurerEpithetChance = 0.60;
         private int[] _difficultyBase = null!;    // area index ごとの難易度基準値（開始集落からの距離で決まる）
 
+        // 生成の入口。world_data 一式（areas / npcs / quests / story_quests / index）をシードから組み立てる。
         public JsonObject Generate(GenOptions opt)
         {
             _rng = new Rng(opt.Seed);
@@ -183,6 +184,7 @@ namespace InstantaleSaveEditor
         private static readonly int[][] FixedBranches =
             { new[] { 0, 1, 2, 3 }, new[] { 0, 4, 5, 6 }, new[] { 0, 7, 8 } };
 
+        // FixedBranches の枝を無向の隣接リスト（area index → 接続先 id 一覧）へ展開する。
         private static Dictionary<int, List<string>> BuildFixedSettlementGraph()
         {
             var adj = new Dictionary<int, SortedSet<int>>();
@@ -513,6 +515,7 @@ namespace InstantaleSaveEditor
             return template.Contains("{0}") ? string.Format(template, townName) : template;
         }
 
+        // 施設タイプごとの固定説明文（description と施設主 NPC の profile に使う）。
         private static string FacilityDesc(string svc) => svc switch
         {
             "inn" => "旅人が体を休める宿。",
@@ -711,7 +714,7 @@ namespace InstantaleSaveEditor
             };
         }
 
-        // enemies.json の完成テンプレート {type, data} をディープコピーして返す。
+        // enemies.json の完成テンプレート {type, data} をディープコピーして返す（通常敵/中ボス/ボスの3プール）。
         private JsonObject BuildMonster()
             => (JsonObject)_rng.Pick(Require(_enemyNames.Monsters, "enemies.json (monsters)")).DeepClone();
 
@@ -761,6 +764,7 @@ namespace InstantaleSaveEditor
             return sizes.Select(s => queues[s].Dequeue()).ToList();
         }
 
+        // size 値の日本語表記（説明文の組み立て用）。
         private static string SizeJp(string size) => size switch
         {
             "village" => "村", "town" => "町", "city" => "都市", _ => "集落",

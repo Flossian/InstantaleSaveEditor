@@ -145,7 +145,9 @@ namespace InstantaleSaveEditor
             ReadLib(BossesDir, _bossLib);
             ReadLib(EventsDir, _eventLib);
         }
-        private static void ReadLib(string dir, List<JsonObject> into)
+        // dir 以下の *.json を再帰的に読み、パースできたオブジェクトを into へ追加する
+        // （壊れたファイルは黙って読み飛ばす。QuestComponentLib からも共用）。
+        internal static void ReadLib(string dir, List<JsonObject> into)
         {
             if (!Directory.Exists(dir)) return;
             foreach (var path in Directory.EnumerateFiles(dir, "*.json", SearchOption.AllDirectories))
@@ -174,9 +176,9 @@ namespace InstantaleSaveEditor
         public static string TemplatesRoot()
             => FindTemplatesRoot() ?? Directory.CreateDirectory(Path.Combine(AppContext.BaseDirectory, "templates")).FullName;
         private static string QuestsDir => Path.Combine(TemplatesRoot(), "quests");
-        private static string EnemiesDir => Path.Combine(TemplatesRoot(), "enemies");
-        private static string BossesDir => Path.Combine(TemplatesRoot(), "bosses");
-        private static string EventsDir => Path.Combine(TemplatesRoot(), "events");
+        internal static string EnemiesDir => Path.Combine(TemplatesRoot(), "enemies");
+        internal static string BossesDir => Path.Combine(TemplatesRoot(), "bosses");
+        internal static string EventsDir => Path.Combine(TemplatesRoot(), "events");
 
         // ---------------- テンプレ・部品抽出（world_data / savedata → 各 JSON） ----------------
         // quest テンプレと enemy/boss/event 部品を一括で書き出す。戻り値=各件数。
@@ -414,6 +416,7 @@ namespace InstantaleSaveEditor
                 ["bgm"] = bgm,
             };
         }
+        // ダンジョン内の場所 facility（facility_type=dungeon_location）の骨格。
         private static JsonObject Facility(string id, string name) => new()
         {
             ["name"] = name,
@@ -478,6 +481,7 @@ namespace InstantaleSaveEditor
             area["nodes"] = newNodes;
             if (entranceNode != null) area["entrance_node"] = entranceNode;
         }
+        // 配列内の旧 ID を map に従って新 ID へ置き換える（connections の貼り替え用）。
         private static void RemapArray(JsonArray arr, Dictionary<string, string> map)
         {
             if (arr == null) return;

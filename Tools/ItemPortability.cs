@@ -162,6 +162,7 @@ namespace InstantaleSaveEditor
             return new JsonArray(0, rows - h);   // 空き無し時は画面左上（モデル座標）へ
         }
 
+        // 画面座標 (x,y) から w×h の範囲がすべて空きセルか。
         private static bool IsFree(bool[,] occ, int x, int y, int w, int h)
         {
             for (int cx = x; cx < x + w; cx++)

@@ -347,6 +347,7 @@ namespace InstantaleSaveEditor
             foreach (Control child in c.Controls) EnableFileDrop(child);
         }
 
+        // JSON ファイルのドラッグ＆ドロップで開く（未保存の変更があれば確認してから読み込む）。
         private void OnFileDragEnter(object sender, DragEventArgs e)
         { if (GetDroppedJson(e) != null) e.Effect = DragDropEffects.Copy; }
 

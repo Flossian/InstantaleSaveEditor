@@ -453,6 +453,11 @@ namespace InstantaleSaveEditor
         // 既定は false（従来通り JSON 編集ボタン）。WorldTab が NPC 編集時に true にする。
         public bool SkillsGridEnabled { get; set; }
 
+        // enemies / boss / events（クエスト部品）をクエスト作成と同等の構造化編集パネル
+        //（QuestComponentListPanel / QuestBossPanel）にするか。
+        // 既定は false（従来通り JSON 編集ボタン）。WorldTab が quest / story_quest 編集時に true にする。
+        public bool QuestComponentsEnabled { get; set; }
+
         // image_src フィールドを「プレビュー＋パス欄＋参照ボタン」にし、画像一覧から選べるようにするか。
         // 既定は false（従来通りのテキスト欄）。ItemEditDialog が true にする。
         public bool ImageSrcPickerEnabled { get; set; }
@@ -679,6 +684,13 @@ namespace InstantaleSaveEditor
             // 有効時のみ。値は SkillListPanel が即時に辞書へ反映するため Apply() の対象外。
             if (field == "skills" && SkillsGridEnabled && val is JsonObject skillObj)
             { AddSkillsRow(t, row, skillObj); return; }
+            // enemies / events（クエスト部品の配列）はライブラリ追加＋構造化編集の一覧パネルで編集する。
+            // 有効時のみ。値はパネルが即時に配列へ反映するため Apply() の対象外。
+            if (QuestComponentsEnabled && (field == "enemies" || field == "events") && val is JsonArray qcArr)
+            { AddQuestComponentRow(t, row, field == "events", qcArr); return; }
+            // boss（単一の敵。なしは空オブジェクト）は選択/編集/なしのパネルで編集する（有効時のみ）。
+            if (QuestComponentsEnabled && field == "boss" && val is not JsonValue)
+            { AddQuestBossRow(t, row); return; }
             // image_src（画像の相対パス）は、画像一覧から選べるプレビュー付き欄で表示する（有効時のみ）。
             if (field == "image_src" && ImageSrcPickerEnabled && val is JsonValue)
             { AddImageSrcRow(t, row, field, val.ToString()); return; }
@@ -965,6 +977,23 @@ namespace InstantaleSaveEditor
             t.Controls.Add(panel, 1, row);
         }
 
+        // enemies / events（クエスト部品の配列）を QuestComponentListPanel で表示・編集する。
+        // 追加/削除/編集は配列へ即時反映されるため FieldRef は登録しない（Apply() の対象外）。
+        private void AddQuestComponentRow(TableLayoutPanel t, int row, bool isEvent, JsonArray arr)
+        {
+            var panel = new QuestComponentListPanel(isEvent);
+            panel.Bind(arr);
+            t.Controls.Add(panel, 1, row);
+        }
+
+        // boss を QuestBossPanel で表示・編集する。差し替えは _obj["boss"] へ即時反映（Apply() の対象外）。
+        private void AddQuestBossRow(TableLayoutPanel t, int row)
+        {
+            var panel = new QuestBossPanel();
+            panel.Bind(_obj);
+            t.Controls.Add(panel, 1, row);
+        }
+
         // ラベル列固定・値列可変の2列テーブル（config / attributes の展開で共用）。
         private static TableLayoutPanel MakeScalarMapTable()
         {
@@ -1128,6 +1157,7 @@ namespace InstantaleSaveEditor
             }
         }
 
+        // 検証結果の背景色（Ok=通常色 / Bad=不正値を赤系で示す）。
         private static void Ok(TextBox tb) => tb.BackColor = System.Drawing.SystemColors.Window;
         private static void Bad(TextBox tb) => tb.BackColor = Color.MistyRose;
 
@@ -1468,6 +1498,7 @@ namespace InstantaleSaveEditor
             return col > 0 ? text[..col].Trim() : text.Trim();
         }
 
+        // エリア/施設選択コンボの共通形（自由入力可＋候補からの入力補完付き）。
         private static ComboBox MakeBase() => new()
         {
             DropDownStyle = ComboBoxStyle.DropDown,

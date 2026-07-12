@@ -893,10 +893,15 @@ namespace InstantaleSaveEditor
         }
 
         // 新規アイテム（1×1 のテンプレ雛形）を空き位置へ追加する。
+        // grid_pos を設定せずに保存するとゲーム側が読めず落ちるため、必ず空き位置を割り当てる。
         private void AddItem()
         {
             if (_inv == null) return;
-            _inv[NextItemId(_inv)] = NewItemTemplate();
+            var item = NewItemTemplate();
+            int cols = Math.Max(1, Settings.Current?.InventoryGridColumns ?? 4);
+            int rows = Math.Max(1, Settings.Current?.InventoryGridRows ?? 6);
+            item["grid_pos"] = ItemPortability.FindFreeGridPosTopLeft(_inv, 1, 1, cols, rows);
+            _inv[NextItemId(_inv)] = item;
             Reload();
         }
 

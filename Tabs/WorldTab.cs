@@ -344,6 +344,9 @@ namespace InstantaleSaveEditor
             // inventory / skills のグリッド表示は NPC のときだけ有効化する（下の各分岐で上書き）。
             _form.InventoryGridEnabled = tag[0] == "item" && tag[1] == "npcs";
             _form.SkillsGridEnabled = tag[0] == "item" && tag[1] == "npcs";
+            // enemies / boss / events の構造化編集はクエスト系のときだけ有効化する
+            //（該当フィールドが無いレコードでは何も変わらないため story_quests にも許可する）。
+            _form.QuestComponentsEnabled = tag[0] == "item" && (tag[1] == "quests" || tag[1] == "story_quests");
             switch (tag[0])
             {
                 case "obj":   // world_data / index など単一オブジェクト

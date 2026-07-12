@@ -395,6 +395,7 @@ namespace InstantaleSaveEditor
             AcceptButton = btnOk; CancelButton = btnCancel;
         }
 
+        // 元画像を原寸で描き、選択中の切抜き範囲を赤枠＋半透明の塗りで重ねる。
         private void OnPaint(object sender, PaintEventArgs e)
         {
             e.Graphics.DrawImageUnscaled(_src, Point.Empty);
@@ -407,6 +408,7 @@ namespace InstantaleSaveEditor
             }
         }
 
+        // ドラッグの始点・終点から、左上原点・正のサイズに正規化した矩形を作る。
         private static Rectangle NormRect(Point a, Point b)
             => new(Math.Min(a.X, b.X), Math.Min(a.Y, b.Y),
                    Math.Abs(b.X - a.X), Math.Abs(b.Y - a.Y));
