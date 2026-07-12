@@ -1,7 +1,8 @@
 // クエスト作成（合成ビルダー）。
 // 文章類（タイトル・依頼主・概要・発言・舞台描写・場所）は自由入力で、各欄の「テンプレ」ボタンから
 // 任意のクエスト・テンプレの該当値を選んで流し込める。enemies / boss / events は部品ライブラリ
-// （templates/enemies・bosses・events）から選んで追加し、各要素は JSON 編集で微調整できる。
+// （templates/enemies・bosses・events）から選んで追加し、各要素は構造化フォーム（QuestComponentEditors）
+// または JSON 編集で微調整できる。
 // 「作成」時に quest と、場所一覧から生成したダンジョン area を world へ挿入する。
 // ID 採番はワールドの index カウンタ（area/node/facility/quest）を使い、ゲームと同じ規則で割り当てる。
 using System.Text.Json;
@@ -494,7 +495,7 @@ namespace InstantaleSaveEditor
         }
 
         // ---------------- 部品セクション UI ----------------
-        // 追加（ライブラリ）/ 削除 / JSON編集 ボタン付きのリスト欄を1ブロック追加する。
+        // 追加（ライブラリ）/ 編集（構造化フォーム）/ 削除 / JSON編集 ボタン付きのリスト欄を1ブロック追加する。
         // isEvent はイベント/敵の種別を明示する（表示名の翻訳に依存しない）。
         private void AddComponentSection(TableLayoutPanel t, ref int r, string title, bool isEvent, out ListBox list, JsonArray model, List<JsonObject> lib)
         {
@@ -504,20 +505,41 @@ namespace InstantaleSaveEditor
             t.Controls.Add(lst, 0, r); t.SetColumnSpan(lst, 2);
             var btns = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false };
             var add = new Button { Text = I18n.T("btn.add"), Width = 92 };
+            var edit = new Button { Text = I18n.T("btn.edit"), Width = 92 };
             var del = new Button { Text = I18n.T("btn.delete"), Width = 92 };
-            var edit = new Button { Text = I18n.T("quest.btnJsonEdit"), Width = 92 };
+            var jsonEdit = new Button { Text = I18n.T("quest.btnJsonEdit"), Width = 92 };
             Func<JsonObject, string> namer = isEvent ? (e => J.Str(e, "event_name", I18n.T("label.unnamed"))) : (e => EnemyName(e));
             add.Click += (_, _) =>
             {
                 foreach (var sel in PickComponents(title, lib, isEvent, multi: true)) model.Add(sel);
                 RefreshList(lst, model, namer);
             };
+            // 選択要素を構造化フォームで編集（敵=EnemyEditDialog / イベント=EventEditDialog）。
+            void EditGui()
+            {
+                int i = lst.SelectedIndex;
+                if (i < 0 || i >= model.Count) return;
+                JsonObject result = null;
+                if (isEvent)
+                {
+                    using var d = new EventEditDialog(I18n.T("event.editTitle"), model[i] as JsonObject);
+                    if (d.ShowDialog(this) == DialogResult.OK) result = d.ResultNode;
+                }
+                else
+                {
+                    using var d = new EnemyEditDialog(I18n.T("enemy.editTitle"), model[i] as JsonObject, EnemyCandidates());
+                    if (d.ShowDialog(this) == DialogResult.OK) result = d.ResultNode;
+                }
+                if (result != null) { model[i] = result; RefreshList(lst, model, namer); }
+            }
+            edit.Click += (_, _) => EditGui();
+            lst.DoubleClick += (_, _) => EditGui();
             del.Click += (_, _) =>
             {
                 int i = lst.SelectedIndex;
                 if (i >= 0 && i < model.Count) { model.RemoveAt(i); RefreshList(lst, model, namer); }
             };
-            edit.Click += (_, _) =>
+            jsonEdit.Click += (_, _) =>
             {
                 int i = lst.SelectedIndex;
                 if (i < 0 || i >= model.Count) return;
@@ -525,11 +547,11 @@ namespace InstantaleSaveEditor
                 if (d.ShowDialog(this) == DialogResult.OK && d.ResultNode != null)
                 { model[i] = d.ResultNode; RefreshList(lst, model, namer); }
             };
-            btns.Controls.AddRange(new Control[] { add, del, edit });
+            btns.Controls.AddRange(new Control[] { add, edit, del, jsonEdit });
             t.Controls.Add(btns, 2, r); r++;
         }
 
-        // ボスのセクション（単一選択）。ライブラリから選択 / なしに戻す / JSON編集。
+        // ボスのセクション（単一選択）。ライブラリから選択 / 構造化フォームで編集 / なしに戻す / JSON編集。
         private void AddBossSection(TableLayoutPanel t, ref int r)
         {
             AddSectionHeader(t, ref r, "── " + I18n.T("quest.section.boss") + " ──");
@@ -537,22 +559,32 @@ namespace InstantaleSaveEditor
             t.Controls.Add(_lblBoss, 0, r); t.SetColumnSpan(_lblBoss, 2);
             var btns = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false };
             var sel = new Button { Text = I18n.T("quest.select"), Width = 92 };
+            var edit = new Button { Text = I18n.T("btn.edit"), Width = 92 };
             var none = new Button { Text = I18n.T("quest.none"), Width = 92 };
-            var edit = new Button { Text = I18n.T("quest.btnJsonEdit"), Width = 92 };
+            var jsonEdit = new Button { Text = I18n.T("quest.btnJsonEdit"), Width = 92 };
             sel.Click += (_, _) =>
             {
                 var picked = PickComponents(I18n.T("quest.section.boss"), _bossLib, isEvent: false, multi: false).FirstOrDefault();
                 if (picked != null) { _boss = picked; RefreshBoss(); }
             };
-            none.Click += (_, _) => { _boss = null; RefreshBoss(); };
+            // ボス未設定のまま編集を開くと新規作成（type=boss の骨格から）になる。
             edit.Click += (_, _) =>
+            {
+                using var d = new EnemyEditDialog(I18n.T("quest.editBoss"), _boss, EnemyCandidates(), defaultType: "boss");
+                if (d.ShowDialog(this) == DialogResult.OK) { _boss = d.ResultNode; RefreshBoss(); }
+            };
+            none.Click += (_, _) => { _boss = null; RefreshBoss(); };
+            jsonEdit.Click += (_, _) =>
             {
                 using var d = new JsonEditDialog(I18n.T("quest.editBoss"), _boss ?? new JsonObject());
                 if (d.ShowDialog(this) == DialogResult.OK && d.ResultNode is JsonObject o) { _boss = o; RefreshBoss(); }
             };
-            btns.Controls.AddRange(new Control[] { sel, none, edit });
+            btns.Controls.AddRange(new Control[] { sel, edit, none, jsonEdit });
             t.Controls.Add(btns, 2, r); r++;
         }
+
+        // 敵編集フォームのコンボ候補（race 等）の抽出元。ライブラリの敵＋ボス全件。
+        private IEnumerable<JsonObject> EnemyCandidates() => _enemyLib.Concat(_bossLib);
 
         private void RefreshBoss() => _lblBoss.Text = _boss != null ? EnemyName(_boss) : I18n.T("label.none");
         private static string EnemyName(JsonNode el) => J.Str(J.Obj(el as JsonObject, "data"), "name", I18n.T("label.unnamed"));

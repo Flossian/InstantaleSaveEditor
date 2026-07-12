@@ -61,6 +61,16 @@ namespace InstantaleSaveEditor
             return key;   // 未訳・欠落でもキー文字列を返して破綻させない
         }
 
+        // キーの訳が存在する場合のみ返す（activeDict → jaDict。どちらにも無ければ null）。
+        // 「訳があれば使い、無ければ別の表示にフォールバックする」用途（ObjectForm のフィールド名等）。
+        public static string Opt(string key)
+        {
+            if (key == null) return null;
+            if (_active != null && _active.TryGetValue(key, out var v)) return v;
+            if (_ja != null && _ja.TryGetValue(key, out var j)) return j;
+            return null;
+        }
+
         // 引数付き解決。翻訳側は {0}{1}... を使う。書式不正時は素の文言を返す。
         public static string T(string key, params object[] args)
         {

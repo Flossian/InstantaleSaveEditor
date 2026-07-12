@@ -618,8 +618,9 @@ namespace InstantaleSaveEditor
             return t;
         }
 
-        // フィールド名に対する表示用ラベル。未登録のフィールドはキー名をそのまま表示する。
-        private static string LabelOf(string field) => field switch
+        // フィールド名に対する表示用ラベル。lang の "field.<キー名>" を最優先で引き、
+        // 無ければ旧来の個別キー（label.*）、それも無ければキー名をそのまま表示する。
+        private static string LabelOf(string field) => I18n.Opt("field." + field) ?? field switch
         {
             "look" => I18n.T("label.look"),
             "status" => I18n.T("label.config.status"),
@@ -824,7 +825,7 @@ namespace InstantaleSaveEditor
             int r = 0;
             foreach (var kv in map)
             {
-                inner.Controls.Add(new Label { Text = kv.Key, AutoSize = true, Padding = new Padding(2, 6, 4, 0) }, 0, r);
+                inner.Controls.Add(new Label { Text = LabelOf(kv.Key), AutoSize = true, Padding = new Padding(2, 6, 4, 0) }, 0, r);
                 var rtb = new ResizableTextBox(480, 72) { Dock = DockStyle.Top, Margin = new Padding(3, 3, 3, 8) };
                 rtb.Box.Text = J.Str(map, kv.Key);
                 string k = kv.Key;
@@ -1348,7 +1349,7 @@ namespace InstantaleSaveEditor
             string captured = field;
             btn.Click += (_, _) =>
             {
-                using var d = new JsonEditDialog(I18n.T("title.editField", captured), holder.Node);
+                using var d = new JsonEditDialog(I18n.T("title.editField", LabelOf(captured)), holder.Node);
                 if (d.ShowDialog(this) == DialogResult.OK)
                 {
                     holder.Node = d.ResultNode; holder.Changed = true; lbl.Text = J.Preview(holder.Node);
