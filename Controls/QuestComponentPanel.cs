@@ -1,6 +1,7 @@
 // クエスト部品（enemies / boss / events）を ObjectForm 内で構造化編集するパネル。
 // ワールドタブで quest / story_quest 選択時に使い、クエスト作成（QuestCreator）と同等の操作を提供する:
 //   追加/選択 … 部品ライブラリ（templates/{enemies,bosses,events}）から選んで追加（ライブラリはボタン押下時に読む）
+//   新規      … 敵/ボスを白紙から作成（作成した部品はライブラリにも保存され、次回から選べる）
 //   編集      … 構造化フォーム（EnemyEditDialog / EventEditDialog）
 //   JSON編集  … 生 JSON での微調整（JsonEditDialog）
 // 編集は対象の JsonArray / 親クエストの boss へ即時反映する（ObjectForm.Apply() の対象外）。
@@ -37,6 +38,7 @@ namespace InstantaleSaveEditor
             AutoSize = true; AutoSizeMode = AutoSizeMode.GrowAndShrink; Dock = DockStyle.Top;
             var bar = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(0, 4, 0, 4) };
             bar.Controls.Add(SkillEditDialog.MakeBtn(I18n.T("btn.add"), Add));
+            if (!_isEvent) bar.Controls.Add(SkillEditDialog.MakeBtn(I18n.T("btn.new"), CreateNew));
             bar.Controls.Add(SkillEditDialog.MakeBtn(I18n.T("btn.edit"), Edit));
             bar.Controls.Add(SkillEditDialog.MakeBtn(I18n.T("btn.delete"), Delete));
             bar.Controls.Add(SkillEditDialog.MakeBtn(I18n.T("quest.btnJsonEdit"), EditJson));
@@ -66,6 +68,16 @@ namespace InstantaleSaveEditor
             var previews = lib.Select(e => e.ToJsonString(Codec.Pretty)).ToList();
             foreach (int i in ListPicker.Pick(FindForm(), I18n.T("quest.pickTitle", SectionTitle), labels, previews, multi: true))
                 if (i >= 0 && i < lib.Count) _model.Add((JsonObject)lib[i].DeepClone());
+            RefreshList();
+        }
+
+        // 白紙から敵を新規作成して末尾へ追加する（敵セクションのみ）。作成した敵はライブラリにも保存する。
+        private void CreateNew()
+        {
+            using var d = new EnemyEditDialog(I18n.T("enemy.newTitle"), null, QuestComponentLib.EnemyCandidates());
+            if (d.ShowDialog(FindForm()) != DialogResult.OK) return;
+            QuestCreator.SaveComponent(QuestCreator.EnemiesDir, d.ResultNode, QuestComponentLib.EnemyName(d.ResultNode));
+            _model.Add(d.ResultNode);
             RefreshList();
         }
 
@@ -120,6 +132,7 @@ namespace InstantaleSaveEditor
             AutoSize = true; AutoSizeMode = AutoSizeMode.GrowAndShrink; Dock = DockStyle.Top;
             var bar = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(0, 4, 0, 4) };
             bar.Controls.Add(SkillEditDialog.MakeBtn(I18n.T("quest.select"), SelectFromLib));
+            bar.Controls.Add(SkillEditDialog.MakeBtn(I18n.T("btn.new"), CreateNew));
             bar.Controls.Add(SkillEditDialog.MakeBtn(I18n.T("btn.edit"), Edit));
             bar.Controls.Add(SkillEditDialog.MakeBtn(I18n.T("quest.none"), Clear));
             bar.Controls.Add(SkillEditDialog.MakeBtn(I18n.T("quest.btnJsonEdit"), EditJson));
@@ -147,6 +160,16 @@ namespace InstantaleSaveEditor
             int i = ListPicker.PickOne(FindForm(), I18n.T("quest.pickTitle", title), labels, previews);
             if (i < 0) return;
             _quest["boss"] = (JsonObject)lib[i].DeepClone();
+            RefreshLabel();
+        }
+
+        // 白紙からボスを新規作成して差し替える。作成したボスはライブラリにも保存する。
+        private void CreateNew()
+        {
+            using var d = new EnemyEditDialog(I18n.T("quest.newBoss"), null, QuestComponentLib.EnemyCandidates(), defaultType: "boss");
+            if (d.ShowDialog(FindForm()) != DialogResult.OK) return;
+            QuestCreator.SaveComponent(QuestCreator.BossesDir, d.ResultNode, QuestComponentLib.EnemyName(d.ResultNode));
+            _quest["boss"] = d.ResultNode;
             RefreshLabel();
         }
 

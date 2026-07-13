@@ -136,6 +136,7 @@
   "btn.ok": "确定",
   "btn.cancel": "取消",
   "btn.add": "添加",
+  "btn.new": "新建",
   "btn.edit": "编辑",
   "btn.delete": "删除",
   "btn.duplicate": "复制",
@@ -556,6 +557,7 @@
   "quest.select": "选择",
   "quest.none": "无",
   "quest.editBoss": "编辑 Boss",
+  "quest.newBoss": "新建 Boss",
   "quest.templateBtn": "模板",
   "quest.noTemplates": "没有任务模板。",
   "quest.bulkLabel": "[{0}] {1} (难{2})",
@@ -579,6 +581,7 @@
   "quest.preview.events": "事件: ",
 
   "enemy.editTitle": "编辑敌人",
+  "enemy.newTitle": "新建敌人",
   "enemy.field.type": "种类 (type)",
   "enemy.field.name": "名称",
   "enemy.field.description": "说明",

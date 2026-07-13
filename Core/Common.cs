@@ -645,7 +645,7 @@ namespace InstantaleSaveEditor
         //   文字列だけの辞書→キーごとの枠 / それ以外(配列・複雑な辞書・null)→JSON編集ボタン
         private void AddRow(TableLayoutPanel t, int row, string field, JsonNode val)
         {
-            t.Controls.Add(new Label { Text = LabelOf(field), AutoSize = true, Font = new Font(Font, FontStyle.Bold) }, 0, row);
+            t.Controls.Add(new Label { Text = LabelOf(field), AutoSize = true }, 0, row);
             if (IsAbilityObject(field, val)) { AddAbilityRow(t, row, field, (JsonObject)val); return; }
             // life_log は配列だが専用グリッドで表示・編集する。
             if (field == "life_log" && val is JsonArray la)

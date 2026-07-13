@@ -260,6 +260,21 @@ namespace InstantaleSaveEditor
             catch { }
         }
 
+        // 新規作成した部品（敵/ボス）をライブラリへ保存する。同名ファイルがあればハッシュ付きの別名にして
+        // 上書きしない。失敗しても作成の流れは止めない（QuestComponentPanel からも共用）。
+        internal static void SaveComponent(string dir, JsonObject o, string name)
+        {
+            try
+            {
+                Directory.CreateDirectory(dir);
+                string json = o.ToJsonString(Codec.Pretty);
+                string path = Path.Combine(dir, Sanitize(name) + ".json");
+                if (File.Exists(path)) path = Path.Combine(dir, $"{Sanitize(name)}__{ShortHash(json)}.json");
+                File.WriteAllText(path, json);
+            }
+            catch { }
+        }
+
         // 文字列の MD5 を取り、先頭8桁(16進)を返す。テンプレ名の重複回避用。
         private static string ShortHash(string s)
         {
@@ -518,6 +533,22 @@ namespace InstantaleSaveEditor
                 foreach (var sel in PickComponents(title, lib, isEvent, multi: true)) model.Add(sel);
                 RefreshList(lst, model, namer);
             };
+            // 白紙から敵を新規作成して末尾へ追加する（敵セクションのみ）。作成した敵はライブラリにも保存し、
+            // 読み込み済みの一覧（lib）へも足して同セッション中の「追加」から選べるようにする。
+            Button create = null;
+            if (!isEvent)
+            {
+                create = new Button { Text = I18n.T("btn.new"), Width = 92 };
+                create.Click += (_, _) =>
+                {
+                    using var d = new EnemyEditDialog(I18n.T("enemy.newTitle"), null, EnemyCandidates());
+                    if (d.ShowDialog(this) != DialogResult.OK) return;
+                    SaveComponent(EnemiesDir, d.ResultNode, EnemyName(d.ResultNode));
+                    lib.Add((JsonObject)d.ResultNode.DeepClone());
+                    model.Add(d.ResultNode);
+                    RefreshList(lst, model, namer);
+                };
+            }
             // 選択要素を構造化フォームで編集（敵=EnemyEditDialog / イベント=EventEditDialog）。
             void EditGui()
             {
@@ -551,11 +582,13 @@ namespace InstantaleSaveEditor
                 if (d.ShowDialog(this) == DialogResult.OK && d.ResultNode != null)
                 { model[i] = d.ResultNode; RefreshList(lst, model, namer); }
             };
-            btns.Controls.AddRange(new Control[] { add, edit, del, jsonEdit });
+            btns.Controls.AddRange(create != null
+                ? new Control[] { add, create, edit, del, jsonEdit }
+                : new Control[] { add, edit, del, jsonEdit });
             t.Controls.Add(btns, 2, r); r++;
         }
 
-        // ボスのセクション（単一選択）。ライブラリから選択 / 構造化フォームで編集 / なしに戻す / JSON編集。
+        // ボスのセクション（単一選択）。ライブラリから選択 / 新規作成 / 構造化フォームで編集 / なしに戻す / JSON編集。
         private void AddBossSection(TableLayoutPanel t, ref int r)
         {
             AddSectionHeader(t, ref r, "── " + I18n.T("quest.section.boss") + " ──");
@@ -563,6 +596,7 @@ namespace InstantaleSaveEditor
             t.Controls.Add(_lblBoss, 0, r); t.SetColumnSpan(_lblBoss, 2);
             var btns = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false };
             var sel = new Button { Text = I18n.T("quest.select"), Width = 92 };
+            var create = new Button { Text = I18n.T("btn.new"), Width = 92 };
             var edit = new Button { Text = I18n.T("btn.edit"), Width = 92 };
             var none = new Button { Text = I18n.T("quest.none"), Width = 92 };
             var jsonEdit = new Button { Text = I18n.T("quest.btnJsonEdit"), Width = 92 };
@@ -570,6 +604,16 @@ namespace InstantaleSaveEditor
             {
                 var picked = PickComponents(I18n.T("quest.section.boss"), _bossLib, isEvent: false, multi: false).FirstOrDefault();
                 if (picked != null) { _boss = picked; RefreshBoss(); }
+            };
+            // 白紙からボスを新規作成して差し替える。作成したボスはライブラリにも保存し、
+            // 読み込み済みの一覧（_bossLib）へも足して同セッション中の「選択」から選べるようにする。
+            create.Click += (_, _) =>
+            {
+                using var d = new EnemyEditDialog(I18n.T("quest.newBoss"), null, EnemyCandidates(), defaultType: "boss");
+                if (d.ShowDialog(this) != DialogResult.OK) return;
+                SaveComponent(BossesDir, d.ResultNode, EnemyName(d.ResultNode));
+                _bossLib.Add((JsonObject)d.ResultNode.DeepClone());
+                _boss = d.ResultNode; RefreshBoss();
             };
             // ボス未設定のまま編集を開くと新規作成（type=boss の骨格から）になる。
             edit.Click += (_, _) =>
@@ -583,7 +627,7 @@ namespace InstantaleSaveEditor
                 using var d = new JsonEditDialog(I18n.T("quest.editBoss"), _boss ?? new JsonObject());
                 if (d.ShowDialog(this) == DialogResult.OK && d.ResultNode is JsonObject o) { _boss = o; RefreshBoss(); }
             };
-            btns.Controls.AddRange(new Control[] { sel, edit, none, jsonEdit });
+            btns.Controls.AddRange(new Control[] { sel, create, edit, none, jsonEdit });
             t.Controls.Add(btns, 2, r); r++;
         }
 

@@ -136,6 +136,7 @@
   "btn.ok": "OK",
   "btn.cancel": "Cancel",
   "btn.add": "Add",
+  "btn.new": "New",
   "btn.edit": "Edit",
   "btn.delete": "Delete",
   "btn.duplicate": "Duplicate",
@@ -556,6 +557,7 @@
   "quest.select": "Select",
   "quest.none": "None",
   "quest.editBoss": "Edit boss",
+  "quest.newBoss": "New Boss",
   "quest.templateBtn": "Template",
   "quest.noTemplates": "No quest templates.",
   "quest.bulkLabel": "[{0}] {1} (Lv{2})",
@@ -579,6 +581,7 @@
   "quest.preview.events": "Events: ",
 
   "enemy.editTitle": "Edit Enemy",
+  "enemy.newTitle": "New Enemy",
   "enemy.field.type": "Type (type)",
   "enemy.field.name": "Name",
   "enemy.field.description": "Description",

@@ -136,6 +136,7 @@
   "btn.ok": "OK",
   "btn.cancel": "キャンセル",
   "btn.add": "追加",
+  "btn.new": "新規",
   "btn.edit": "編集",
   "btn.delete": "削除",
   "btn.duplicate": "複製",
@@ -556,6 +557,7 @@
   "quest.select": "選択",
   "quest.none": "なし",
   "quest.editBoss": "ボスを編集",
+  "quest.newBoss": "ボスの新規作成",
   "quest.templateBtn": "テンプレ",
   "quest.noTemplates": "クエスト・テンプレがありません。",
   "quest.bulkLabel": "[{0}] {1} (難{2})",
@@ -579,6 +581,7 @@
   "quest.preview.events": "イベント: ",
 
   "enemy.editTitle": "敵の編集",
+  "enemy.newTitle": "敵の新規作成",
   "enemy.field.type": "種別 (type)",
   "enemy.field.name": "名前",
   "enemy.field.description": "説明",
