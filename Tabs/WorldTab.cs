@@ -59,7 +59,12 @@ namespace InstantaleSaveEditor
             _miExportZip.Click += (_, _) => ExportNpc();
             _miExportPreset.Click += (_, _) => ExportNpcPreset();
             _exportMenu.Items.AddRange(new ToolStripItem[] { _miExportZip, _miExportPreset });
-            _btnExport.Click += (_, _) => _exportMenu.Show(_btnExport, new Point(0, _btnExport.Height));
+            // facility 選択時は方式選択が無いため直接エクスポート、NPC 選択時はメニューで方式を選ぶ。
+            _btnExport.Click += (_, _) =>
+            {
+                if (_curKind == "facility") ExportFacility();
+                else _exportMenu.Show(_btnExport, new Point(0, _btnExport.Height));
+            };
             _btnRefresh.Click += (_, _) => RefreshTree();
             _btnJson.Click += (_, _) => EditJson();
             // エクスポートは NPC 選択時のみ表示されるため、常設ボタンの並びが動かないよう右端に置く。
@@ -406,6 +411,8 @@ namespace InstantaleSaveEditor
                     // description 直後に背景画像(backgrounds/{facility名}/image.png)を差し込む。
                     _bgPanel.LoadImage(_worldDir, J.Str(facObj, "name"));
                     _form.Bind(facObj, _bgPanel, "description");
+                    _btnExport.Visible = true;
+                    _btnExport.Enabled = true;
                     SetBtns(true); break;
                 default:      // セクション見出しなど
                     _curContainer = null; _curKey = null;
@@ -634,6 +641,30 @@ namespace InstantaleSaveEditor
             MessageBox.Show(I18n.T("msg.npcExported", name, dest), I18n.T("title.export"), MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
+        // 選択中の facility を JSON＋背景画像の zip として facility\ ライブラリへエクスポートする。
+        // connections は移植先で無効な ID になるため保持しない（インポート時に接続先から張り直す）。
+        private void ExportFacility()
+        {
+            if (_curContainer == null || _curKey == null || _curContainer[_curKey] is not JsonObject fac) return;
+            if (!_form.Apply()) return;   // 表示中の編集を反映してから書き出す
+            string name = J.Str(fac, "name", "facility");
+            string source = J.Str(J.Obj(_root, "world_data"), "name");
+            if (string.IsNullOrEmpty(source) && _worldDir != null) source = Path.GetFileName(_worldDir);
+
+            string dest;
+            try
+            {
+                dest = FacilityPortability.FreeExportPath(name, FacilityPortability.ExportWorldName(source));
+                FacilityPortability.Export(fac, _worldDir, source, _curKey, dest);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(I18n.T("msg.exportFailed") + "\n" + ex.Message, I18n.T("title.error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+            MessageBox.Show(I18n.T("msg.facilityExported", name, dest), I18n.T("title.export"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
         // 選択中の NPC をキャラクタープリセットとして出力する（プレイヤーのプリセット化と同じ変換・出力先）。
         private void ExportNpcPreset()
         {
@@ -644,12 +675,50 @@ namespace InstantaleSaveEditor
         }
 
         // 選択レコード（item/facility）を確認の上で削除する。
+        // area/facility はツリー上の下位ノードもまとめて削除する（確認文に注意書きを追加）。
+        // facility の下位＝接続ツリーで配下に表示されている施設。area の下位（配下施設）は
+        // area オブジェクト内に内包されているため本体削除で一緒に消える。
+        // 削除後は、残る側の connections から削除済み ID への参照を取り除く。
         private void Delete()
         {
             if (_curContainer == null || _curKey == null) return;
-            if (MessageBox.Show(I18n.T("msg.deleteConfirm", _curKind, _curKey), I18n.T("title.confirm"), MessageBoxButtons.YesNo) != DialogResult.Yes) return;
-            _curContainer.Remove(_curKey);
+            var node = _tree.SelectedNode;
+            var tag = node?.Tag as string[];
+            string msg = I18n.T("msg.deleteConfirm", _curKind, _curKey);
+            if (node != null && node.Nodes.Count > 0 && tag != null
+                && (tag[0] == "facility" || (tag[0] == "item" && tag[1] == "areas")))
+                msg += "\n" + I18n.T("msg.deleteCascadeNote");
+            if (MessageBox.Show(msg, I18n.T("title.confirm"), MessageBoxButtons.YesNo) != DialogResult.Yes) return;
+
+            if (tag != null && tag[0] == "facility")
+            {
+                var removed = new List<string> { _curKey };
+                RemoveDescendantFacilities(node, removed);
+                _curContainer.Remove(_curKey);
+                foreach (var (_, fo) in EnumAreaFacilities(tag[1]))
+                    foreach (var id in removed) RemoveConnection(fo, id);
+            }
+            else
+            {
+                _curContainer.Remove(_curKey);
+                if (tag != null && tag[0] == "item" && tag[1] == "areas" && _root?["areas"] is JsonObject areas)
+                    foreach (var kv in areas)
+                        if (kv.Value is JsonObject o) RemoveConnection(o, _curKey);
+            }
             _form.Clear(); Populate();
+        }
+
+        // ツリー上で node の配下に表示されている facility レコードを再帰的に削除し、削除 ID を removed へ積む。
+        private void RemoveDescendantFacilities(TreeNode node, List<string> removed)
+        {
+            foreach (TreeNode c in node.Nodes)
+            {
+                if (c.Tag is string[] t && t[0] == "facility"
+                    && J.Obj(J.Obj(_root?["areas"]?[t[1]] as JsonObject, "nodes")?[t[2]] as JsonObject, "facilities") is JsonObject facs
+                    && facs.ContainsKey(t[3]))
+                { facs.Remove(t[3]); removed.Add(t[3]); }
+                RemoveDescendantFacilities(c, removed);
+            }
         }
     }
 }

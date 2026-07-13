@@ -31,7 +31,7 @@ namespace InstantaleSaveEditor
         // Localize() で文言を再適用するため、可視文言を持つ要素を保持する。
         private TabPage _tpPlayer, _tpWorld, _tpVars;
         private ToolStripMenuItem _miFile, _miFileOpen, _miFileRecent, _miFileSave, _miFileSaveAs, _miFileExport, _miFileExit;
-        private ToolStripMenuItem _miTools, _miToolGenerateWorld, _miToolCreateQuest, _miToolExtract, _miToolImportNpc, _miToolPlayerToNpc, _miToolPlayerToPreset, _miToolCleanup, _miToolEditRaw;
+        private ToolStripMenuItem _miTools, _miToolGenerateWorld, _miToolCreateQuest, _miToolExtract, _miToolImportNpc, _miToolImportFacility, _miToolPlayerToNpc, _miToolPlayerToPreset, _miToolCleanup, _miToolEditRaw;
         private ToolStripMenuItem _miSettings, _miSettingsBackup, _miSettingsLang, _miSettingsMisc;
         private ToolStripMenuItem _miAutoBackup;   // メニュー右端の自動バックアップ ON/OFF トグル表示
         private string _statusKey = "status.initial";   // 現在のステータス文言キー（言語切替時に再解決する）
@@ -84,6 +84,7 @@ namespace InstantaleSaveEditor
             _miToolCreateQuest.Text = I18n.T("menu.tools.createQuest");
             _miToolExtract.Text = I18n.T("menu.tools.extractTemplates");
             _miToolImportNpc.Text = I18n.T("menu.tools.importNpc");
+            _miToolImportFacility.Text = I18n.T("menu.tools.importFacility");
             _miToolPlayerToNpc.Text = I18n.T("menu.tools.playerToNpc");
             _miToolPlayerToPreset.Text = I18n.T("menu.tools.playerToPreset");
             _miToolCleanup.Text = I18n.T("menu.tools.cleanup");
@@ -133,6 +134,7 @@ namespace InstantaleSaveEditor
             _miToolCreateQuest = new ToolStripMenuItem(null, null, (_, _) => CreateQuest());
             _miToolExtract = new ToolStripMenuItem(null, null, (_, _) => ExtractTemplates());
             _miToolImportNpc = new ToolStripMenuItem(null, null, (_, _) => ImportNpc());
+            _miToolImportFacility = new ToolStripMenuItem(null, null, (_, _) => ImportFacility());
             _miToolPlayerToNpc = new ToolStripMenuItem(null, null, (_, _) => PlayerToNpc());
             _miToolPlayerToPreset = new ToolStripMenuItem(null, null, (_, _) => PlayerToPreset());
             _miToolCleanup = new ToolStripMenuItem(null, null, (_, _) => CleanupWorld());
@@ -143,6 +145,7 @@ namespace InstantaleSaveEditor
             _miTools.DropDownItems.Add(_miToolExtract);
             _miTools.DropDownItems.Add(new ToolStripSeparator());
             _miTools.DropDownItems.Add(_miToolImportNpc);
+            _miTools.DropDownItems.Add(_miToolImportFacility);
             _miTools.DropDownItems.Add(_miToolPlayerToNpc);
             _miTools.DropDownItems.Add(_miToolPlayerToPreset);
             _miTools.DropDownItems.Add(new ToolStripSeparator());
@@ -178,7 +181,7 @@ namespace InstantaleSaveEditor
         {
             bool loaded = _root != null;
             _miFileSave.Enabled = _miFileSaveAs.Enabled = _miFileExport.Enabled = loaded;
-            _miToolCreateQuest.Enabled = _miToolImportNpc.Enabled = _miToolPlayerToNpc.Enabled
+            _miToolCreateQuest.Enabled = _miToolImportNpc.Enabled = _miToolImportFacility.Enabled = _miToolPlayerToNpc.Enabled
                 = _miToolPlayerToPreset.Enabled = _miToolCleanup.Enabled = _miToolEditRaw.Enabled = loaded;
         }
 
@@ -630,6 +633,27 @@ namespace InstantaleSaveEditor
             {
                 _world.Bind(_root, _path);   // ツリー更新
                 Status("status.npcImported");
+                MessageBox.Show(this, dlg.ResultSummary, I18n.T("title.importDone"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+        }
+
+        // facility\{ワールド}\ のライブラリから施設を選び、配置先と接続先を指定してワールドへ挿入する。
+        private void ImportFacility()
+        {
+            if (_root == null) { MessageBox.Show(this, I18n.T("msg.openFileFirst")); return; }
+            if (J.Obj(_root, "areas") == null)
+            { MessageBox.Show(this, I18n.T("facimport.errNoContainers")); return; }
+
+            var worlds = FacilityPortability.ListWorlds();
+            if (worlds.Count == 0)
+            { MessageBox.Show(this, I18n.T("facimport.empty", FacilityPortability.BaseDir())); return; }
+
+            string worldDir = WorldTab.ResolveWorldDir(_path);
+            using var dlg = new FacilityImportDialog(_root, worldDir, worlds);
+            if (dlg.ShowDialog(this) == DialogResult.OK)
+            {
+                _world.Bind(_root, _path);   // ツリー更新
+                Status("status.facilityImported");
                 MessageBox.Show(this, dlg.ResultSummary, I18n.T("title.importDone"), MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
         }

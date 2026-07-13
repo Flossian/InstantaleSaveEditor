@@ -44,6 +44,7 @@ namespace InstantaleSaveEditor
         // --- その他 ---
         public string LastOpenedFolder { get; set; } = "";          // ファイルダイアログの初期位置
         public string LastImportNpcWorld { get; set; } = "";        // NPCインポート画面で最後に開いていたワールド
+        public string LastImportFacilityWorld { get; set; } = "";   // 施設インポート画面で最後に開いていたワールド
         public List<string> RecentFiles { get; set; } = new();     // 「最近開いたファイル」の履歴（新しい順）
 
         // 起動時に読み込んだ現在の設定インスタンス（コントロール等から参照する）。
