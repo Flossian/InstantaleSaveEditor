@@ -31,7 +31,7 @@ namespace InstantaleSaveEditor
         // Localize() で文言を再適用するため、可視文言を持つ要素を保持する。
         private TabPage _tpPlayer, _tpWorld, _tpVars;
         private ToolStripMenuItem _miFile, _miFileOpen, _miFileRecent, _miFileSave, _miFileSaveAs, _miFileExport, _miFileExit;
-        private ToolStripMenuItem _miTools, _miToolGenerateWorld, _miToolCreateQuest, _miToolExtract, _miToolImportNpc, _miToolImportFacility, _miToolPlayerToNpc, _miToolPlayerToPreset, _miToolCleanup, _miToolEditRaw;
+        private ToolStripMenuItem _miTools, _miToolGenerateWorld, _miToolCreateQuest, _miToolExtract, _miToolImportNpc, _miToolImportFacility, _miToolPlayerToNpc, _miToolPlayerToPreset, _miToolCleanup, _miToolCompactQuestLog, _miToolEditRaw;
         private ToolStripMenuItem _miSettings, _miSettingsBackup, _miSettingsLang, _miSettingsMisc;
         private ToolStripMenuItem _miAutoBackup;   // メニュー右端の自動バックアップ ON/OFF トグル表示
         private string _statusKey = "status.initial";   // 現在のステータス文言キー（言語切替時に再解決する）
@@ -88,6 +88,7 @@ namespace InstantaleSaveEditor
             _miToolPlayerToNpc.Text = I18n.T("menu.tools.playerToNpc");
             _miToolPlayerToPreset.Text = I18n.T("menu.tools.playerToPreset");
             _miToolCleanup.Text = I18n.T("menu.tools.cleanup");
+            _miToolCompactQuestLog.Text = I18n.T("menu.tools.compactQuestLog");
             _miToolEditRaw.Text = I18n.T("menu.tools.editRaw");
 
             _miSettings.Text = I18n.T("menu.settings");
@@ -138,6 +139,7 @@ namespace InstantaleSaveEditor
             _miToolPlayerToNpc = new ToolStripMenuItem(null, null, (_, _) => PlayerToNpc());
             _miToolPlayerToPreset = new ToolStripMenuItem(null, null, (_, _) => PlayerToPreset());
             _miToolCleanup = new ToolStripMenuItem(null, null, (_, _) => CleanupWorld());
+            _miToolCompactQuestLog = new ToolStripMenuItem(null, null, (_, _) => CompactQuestEventLog());
             _miToolEditRaw = new ToolStripMenuItem(null, null, (_, _) => EditRaw());
             _miTools.DropDownItems.Add(_miToolGenerateWorld);
             _miTools.DropDownItems.Add(new ToolStripSeparator());
@@ -150,6 +152,7 @@ namespace InstantaleSaveEditor
             _miTools.DropDownItems.Add(_miToolPlayerToPreset);
             _miTools.DropDownItems.Add(new ToolStripSeparator());
             _miTools.DropDownItems.Add(_miToolCleanup);
+            _miTools.DropDownItems.Add(_miToolCompactQuestLog);
             _miTools.DropDownItems.Add(_miToolEditRaw);
 
             // 設定（ファイル/ツールと同じドロップダウン形式に統一）。バックアップ / 言語 / その他に分ける。
@@ -182,7 +185,7 @@ namespace InstantaleSaveEditor
             bool loaded = _root != null;
             _miFileSave.Enabled = _miFileSaveAs.Enabled = _miFileExport.Enabled = loaded;
             _miToolCreateQuest.Enabled = _miToolImportNpc.Enabled = _miToolImportFacility.Enabled = _miToolPlayerToNpc.Enabled
-                = _miToolPlayerToPreset.Enabled = _miToolCleanup.Enabled = _miToolEditRaw.Enabled = loaded;
+                = _miToolPlayerToPreset.Enabled = _miToolCleanup.Enabled = _miToolCompactQuestLog.Enabled = _miToolEditRaw.Enabled = loaded;
         }
 
         // 「最近開いたファイル」のドロップダウンを設定の履歴から作り直す。履歴が空なら無効化する。
@@ -705,6 +708,23 @@ namespace InstantaleSaveEditor
             Status("status.cleaned", res.Quests, res.Npcs);
             MessageBox.Show(this, I18n.T("msg.cleanup.done", res.Quests, res.Npcs),
                 I18n.T("title.cleanupDone"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        // quest_event_log を圧縮する（ゲーム側の既知バグ対策）。確認後、最新3件以外を切り捨てる。
+        private void CompactQuestEventLog()
+        {
+            if (_root == null) { MessageBox.Show(this, I18n.T("msg.openFileFirst")); return; }
+            if (J.Obj(_root, "game_variables") == null)
+            { MessageBox.Show(this, I18n.T("msg.noGameVariables")); return; }
+
+            if (MessageBox.Show(this, I18n.T("msg.compactQuestLog.confirm", QuestEventLogCompactor.KeepCount), I18n.T("title.confirm"),
+                    MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) != DialogResult.OK) return;
+
+            int removed = QuestEventLogCompactor.Run(_root);
+            _vars.Bind(_root);   // quest_event_log の表示を更新
+            Status("status.questLogCompacted", removed);
+            MessageBox.Show(this, I18n.T("msg.compactQuestLog.done", removed),
+                I18n.T("title.compactDone"), MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         // データ全体を生 JSON で編集する（上級者向け）。OK なら差し替えて全タブ再バインド。
