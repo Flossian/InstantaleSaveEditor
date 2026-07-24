@@ -34,6 +34,7 @@ namespace InstantaleSaveEditor
         // ---------------- 状態 ----------------
         private int _activeIdx = 0;
         private string _charDir;
+        private bool _skip;   // 設定によるスキップ中（LoadImages 時に確定）。各枠に「読み込みスキップ中」を表示する
 
         public NpcImagePanel()
         {
@@ -41,10 +42,20 @@ namespace InstantaleSaveEditor
             _useBtns = new Button[StandCount];
             for (int i = 0; i < StandCount; i++)
                 _pbStand[i] = MakePb(StandW, StandH);
+            _pbFace.Paint += PaintSkipNotice;
+            foreach (var pb in _pbStand) pb.Paint += PaintSkipNotice;
             Height = 22 + StandH + 34 + 16;
             BackColor = SystemColors.Control;
             Padding = new Padding(8, 6, 8, 6);
             Build();
+        }
+
+        // スキップ中は画像の代わりに状態文言を枠の中央へ描く。
+        private void PaintSkipNotice(object sender, PaintEventArgs e)
+        {
+            if (!_skip || sender is not PictureBox pb || pb.Image != null) return;
+            using var fmt = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
+            e.Graphics.DrawString(I18n.T("npc.skipLoading"), Font, SystemBrushes.GrayText, pb.ClientRectangle, fmt);
         }
 
         private static PictureBox MakePb(int w, int h) => new()
@@ -165,6 +176,7 @@ namespace InstantaleSaveEditor
         }
 
         // アクティブな立ち絵の「使用する」ボタンを強調表示し、外部枠の押下可否も更新する。
+        // スキップ中はアクティブ判定を行っていないため「使用する」を全て無効化する。
         private void UpdateButtonStyles()
         {
             for (int i = 0; i < StandCount; i++)
@@ -173,10 +185,11 @@ namespace InstantaleSaveEditor
                 _useBtns[i].BackColor = i == _activeIdx ? SystemColors.Highlight : SystemColors.Control;
                 _useBtns[i].ForeColor = i == _activeIdx ? SystemColors.HighlightText : SystemColors.ControlText;
                 _useBtns[i].FlatStyle = i == _activeIdx ? FlatStyle.Flat : FlatStyle.Standard;
+                _useBtns[i].Enabled = !_skip;
             }
             // 外部読み込み枠はプレビューに画像が読めている時だけ「使用する」を押せる。
             if (_useBtns[ExternalIdx] != null)
-                _useBtns[ExternalIdx].Enabled = _pbStand[ExternalIdx].Image != null;
+                _useBtns[ExternalIdx].Enabled = !_skip && _pbStand[ExternalIdx].Image != null;
         }
 
         // 指定立ち絵を reduced_color_image.png に反映する。
@@ -233,14 +246,18 @@ namespace InstantaleSaveEditor
 
         // NPC切替時: キャラクターフォルダから4枚の画像を読み込む。
         // 「使用する」の状態は即時反映済みの reduced_color_image.png から判定して復元する。
+        // 設定でスキップ中は読み込まず、各枠に状態文言を表示する（設定変更は次の選択から反映）。
         public void LoadImages(string charDir)
         {
             _charDir = charDir;
-            LoadPb(_pbFace, charDir != null ? Path.Combine(charDir, "face_image.png") : null);
+            _skip = Settings.Current.SkipNpcImageLoading;
+            LoadPb(_pbFace, !_skip && charDir != null ? Path.Combine(charDir, "face_image.png") : null);
             for (int i = 0; i < StandCount; i++)
-                LoadPb(_pbStand[i], StandDisplayPath(i));
-            _activeIdx = DetectActiveIndex();
+                LoadPb(_pbStand[i], _skip ? null : StandDisplayPath(i));
+            _activeIdx = _skip ? 0 : DetectActiveIndex();
             UpdateButtonStyles();
+            _pbFace.Invalidate();
+            foreach (var pb in _pbStand) pb.Invalidate();
         }
 
         // 現在 reduced_color_image.png に反映されている立ち絵のインデックスを判定する。
@@ -289,7 +306,7 @@ namespace InstantaleSaveEditor
             {
                 using var img = Image.FromFile(dlg.FileName);
                 img.Save(dest, ImageFormat.Png);
-                LoadPb(_pbFace, dest);
+                if (!_skip) LoadPb(_pbFace, dest);
             }
             catch (Exception ex)
             {
@@ -313,8 +330,8 @@ namespace InstantaleSaveEditor
             {
                 using (var img = Image.FromFile(dlg.FileName))
                     img.Save(dest, ImageFormat.Png);
-                LoadPb(_pbStand[ExternalIdx], dest);
-                UpdateButtonStyles(); // 取込済みになったので「使用する」を有効化
+                if (!_skip) LoadPb(_pbStand[ExternalIdx], dest);
+                UpdateButtonStyles(); // 取込済みになったので「使用する」を有効化（スキップ中は無効のまま）
 
             }
             catch (Exception ex)
@@ -338,7 +355,7 @@ namespace InstantaleSaveEditor
                 {
                     using var crop = bmp.Clone(dlg.CropRect, bmp.PixelFormat);
                     crop.Save(dest, ImageFormat.Png);
-                    LoadPb(_pbFace, dest);
+                    if (!_skip) LoadPb(_pbFace, dest);
                 }
             }
             catch (Exception ex)

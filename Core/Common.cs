@@ -712,19 +712,26 @@ namespace InstantaleSaveEditor
                     c.CheckedChanged += (_, _) => { if (_obj != null) _obj[fld] = c.Checked; };
                     t.Controls.Add(c, 1, row); _fields.Add(new FieldRef { Name = field, Kind = "bool", Chk = c });
                 }
-                else if (jv.TryGetValue<long>(out long lv))
+                else if (jv.GetValueKind() == JsonValueKind.Number)
                 {
-                    var tb = new TextBox { Text = lv.ToString(), Width = 160 };
-                    var fr = new FieldRef { Name = field, Kind = "int", Tb = tb };
-                    tb.Leave += (_, _) => CommitField(fr);
-                    t.Controls.Add(tb, 1, row); _fields.Add(fr);
-                }
-                else if (jv.TryGetValue<double>(out double dv))
-                {
-                    var tb = new TextBox { Text = dv.ToString(CultureInfo.InvariantCulture), Width = 160 };
-                    var fr = new FieldRef { Name = field, Kind = "dbl", Tb = tb };
-                    tb.Leave += (_, _) => CommitField(fr);
-                    t.Controls.Add(tb, 1, row); _fields.Add(fr);
+                    // メモリ生成値（C# の int リテラル由来。BuildNpc など）は long/double バッキングでは
+                    // ないため TryGetValue<long>/<double> がいずれも false になる。ここで文字列欄に落とすと
+                    // Apply() が数値を文字列として書き戻し（例: age "22"）、ゲームの読込で弾かれて登場しない。
+                    // GetValueKind で数値と判定し、整数として取れれば整数欄・無理なら小数欄にする。
+                    if (TryGetInteger(jv, out long lv))
+                    {
+                        var tb = new TextBox { Text = lv.ToString(), Width = 160 };
+                        var fr = new FieldRef { Name = field, Kind = "int", Tb = tb };
+                        tb.Leave += (_, _) => CommitField(fr);
+                        t.Controls.Add(tb, 1, row); _fields.Add(fr);
+                    }
+                    else
+                    {
+                        var tb = new TextBox { Text = GetNumber(jv).ToString(CultureInfo.InvariantCulture), Width = 160 };
+                        var fr = new FieldRef { Name = field, Kind = "dbl", Tb = tb };
+                        tb.Leave += (_, _) => CommitField(fr);
+                        t.Controls.Add(tb, 1, row); _fields.Add(fr);
+                    }
                 }
                 else
                 {
@@ -1005,6 +1012,25 @@ namespace InstantaleSaveEditor
 
         // スカラ値1件分の編集ウィジェットを inner の値列(r行)に追加する。
         // bool→チェック / 整数・小数→数値欄（確定時に map へ直接反映） / それ以外→stringWidget(現在値)。
+        // 数値の JsonValue を long として取り出す。メモリ生成値（int リテラル由来）は int バッキングで
+        // TryGetValue<long> が false を返すため int も試す。小数（非整数）は false。
+        private static bool TryGetInteger(JsonValue jv, out long value)
+        {
+            if (jv.TryGetValue<long>(out value)) return true;
+            if (jv.TryGetValue<int>(out int i)) { value = i; return true; }
+            value = 0; return false;
+        }
+
+        // 数値の JsonValue を double として取り出す（バッキング型に依らず数値を得る）。
+        private static double GetNumber(JsonValue jv)
+        {
+            if (jv.TryGetValue<double>(out double d)) return d;
+            if (jv.TryGetValue<long>(out long l)) return l;
+            if (jv.TryGetValue<int>(out int i)) return i;
+            if (jv.TryGetValue<decimal>(out decimal m)) return (double)m;
+            return 0;
+        }
+
         private void AddScalarValueCell(TableLayoutPanel inner, int r, JsonObject map, string key, Func<string, Control> stringWidget)
         {
             var jv = map[key] as JsonValue;
@@ -1014,15 +1040,15 @@ namespace InstantaleSaveEditor
                 c.CheckedChanged += (_, _) => { if (_obj != null) map[key] = c.Checked; };
                 inner.Controls.Add(c, 1, r);
             }
-            else if (jv != null && jv.TryGetValue<long>(out long lv))
+            else if (jv != null && jv.GetValueKind() == JsonValueKind.Number && TryGetInteger(jv, out long lv))
             {
                 var tb = new TextBox { Text = lv.ToString(), Width = 160 };
                 tb.Leave += (_, _) => { if (_obj == null) return; if (long.TryParse(tb.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out long n)) { map[key] = n; Ok(tb); } else tb.BackColor = Color.MistyRose; };
                 inner.Controls.Add(tb, 1, r);
             }
-            else if (jv != null && jv.TryGetValue<double>(out double dv))
+            else if (jv != null && jv.GetValueKind() == JsonValueKind.Number)
             {
-                var tb = new TextBox { Text = dv.ToString(CultureInfo.InvariantCulture), Width = 160 };
+                var tb = new TextBox { Text = GetNumber(jv).ToString(CultureInfo.InvariantCulture), Width = 160 };
                 tb.Leave += (_, _) => { if (_obj == null) return; if (double.TryParse(tb.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out double n)) { map[key] = n; Ok(tb); } else tb.BackColor = Color.MistyRose; };
                 inner.Controls.Add(tb, 1, r);
             }
@@ -1488,6 +1514,16 @@ namespace InstantaleSaveEditor
                     }
                 }
             }
+        }
+
+        // "ID: 名前" 形式の項目一覧から ID が一致するインデックスを返す（無ければ -1）。
+        // インポート/新規作成ダイアログの配置先プルダウンの事前選択に使う。
+        public static int FindIndexById(ComboBox cb, string id)
+        {
+            if (string.IsNullOrEmpty(id)) return -1;
+            for (int i = 0; i < cb.Items.Count; i++)
+                if (cb.Items[i] is string s && ExtractId(s) == id) return i;
+            return -1;
         }
 
         // テキストから ID 部分（":"の前）を抽出する。セパレータがなければテキスト全体を返す。

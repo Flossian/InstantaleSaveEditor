@@ -305,8 +305,12 @@ namespace InstantaleSaveEditor
         private readonly Label _lblWarn = new() { ForeColor = Color.Firebrick, AutoSize = false, Dock = DockStyle.Fill };
 
         public string ResultSummary { get; private set; }
+        // 取り込んだ NPC の ID（ワールドタブがツリーで新規ノードを選択するのに使う）。
+        public string ImportedId { get; private set; }
 
-        public NpcImportDialog(JsonObject root, string worldDir, List<string> worlds)
+        // presetAreaId を指定すると配置エリアをその area で初期化する
+        //（ワールドタブのツリー右クリックから、右クリックした所属エリアを引き継ぐ用）。
+        public NpcImportDialog(JsonObject root, string worldDir, List<string> worlds, string presetAreaId = null)
         {
             _root = root; _worldDir = worldDir; _worlds = worlds ?? new List<string>();
             _areas = J.Obj(_root, "areas"); _npcs = J.Obj(_root, "npcs"); _index = J.Obj(_root, "index");
@@ -337,7 +341,8 @@ namespace InstantaleSaveEditor
                     if (kv.Value is JsonObject a && J.Str(a, "size") != "dungeon")
                         _cbArea.Items.Add($"{kv.Key}: {J.Str(a, "name", kv.Key)}");
             _cbArea.SelectedIndexChanged += (_, _) => RefillFacilities();
-            if (_cbArea.Items.Count > 0) _cbArea.SelectedIndex = 0;
+            int presetIdx = AreaComboHelper.FindIndexById(_cbArea, presetAreaId);
+            if (_cbArea.Items.Count > 0) _cbArea.SelectedIndex = presetIdx >= 0 ? presetIdx : 0;
 
             _rbRenameNew.CheckedChanged += (_, _) => UpdateCollisionUi();
             _rbRenameExisting.CheckedChanged += (_, _) => UpdateCollisionUi();
@@ -654,6 +659,7 @@ namespace InstantaleSaveEditor
             }
 
             string role = _chkAdventurer.Checked ? I18n.T("npcimport.roleAdventurer") : I18n.T("npcimport.roleNone");
+            ImportedId = newId;
             ResultSummary = (overwrite ? I18n.T("npcimport.summary.overwritePrefix", newId, incomingName)
                                        : I18n.T("npcimport.summary.newPrefix", newId, incomingName))
                           + I18n.T("npcimport.summary.area", areaId, J.Str(area, "name", areaId))

@@ -26,6 +26,7 @@ namespace InstantaleSaveEditor
         public int FixedWindowWidth { get; set; } = 1040;            // 固定サイズ時の幅
         public int FixedWindowHeight { get; set; } = 760;            // 固定サイズ時の高さ
         public bool RememberWindowPosition { get; set; } = false;    // 起動位置も記憶するか
+        public bool SkipNpcImageLoading { get; set; } = false;       // キャラ画像（顔・立ち絵）の読み込みをスキップする
 
         // RememberLast 用に保存する直近のサイズ/位置（0/未設定なら既定値を使う）。
         public int SavedWindowWidth { get; set; } = 0;
@@ -217,11 +218,12 @@ namespace InstantaleSaveEditor
         private readonly NumericUpDown _fixedW = new() { Minimum = 400, Maximum = 10000, Width = 80 };
         private readonly NumericUpDown _fixedH = new() { Minimum = 300, Maximum = 10000, Width = 80 };
         private readonly CheckBox _rememberPos = new() { AutoSize = true };
+        private readonly CheckBox _skipNpcImages = new() { AutoSize = true };
 
         // Localize() で文言を再適用するため、可視文言を持つ要素を保持する。
         private GroupBox _grpBackup, _grpLanguage, _grpMisc, _grpAssetRoot, _grpInventory, _grpNpc;
         private Label _lblBaseFolder, _lblBaseHint, _lblRetention, _lblLang, _lblSizeMode, _lblFixedSize, _lblTimes;
-        private Label _lblAssetRoot, _lblAssetNote, _lblAssetHint, _lblInvCols, _lblInvRows, _lblNpcHint;
+        private Label _lblAssetRoot, _lblAssetNote, _lblAssetHint, _lblInvCols, _lblInvRows, _lblNpcHint, _lblSkipNpcHint;
         private Button _btnBrowse, _btnBrowseAsset, _btnOk, _btnCancel;
 
         private readonly SettingsSection _section;   // 表示するセクション
@@ -252,7 +254,7 @@ namespace InstantaleSaveEditor
             {
                 case SettingsSection.Backup: root.Controls.Add(_grpBackup); Width = 460; Height = 286; break;
                 case SettingsSection.Language: root.Controls.Add(_grpLanguage); Width = 360; Height = 166; break;
-                default: root.Controls.Add(_grpMisc); root.Controls.Add(_grpAssetRoot); root.Controls.Add(_grpInventory); root.Controls.Add(_grpNpc); Width = 460; Height = 600; break;
+                default: root.Controls.Add(_grpMisc); root.Controls.Add(_grpAssetRoot); root.Controls.Add(_grpInventory); root.Controls.Add(_grpNpc); Width = 460; Height = 650; break;
             }
 
             Controls.Add(root);
@@ -291,6 +293,8 @@ namespace InstantaleSaveEditor
             _lblFixedSize.Text = I18n.T("settings.fixedSize");
             _lblTimes.Text = "×";
             _rememberPos.Text = I18n.T("settings.rememberPos");
+            _skipNpcImages.Text = I18n.T("settings.skipNpcImages");
+            _lblSkipNpcHint.Text = I18n.T("settings.skipNpcImagesHint");
 
             _grpAssetRoot.Text = I18n.T("settings.group.assetRoot");
             _lblAssetRoot.Text = I18n.T("settings.assetRoot");
@@ -377,7 +381,7 @@ namespace InstantaleSaveEditor
         // 「表示」グループ（ウィンドウサイズなど画面表示に関する設定）。
         private GroupBox BuildMiscGroup()
         {
-            _grpMisc = new GroupBox { Width = 410, Height = 140, Margin = new Padding(3) };
+            _grpMisc = new GroupBox { Width = 410, Height = 190, Margin = new Padding(3) };
             var t = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, Dock = DockStyle.Fill, Padding = new Padding(8, 20, 8, 8) };
 
             int r = 0;
@@ -397,6 +401,10 @@ namespace InstantaleSaveEditor
             t.Controls.Add(sizeRow, 1, r); r++;
 
             t.Controls.Add(_rememberPos, 0, r); t.SetColumnSpan(_rememberPos, 2); r++;
+
+            t.Controls.Add(_skipNpcImages, 0, r); t.SetColumnSpan(_skipNpcImages, 2); r++;
+            _lblSkipNpcHint = new Label { AutoSize = true, ForeColor = SystemColors.GrayText };
+            t.Controls.Add(_lblSkipNpcHint, 0, r); t.SetColumnSpan(_lblSkipNpcHint, 2); r++;
 
             _grpMisc.Controls.Add(t);
             return _grpMisc;
@@ -523,6 +531,7 @@ namespace InstantaleSaveEditor
             _fixedW.Value = Math.Clamp(_s.FixedWindowWidth, (int)_fixedW.Minimum, (int)_fixedW.Maximum);
             _fixedH.Value = Math.Clamp(_s.FixedWindowHeight, (int)_fixedH.Minimum, (int)_fixedH.Maximum);
             _rememberPos.Checked = _s.RememberWindowPosition;
+            _skipNpcImages.Checked = _s.SkipNpcImageLoading;
 
             _assetRoot.Text = _s.GameAssetRoot;
             _invCols.Value = Math.Clamp(_s.InventoryGridColumns, (int)_invCols.Minimum, (int)_invCols.Maximum);
@@ -544,6 +553,7 @@ namespace InstantaleSaveEditor
             _s.FixedWindowWidth = (int)_fixedW.Value;
             _s.FixedWindowHeight = (int)_fixedH.Value;
             _s.RememberWindowPosition = _rememberPos.Checked;
+            _s.SkipNpcImageLoading = _skipNpcImages.Checked;
 
             _s.GameAssetRoot = _assetRoot.Text.Trim();
             _s.InventoryGridColumns = (int)_invCols.Value;

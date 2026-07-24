@@ -24,3 +24,6 @@ Thumbs.db
 CLAUDE.md
 Instantale Save Editor.code-workspace
 readme-en-worklog.md
+memory/*
+graphify-out
+.gitignore

@@ -648,7 +648,17 @@ namespace InstantaleSaveEditor
                 },
                 ["life_log"] = new JsonArray(),
                 ["current_log"] = new JsonArray(),
-                ["relationship"] = null,
+                // 実データのプレイ済みNPCと同形（player 向けの初期 relationship を明示）。
+                ["relationship"] = new JsonObject
+                {
+                    ["player"] = new JsonObject
+                    {
+                        ["affinity"] = 0,
+                        ["affinity_text"] = "警戒心がある",
+                        ["relationship"] = new JsonArray { "初対面" },
+                        ["conversation_count"] = 0,
+                    },
+                },
                 ["current_area"] = initArea,
                 ["current_location"] = initFacility,
                 ["initial_location"] = new JsonObject
@@ -664,6 +674,8 @@ namespace InstantaleSaveEditor
                     ["is_dead"] = false,
                     ["difficulty_level"] = difficultyLevel,
                 },
+                ["knowledge"] = new JsonArray(),
+                ["display_position_in_battle"] = null,
             };
         }
 

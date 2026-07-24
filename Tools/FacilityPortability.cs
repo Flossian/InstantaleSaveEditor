@@ -211,8 +211,15 @@ namespace InstantaleSaveEditor
         private readonly TextBox _tbName = new() { Dock = DockStyle.Fill };
 
         public string ResultSummary { get; private set; }
+        // 取り込んだ施設の位置（ワールドタブがツリーで新規ノードを選択するのに使う）。
+        public string ImportedAreaId { get; private set; }
+        public string ImportedNodeId { get; private set; }
+        public string ImportedId { get; private set; }
 
-        public FacilityImportDialog(JsonObject root, string worldDir, List<string> worlds)
+        // presetAreaId / presetConnectId を指定すると配置エリア・接続先施設をその値で初期化する
+        //（ワールドタブのツリー右クリックから、右クリックした area/施設を引き継ぐ用）。
+        public FacilityImportDialog(JsonObject root, string worldDir, List<string> worlds,
+            string presetAreaId = null, string presetConnectId = null)
         {
             _worldDir = worldDir; _worlds = worlds ?? new List<string>();
             _areas = J.Obj(root, "areas");
@@ -243,7 +250,11 @@ namespace InstantaleSaveEditor
                     if (kv.Value is JsonObject a && J.Str(a, "size") != "dungeon")
                         _cbArea.Items.Add($"{kv.Key}: {J.Str(a, "name", kv.Key)}");
             _cbArea.SelectedIndexChanged += (_, _) => RefillConnect();
-            if (_cbArea.Items.Count > 0) _cbArea.SelectedIndex = 0;
+            int presetIdx = AreaComboHelper.FindIndexById(_cbArea, presetAreaId);
+            if (_cbArea.Items.Count > 0) _cbArea.SelectedIndex = presetIdx >= 0 ? presetIdx : 0;
+            // 接続先の事前選択はエリア選択（RefillConnect）後に行う。
+            int connectIdx = AreaComboHelper.FindIndexById(_cbConnect, presetConnectId);
+            if (connectIdx >= 0) _cbConnect.SelectedIndex = connectIdx;
 
             // 一覧の選択ハンドラを先に張る（ワールド選択→一覧再構築で発火するため）。
             _lstPackages.SelectedIndexChanged += (_, _) => OnSelectPackage();
@@ -433,10 +444,11 @@ namespace InstantaleSaveEditor
             // 接続先施設と、それが属するノードの facilities 辞書を特定する（新施設は同じノードへ入れる）。
             string targetFid = AreaComboHelper.ExtractId(_cbConnect.Text);
             JsonObject facilities = null, target = null;
+            string nodeKey = null;
             if (!string.IsNullOrEmpty(targetFid) && J.Obj(area, "nodes") is JsonObject nodes)
                 foreach (var nk in nodes)
                     if (J.Obj(nk.Value as JsonObject, "facilities") is JsonObject f && f[targetFid] is JsonObject t)
-                    { facilities = f; target = t; break; }
+                    { facilities = f; target = t; nodeKey = nk.Key; break; }
             if (facilities == null)
             { MessageBox.Show(this, I18n.T("facimport.errSelectConnect")); return; }
 
@@ -467,6 +479,7 @@ namespace InstantaleSaveEditor
                 { MessageBox.Show(this, I18n.T("facimport.errImageExtract") + "\n" + ex.Message); }
             }
 
+            ImportedAreaId = areaId; ImportedNodeId = nodeKey; ImportedId = newFid;
             ResultSummary = I18n.T("facimport.summary",
                 newFid, name, areaId, J.Str(area, "name", areaId), targetFid, J.Str(target, "name", targetFid));
             DialogResult = DialogResult.OK;

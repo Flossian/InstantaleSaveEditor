@@ -42,8 +42,12 @@ namespace InstantaleSaveEditor
 
         // 作成結果の要約。呼び出し元が成否メッセージとして表示する。
         public string CreatedSummary { get; private set; }
+        // 作成したクエストの ID（ワールドタブが新規ノードの選択に使う）。
+        public string CreatedQuestId { get; private set; }
 
-        public QuestCreator(JsonObject root)
+        // preselectSettlementId を指定すると発注先プルダウンをその拠点で初期化する
+        // （ワールドタブのツリー右クリックから、右クリックした拠点を引き継ぐ用）。
+        public QuestCreator(JsonObject root, string preselectSettlementId = null)
         {
             _root = root;
             Text = I18n.T("quest.title");
@@ -106,7 +110,8 @@ namespace InstantaleSaveEditor
             Controls.Add(scroll);
             Controls.Add(bar);
 
-            if (_cbSettlement.Items.Count > 0) _cbSettlement.SelectedIndex = 0;
+            int pre = preselectSettlementId != null ? _settlements.FindIndex(s => s.id == preselectSettlementId) : -1;
+            if (_cbSettlement.Items.Count > 0) _cbSettlement.SelectedIndex = pre >= 0 ? pre : 0;
             if (_cbAtmo.Items.Count > 0) _cbAtmo.SelectedIndex = 0;
             RefreshBgm();
         }
@@ -389,6 +394,7 @@ namespace InstantaleSaveEditor
 
             SaveAsTemplate(quest, area);   // 作成したクエストをテンプレとしても保存（次回以降の流用元になる）
 
+            CreatedQuestId = questId;
             CreatedSummary = I18n.T("quest.createdSummary", questId, _tbTitle.Text, areaId, _tbDungeon.Text.Trim(), sid,
                                     _enemies.Count, _events.Count, _boss != null ? I18n.T("quest.bossYes") : I18n.T("quest.bossNo"));
             DialogResult = DialogResult.OK;
@@ -448,19 +454,7 @@ namespace InstantaleSaveEditor
         private static void RenumberDungeon(JsonObject area, JsonObject index, JsonObject allAreas)
         {
             // node / facility は全 area 横断の通し番号。既存 ID を集めて衝突を避ける。
-            var nodeIds = new HashSet<string>();
-            var facIds = new HashSet<string>();
-            foreach (var aKv in allAreas)
-            {
-                if (aKv.Value is not JsonObject a) continue;
-                foreach (var nKv in J.Obj(a, "nodes") ?? new JsonObject())
-                {
-                    nodeIds.Add(nKv.Key);
-                    if (nKv.Value is JsonObject nObj)
-                        foreach (var fKv in J.Obj(nObj, "facilities") ?? new JsonObject())
-                            facIds.Add(fKv.Key);
-                }
-            }
+            var (nodeIds, facIds) = WorldRecordFactory.CollectNodeFacilityIds(allAreas);
 
             var facMap = new Dictionary<string, string>();
             var newNodes = new JsonObject();
@@ -504,8 +498,9 @@ namespace InstantaleSaveEditor
                 if (arr[i]?.ToString() is string s && map.TryGetValue(s, out var nv)) arr[i] = nv;
         }
         // index カウンタから新 ID を採番する。taken（既存 ID 判定）が指定された場合、
-        // 既に使われている ID は飛ばすので、カウンタがデータとずれていても上書きしない。
-        private static string NextId(JsonObject index, string key, Func<string, bool> taken = null)
+        // 既に使われている ID は飛ばすので、カウンタがデータとずれていても上書きしない
+        //（ワールドタブの新規作成＝WorldRecordFactory からも共用）。
+        internal static string NextId(JsonObject index, string key, Func<string, bool> taken = null)
         {
             int cur = (int)J.Int(index, key, 0);
             while (taken != null && taken(cur.ToString())) cur++;

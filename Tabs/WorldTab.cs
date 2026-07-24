@@ -26,6 +26,14 @@ namespace InstantaleSaveEditor
         // エクスポート方式（zip / プリセット）を選ばせるメニュー。ボタン押下でボタン直下に表示する。
         private readonly ContextMenuStrip _exportMenu = new();
         private ToolStripMenuItem _miExportZip, _miExportPreset;
+        // ツリーの右クリックメニュー（新規作成・インポート／エクスポート・JSON編集・複製・削除）。
+        // レコード単位の操作はここに集約する（ボタン列・ツールメニューと同じ実装を共用）。
+        // 項目の表示は Opening で選択ノードに合わせる。
+        private readonly ContextMenuStrip _treeMenu = new();
+        private readonly ToolStripMenuItem _miNew = new(), _miNewFacility = new(), _miImportNpc = new(), _miImportFac = new();
+        private readonly ToolStripMenuItem _miCtxExportZip = new(), _miCtxExportPreset = new(), _miCtxExportFac = new(), _miCtxJson = new();
+        private readonly ToolStripMenuItem _miCtxDup = new(), _miCtxDel = new();
+        private readonly ToolStripSeparator _ctxSep = new(), _ctxSep2 = new();
 
         private string _curKind;            // obj / sec / item / facility（node 階層はツリーに出さない）
         private JsonObject _curContainer;   // 選択レコードを保持する辞書（複製/削除の対象）
@@ -76,6 +84,33 @@ namespace InstantaleSaveEditor
             Controls.Add(split);
             _tree.AfterSelect += (_, e) => OnSelect(e.Node);
 
+            // ツリーの右クリックメニュー。TreeView は右クリックで選択が動かないため、
+            // Opening でカーソル位置のノードを選択してから項目を構成する。
+            _miNew.Click += (_, _) => CreateNew();
+            _miNewFacility.Click += (_, _) => CreateFacility();
+            _miImportNpc.Click += (_, _) => ImportNpcFromTree();
+            _miImportFac.Click += (_, _) => ImportFacilityFromTree();
+            _miCtxExportZip.Click += (_, _) => ExportNpc();
+            _miCtxExportPreset.Click += (_, _) => ExportNpcPreset();
+            _miCtxExportFac.Click += (_, _) => ExportFacility();
+            _miCtxJson.Click += (_, _) => EditJson();
+            _miCtxDup.Click += (_, _) => Duplicate();
+            _miCtxDel.Click += (_, _) => Delete();
+            _treeMenu.Items.AddRange(new ToolStripItem[]
+            {
+                _miNew, _miNewFacility, _miImportNpc, _miImportFac, _ctxSep,
+                _miCtxExportZip, _miCtxExportPreset, _miCtxExportFac, _miCtxJson, _ctxSep2,
+                _miCtxDup, _miCtxDel,
+            });
+            _tree.ContextMenuStrip = _treeMenu;
+            _treeMenu.Opening += (_, e) =>
+            {
+                // HitTest はラベル上に限らず行全体（インデント・ラベル右の余白）でもノードを返すため、
+                // 行のどこを右クリックしてもそのノードのメニューが出る。
+                if (_tree.HitTest(_tree.PointToClient(Cursor.Position)).Node is TreeNode n) _tree.SelectedNode = n;
+                e.Cancel = _root == null || !ConfigureTreeMenu();
+            };
+
             Localize();
             // 言語切替で操作ボタンとツリーの見出し（死者/エリアなし等）を再構築する。Dispose で解除。
             I18n.LanguageChanged += OnLanguageChanged;
@@ -92,6 +127,16 @@ namespace InstantaleSaveEditor
             _miExportPreset.Text = I18n.T("btn.exportNpcPreset");
             _btnRefresh.Text = I18n.T("btn.refreshTree");
             _btnJson.Text = I18n.T("btn.editJsonDirect");
+            // _miNew の文言は選択ノードに応じて ConfigureTreeMenu が都度設定する。
+            _miNewFacility.Text = I18n.T("menu.tree.newFacility");
+            _miImportNpc.Text = I18n.T("menu.tools.importNpc");         // ツールメニューと同じ文言・同じ機能
+            _miImportFac.Text = I18n.T("menu.tools.importFacility");
+            _miCtxExportZip.Text = I18n.T("btn.exportNpcZip");
+            _miCtxExportPreset.Text = I18n.T("btn.exportNpcPreset");
+            _miCtxExportFac.Text = I18n.T("menu.tree.exportFacility");
+            _miCtxJson.Text = I18n.T("btn.editJsonDirect");
+            _miCtxDup.Text = I18n.T("btn.duplicate");
+            _miCtxDel.Text = I18n.T("btn.delete");
         }
 
         // 言語切替時にボタン文言を更新し、ツリー見出しの翻訳を反映するため作り直す。
@@ -99,7 +144,7 @@ namespace InstantaleSaveEditor
 
         protected override void Dispose(bool disposing)
         {
-            if (disposing) { I18n.LanguageChanged -= OnLanguageChanged; _exportMenu.Dispose(); }
+            if (disposing) { I18n.LanguageChanged -= OnLanguageChanged; _exportMenu.Dispose(); _treeMenu.Dispose(); }
             base.Dispose(disposing);
         }
 
@@ -182,7 +227,7 @@ namespace InstantaleSaveEditor
                     if (dungeon.Count > 0)
                     {
                         var dunNode = new TreeNode($"dungeon ({dungeon.Count})") { Tag = new[] { "sec", "areas" } };
-                        AddGroups(dunNode, dungeon,
+                        AddGroups(dunNode, "areas", dungeon,
                             k => dungeonTown.TryGetValue(k, out var t) ? t : null,
                             k => BuildAreaItem(so, k));
                         _tree.Nodes.Add(dunNode);
@@ -193,12 +238,12 @@ namespace InstantaleSaveEditor
                 var node = new TreeNode($"{sec} ({so.Count})") { Tag = new[] { "sec", sec } };
                 var itemKeys = so.Select(p => p.Key).OrderBy(k => k.Length).ThenBy(k => k).ToList();
                 if (sec == "npcs")
-                    AddGroups(node, itemKeys,
+                    AddGroups(node, sec, itemKeys,
                         // 死亡 NPC は area で分けず「死者」グループへ一括りにする。
                         k => so[k] is JsonObject npc && J.NpcIsDead(npc) ? DeadKey : IdStr(so[k]?["current_area"]),
                         k => SectionItemNode(sec, so, k));
                 else if (sec == "quests")
-                    AddGroups(node, itemKeys,
+                    AddGroups(node, sec, itemKeys,
                         k => IdStr(so[k]?["neighboring_settlement_id"]),
                         k => SectionItemNode(sec, so, k));
                 else  // story_quests など area で区分けしないセクションは従来通りフラット
@@ -219,8 +264,10 @@ namespace InstantaleSaveEditor
         }
 
         // 項目を area（拠点）ごとの見出しノードに振り分けて parent 配下に積む。
-        // groupKeyOf: 項目キー→所属 area id（空/null なら「（エリアなし）」へ）。見出しは選択不可（Tag=null）。
-        private void AddGroups(TreeNode parent, List<string> itemKeys, Func<string, string> groupKeyOf, Func<string, TreeNode> itemNodeOf)
+        // groupKeyOf: 項目キー→所属 area id（空/null なら「（エリアなし）」へ）。
+        // 見出しの Tag は {grp, セクション, area id}（選択時はフォームをクリア。右クリックの
+        // 新規作成でセクションと所属エリアの初期値に使う）。
+        private void AddGroups(TreeNode parent, string sec, List<string> itemKeys, Func<string, string> groupKeyOf, Func<string, TreeNode> itemNodeOf)
         {
             var byArea = new Dictionary<string, List<string>>();
             foreach (var k in itemKeys)
@@ -231,7 +278,7 @@ namespace InstantaleSaveEditor
             }
             foreach (var areaId in OrderGroups(byArea.Keys))
             {
-                var grp = new TreeNode(GroupLabel(areaId, byArea[areaId].Count));   // Tag=null → 見出し（選択時はフォームをクリア）
+                var grp = new TreeNode(GroupLabel(areaId, byArea[areaId].Count)) { Tag = new[] { "grp", sec, areaId } };
                 foreach (var k in byArea[areaId]) grp.Nodes.Add(itemNodeOf(k));
                 parent.Nodes.Add(grp);
             }
@@ -574,6 +621,222 @@ namespace InstantaleSaveEditor
             }
 
             areaCb.SelectedIndexChanged += (_, _) => Refill();
+        }
+
+        // ---------------- ツリー右クリック: 新規作成 ----------------
+
+        // 右クリックメニューの項目を選択ノードに合わせて構成する。表示する項目が無ければ false（メニューを出さない）。
+        // 構成: [新規作成/インポート] [エクスポート/JSON編集] [複製/削除] の3グループ。
+        private bool ConfigureTreeMenu()
+        {
+            var tag = _tree.SelectedNode?.Tag as string[];
+            string kind = NewKindOf(tag);
+            _miNew.Visible = kind != null;
+            if (kind != null) _miNew.Text = I18n.T("menu.tree.new." + kind);
+            // 施設の新規作成は、施設ノード（そこへ接続）と area 項目（入口へ接続）で出す。
+            bool facScope = tag != null && (tag[0] == "facility" || (tag[0] == "item" && tag[1] == "areas"));
+            _miNewFacility.Visible = facScope;
+            _miImportNpc.Visible = kind == "npcs";
+            _miImportFac.Visible = facScope || (tag != null && tag[0] == "sec" && tag[1] == "areas");
+
+            // エクスポートはボタン列と同じ対象（NPC 項目 / 施設ノード）。壊れたレコードは対象外。
+            bool validRec = _curContainer?[_curKey] is JsonObject;
+            bool npcItem = tag != null && tag[0] == "item" && tag[1] == "npcs" && validRec;
+            _miCtxExportZip.Visible = _miCtxExportPreset.Visible = npcItem;
+            _miCtxExportFac.Visible = tag != null && tag[0] == "facility" && validRec;
+            _miCtxJson.Visible = _btnJson.Enabled;   // world_data / index の右クリックでも JSON 編集だけは出す
+
+            bool rec = tag != null && (tag[0] == "item" || tag[0] == "facility");
+            _miCtxDup.Visible = _miCtxDel.Visible = rec;
+            _miCtxDup.Enabled = _btnDup.Enabled;   // 選択は Opening 内で済んでいるためボタンの状態をそのまま使う
+            _miCtxDel.Enabled = _btnDel.Enabled;
+
+            bool g1 = _miNew.Visible || _miNewFacility.Visible || _miImportNpc.Visible || _miImportFac.Visible;
+            bool g2 = _miCtxExportZip.Visible || _miCtxExportPreset.Visible || _miCtxExportFac.Visible || _miCtxJson.Visible;
+            _ctxSep.Visible = g1 && (g2 || rec);
+            _ctxSep2.Visible = g2 && rec;
+            return g1 || g2 || rec;
+        }
+
+        // 選択ノードから「新規作成」対象のセクションを決める（対象外なら null）。
+        // story_quests は骨格を機械的に作れない（ストーリー進行に紐づく）ため対象にしない。
+        private static string NewKindOf(string[] tag)
+        {
+            if (tag == null || tag.Length < 2) return null;
+            if (tag[0] is not ("sec" or "item" or "grp")) return null;
+            return tag[1] is "areas" or "npcs" or "quests" ? tag[1] : null;
+        }
+
+        // 「新規作成」の振り分け。右クリック位置（グループ見出し・項目）から所属エリアを引き継ぐ。
+        private void CreateNew()
+        {
+            var tag = _tree.SelectedNode?.Tag as string[];
+            string kind = NewKindOf(tag);
+            switch (kind)
+            {
+                case "areas": CreateArea(); break;
+                case "npcs": CreateNpc(PresetAreaOf(tag, kind)); break;
+                case "quests": CreateQuestFromTree(PresetAreaOf(tag, kind)); break;
+            }
+        }
+
+        // 右クリック位置（グループ見出し・項目）から所属エリア id を推測する（不明なら null）。
+        // 新規作成・インポートの配置先の初期値に使う。
+        private string PresetAreaOf(string[] tag, string kind)
+        {
+            if (tag == null) return null;
+            if (tag[0] == "grp") return tag[2] != DeadKey && tag[2].Length > 0 ? tag[2] : null;
+            if (tag[0] == "item" && _curContainer?[_curKey] is JsonObject cur)
+                return kind == "npcs" ? IdStr(cur["current_area"])
+                     : kind == "quests" ? IdStr(cur["neighboring_settlement_id"]) : null;
+            return null;
+        }
+
+        // NPC インポート（ツール→NPCをインポートと同じ NpcImportDialog）。右クリック位置の所属エリアを配置先の初期値にする。
+        private void ImportNpcFromTree()
+        {
+            if (_root?["npcs"] is not JsonObject || _root?["areas"] is not JsonObject || _root?["index"] is not JsonObject)
+            { MessageBox.Show(I18n.T("msg.noNpcsAreasIndex")); return; }
+            var worlds = NpcPortability.ListWorlds();
+            if (worlds.Count == 0) { MessageBox.Show(I18n.T("npcimport.empty", NpcPortability.BaseDir())); return; }
+            if (!_form.Apply()) return;
+            using var dlg = new NpcImportDialog(_root, _worldDir, worlds,
+                PresetAreaOf(_tree.SelectedNode?.Tag as string[], "npcs"));
+            if (dlg.ShowDialog(FindForm()) != DialogResult.OK) return;
+            Populate();
+            SelectByTag("item", "npcs", dlg.ImportedId);
+            MessageBox.Show(dlg.ResultSummary, I18n.T("title.importDone"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        // 施設インポート（ツール→施設をインポートと同じ FacilityImportDialog）。
+        // 施設ノードで呼ばれたらその施設を接続先の初期値に、area 項目ならそのエリアを配置先の初期値にする。
+        private void ImportFacilityFromTree()
+        {
+            if (_root?["areas"] is not JsonObject) { MessageBox.Show(I18n.T("facimport.errNoContainers")); return; }
+            var worlds = FacilityPortability.ListWorlds();
+            if (worlds.Count == 0) { MessageBox.Show(I18n.T("facimport.empty", FacilityPortability.BaseDir())); return; }
+            var tag = _tree.SelectedNode?.Tag as string[];
+            string presetArea = null, presetConnect = null;
+            if (tag != null && tag[0] == "facility") { presetArea = tag[1]; presetConnect = tag[3]; }
+            else if (tag != null && tag[0] == "item" && tag[1] == "areas") presetArea = tag[2];
+            if (!_form.Apply()) return;
+            using var dlg = new FacilityImportDialog(_root, _worldDir, worlds, presetArea, presetConnect);
+            if (dlg.ShowDialog(FindForm()) != DialogResult.OK) return;
+            Populate();
+            SelectByTag("facility", dlg.ImportedAreaId, dlg.ImportedNodeId, dlg.ImportedId);
+            MessageBox.Show(dlg.ResultSummary, I18n.T("title.importDone"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        // 新しいエリア（拠点/ダンジョン）を作成して areas へ挿入する。
+        private void CreateArea()
+        {
+            var areas = _root?["areas"]?.AsObject();
+            var index = _root?["index"]?.AsObject();
+            if (areas == null || index == null) { MessageBox.Show(I18n.T("msg.noAreasIndex")); return; }
+            if (!_form.Apply()) return;
+            using var d = new AreaCreateDialog();
+            if (d.ShowDialog(FindForm()) != DialogResult.OK) return;
+            var (id, area) = WorldRecordFactory.BuildArea(areas, index, d.AreaName, d.AreaSize);
+            areas[id] = area;
+            Populate();
+            SelectByTag("item", "areas", id);
+        }
+
+        // 新しい NPC を作成して npcs へ挿入する（冒険者登録を選んだ場合は配置エリアの adventurer_npcs にも追加）。
+        private void CreateNpc(string presetArea)
+        {
+            var npcs = _root?["npcs"]?.AsObject();
+            var areas = _root?["areas"]?.AsObject();
+            var index = _root?["index"]?.AsObject();
+            if (npcs == null || areas == null || index == null) { MessageBox.Show(I18n.T("msg.noNpcsAreasIndex")); return; }
+            if (!_form.Apply()) return;
+            using var d = new NpcCreateDialog(areas, presetArea);
+            if (d.ShowDialog(FindForm()) != DialogResult.OK) return;
+            string id = NpcPortability.NextNpcId(index, npcs);
+            npcs[id] = WorldRecordFactory.BuildNpc(id, d.NpcName, d.Category, d.Job, d.AreaId, d.FacilityId);
+            if (d.AsAdventurer && areas[d.AreaId] is JsonObject area)
+            {
+                var arr = J.Arr(area, "adventurer_npcs");
+                if (arr == null) { arr = new JsonArray(); area["adventurer_npcs"] = arr; }
+                if (!arr.Any(x => x?.ToString() == id)) arr.Add(id);
+            }
+            Populate();
+            SelectByTag("item", "npcs", id);
+        }
+
+        // クエスト作成ダイアログ（ツール→クエスト作成と同じ QuestCreator）を開いて挿入する。
+        private void CreateQuestFromTree(string presetSettlement)
+        {
+            if (J.Obj(_root, "areas") == null || J.Obj(_root, "quests") == null)
+            { MessageBox.Show(I18n.T("msg.noAreasQuests")); return; }
+            if (!_form.Apply()) return;
+            using var dlg = new QuestCreator(_root, presetSettlement);
+            if (dlg.ShowDialog(FindForm()) != DialogResult.OK) return;
+            Populate();
+            SelectByTag("item", "quests", dlg.CreatedQuestId);
+            MessageBox.Show(dlg.CreatedSummary, I18n.T("title.created"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        // 新しい施設を作成して挿入する。施設ノードで呼ばれたらその施設と、area 項目で呼ばれたら
+        // 入口ノードの入口施設と双方向に接続する（接続相手が無ければ未接続のまま挿入）。
+        private void CreateFacility()
+        {
+            var tag = _tree.SelectedNode?.Tag as string[];
+            var areas = _root?["areas"]?.AsObject();
+            var index = _root?["index"]?.AsObject();
+            if (tag == null || areas == null || index == null) { MessageBox.Show(I18n.T("msg.noAreasIndex")); return; }
+
+            string areaId, nodeId, baseFid;
+            if (tag[0] == "facility") { areaId = tag[1]; nodeId = tag[2]; baseFid = tag[3]; }
+            else if (tag[0] == "item" && tag[1] == "areas")
+            {
+                areaId = tag[2];
+                var ao = areas[areaId] as JsonObject;
+                var nodes = J.Obj(ao, "nodes");
+                if (nodes == null || nodes.Count == 0) { MessageBox.Show(I18n.T("msg.noNodes")); return; }
+                nodeId = J.Str(ao, "entrance_node");
+                if (nodes[nodeId] is not JsonObject) nodeId = nodes.First().Key;
+                baseFid = J.Str(nodes[nodeId] as JsonObject, "entrance_facility");
+            }
+            else return;
+
+            if (J.Obj(areas[areaId] as JsonObject, "nodes")?[nodeId] is not JsonObject node) return;
+            var facs = J.Obj(node, "facilities");
+            if (facs == null) { facs = new JsonObject(); node["facilities"] = facs; }
+
+            if (!_form.Apply()) return;
+            using var d = new FacilityCreateDialog();
+            if (d.ShowDialog(FindForm()) != DialogResult.OK) return;
+            var (_, facIds) = WorldRecordFactory.CollectNodeFacilityIds(areas);
+            string fid = QuestCreator.NextId(index, "facility", facIds.Contains);
+            var fac = WorldRecordFactory.BuildFacility(fid, d.FacilityName, d.FacilityType);
+            if (!string.IsNullOrEmpty(baseFid) && facs[baseFid] is JsonObject baseFac)
+            {
+                AddConnection(fac, baseFid);
+                AddConnection(baseFac, fid);
+            }
+            facs[fid] = fac;
+            Populate();
+            SelectByTag("facility", areaId, nodeId, fid);
+        }
+
+        // Tag が一致するノードをツリー全体から探して選択する（新規作成した項目へフォーカスを移す用）。
+        private void SelectByTag(params string[] tag)
+        {
+            TreeNode Find(TreeNodeCollection nodes)
+            {
+                foreach (TreeNode n in nodes)
+                {
+                    if (n.Tag is string[] t && t.SequenceEqual(tag)) return n;
+                    if (Find(n.Nodes) is TreeNode c) return c;
+                }
+                return null;
+            }
+            if (Find(_tree.Nodes) is TreeNode found)
+            {
+                _tree.SelectedNode = found;
+                found.EnsureVisible();
+            }
         }
 
         // 辞書内の数値キーの最大+1 を新IDとして返す。
