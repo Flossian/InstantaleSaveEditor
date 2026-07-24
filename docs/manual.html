@@ -111,7 +111,7 @@
 <div class="wrap">
 
 <header class="title">
-  <h1>Instantale Save Editor 説明書 <span class="badge">v10</span></h1>
+  <h1>Instantale Save Editor 説明書 <span class="badge">v10.1</span></h1>
   <div class="sub">ゲーム <strong>Instantale</strong> のセーブデータ／ワールドデータ編集ツール（非公式）</div>
 </header>
 
@@ -140,9 +140,11 @@
     <li><a href="#worldgen">ワールド生成 <span class="badge">v10</span></a></li>
     <li><a href="#quest">クエスト作成</a></li>
     <li><a href="#npcio">NPC のエクスポート／インポート <span class="badge">v7</span></a></li>
+    <li><a href="#facilityio">施設のエクスポート／インポート <span class="badge">v10.1</span></a></li>
     <li><a href="#player2npc">プレイヤーを NPC 化 <span class="badge">v7</span></a></li>
     <li><a href="#player2preset">プレイヤーをプリセット化 <span class="badge">v10</span></a></li>
     <li><a href="#cleanup">ワールドデータのクリーンアップ <span class="badge">v9</span></a></li>
+    <li><a href="#questlog">quest_event_log の圧縮 <span class="badge">v10.1</span></a></li>
     <li><a href="#settings">設定（言語・バックアップ・ウィンドウ） <span class="badge">v7</span></a></li>
     <li><a href="#files">データの保存場所</a></li>
     <li><a href="#faq">困ったときは</a></li>
@@ -185,9 +187,11 @@
   <tr><td>クエスト作成（テンプレから）...</td><td>テンプレートと部品からダンジョンとクエストを生成します。<a href="#quest">詳細</a>。</td></tr>
   <tr><td>クエストをテンプレ化...</td><td>既存の world_data / savedata からクエストのテンプレと部品（敵・ボス・イベント）を <code>templates/</code> フォルダへ書き出します。<a href="#quest">詳細</a>。</td></tr>
   <tr><td>NPCをインポート... <span class="badge">v7</span></td><td>NPC パッケージ（zip）を読み込み、配置先を指定して現在のワールドへ取り込みます。<a href="#npcio">詳細</a>。</td></tr>
+  <tr><td>施設をインポート... <span class="badge">v10.1</span></td><td>施設パッケージ（zip）を読み込み、配置エリア・接続先を指定して現在のワールドへ取り込みます。<a href="#facilityio">詳細</a>。</td></tr>
   <tr><td>プレイヤーをNPCに... <span class="badge">v7</span></td><td>プレイヤーを NPC に変換して <code>npcs</code> へ追加、または zip として書き出します。<a href="#player2npc">詳細</a>。</td></tr>
   <tr><td>プレイヤーをプリセット化... <span class="badge">v10</span></td><td>プレイヤーをゲームのキャラ作成画面で選べるキャラクタープリセットとして出力します。<a href="#player2preset">詳細</a>。</td></tr>
   <tr><td>ワールドデータをクリーンアップ... <span class="badge">v9</span></td><td>ストーリークエストの進行を未完了に戻し、全 NPC のログ消去・関係を初期化します。<a href="#cleanup">詳細</a>。</td></tr>
+  <tr><td>quest_event_logを圧縮... <span class="badge">v10.1</span></td><td>肥大化した <code>quest_event_log</code> を最新数ターン分だけ残して切り詰めます。<a href="#questlog">詳細</a>。</td></tr>
   <tr><td>全体をJSONで編集...</td><td>データ全体を JSON テキストとして直接編集します（上級者向け）。</td></tr>
 </table>
 <h3>設定 <span class="badge">v7</span></h3>
@@ -234,6 +238,16 @@
   <li>NPC の<strong>好感度（relationship）</strong>は対象ごとに 1 行の表で編集します（<a href="#relationship">詳細</a>）。画像生成プロンプトは <code>look</code> 欄に表示されます。</li>
   <li>死亡 NPC（<code>config.is_dead</code> が <code>true</code>）は一覧で名前の横に<strong>「（死亡）」</strong>と表示されます。</li>
 </ul>
+<div class="note">
+  <strong>ツリーの右クリックメニュー</strong> <span class="badge">v10.1</span><br>
+  ツリー上で右クリックすると、その項目に対する操作がまとまって表示されます:
+  <strong>新規作成</strong>（エリア・NPC・施設・クエスト）／<strong>インポート</strong>（NPC・施設）／<strong>エクスポート</strong>（NPC・施設）／<strong>JSON直接編集</strong>／<strong>複製</strong>／<strong>削除</strong>。
+  右クリックした位置から、新規作成やインポートの<strong>配置先（所属エリア・接続先施設）が初期値として引き継がれ</strong>ます。
+  ボタン列やツールメニューにある同じ機能とまったく同じ動作です。
+</div>
+<div class="warn">
+  <strong>エリア・施設の削除</strong>では、そのツリー上の<strong>下位ノード（配下の施設など）もまとめて削除</strong>されます。<span class="badge">v10.1</span>
+</div>
 <div class="note">
   <strong>未生成 NPC について</strong> <span class="badge">v9.1</span><br>
   立ち絵画像をまだ取得していない（＝ゲーム内で未生成の可能性がある）NPC も、ほかの NPC と同じく<strong>そのまま編集・複製・削除</strong>できます。
@@ -415,7 +429,10 @@
   <strong>ツール → クエスト作成（テンプレから）</strong> から開く合成ビルダーです。文章類（タイトル・依頼主名・依頼概要・発言、ダンジョン名・描写・場所）は<strong>自由入力</strong>でき、各欄の<strong>「テンプレ」</strong>で保存済みテンプレ（<code>templates/quests/</code>）の値を流用、<strong>「テンプレ一括読込」</strong>で各欄へまとめて流し込めます。
 </p>
 <p>
-  敵（<strong>enemies</strong>）・<strong>ボス</strong>・戦闘<strong>イベント</strong>は部品ライブラリ（<code>templates/{enemies,bosses,events}</code>）から選んで追加し、各要素は<strong>「JSON編集」</strong>で微調整します。<strong>「作成」</strong>でダンジョン（area）が生成され、クエストとして選んだ<strong>発注拠点</strong>に紐付きます。
+  敵（<strong>enemies</strong>）・<strong>ボス</strong>・戦闘<strong>イベント</strong>は部品ライブラリ（<code>templates/{enemies,bosses,events}</code>）から選んで追加し、各要素は<strong>「JSON編集」</strong>や専用の編集ダイアログで微調整します。<strong>「作成」</strong>でダンジョン（area）が生成され、クエストとして選んだ<strong>発注拠点</strong>に紐付きます。</p>
+<p>
+  敵・ボスは<strong>その場で新規作成</strong>することもできます <span class="badge">v10.1</span>。名前・能力・スキル・ドロップなどを構造化フォームで入力して追加でき、作成したものは<strong>部品ライブラリにも保存</strong>されるので次回以降も選べます。
+  同じ編集はワールドタブで <code>quests</code> / <code>story_quests</code> を選んだときの enemies / boss / events パネルからも行えます。
 </p>
 <div class="note">
   部品・文章テンプレは<strong>ツール → クエストをテンプレ化</strong>で既存のワールド／セーブから <code>templates/</code> へ書き出せます（出力先はダイアログに表示）。
@@ -453,7 +470,31 @@
   画像は <code>characters/{名前}/</code> へ展開されます。
 </div>
 
-<h2 id="player2npc">16. プレイヤーを NPC 化 <span class="badge">v7</span></h2>
+<h2 id="facilityio">16. 施設のエクスポート／インポート <span class="badge">v10.1</span></h2>
+<p>
+  施設（facility）を <strong>facility の JSON＋背景画像をまとめた zip パッケージ</strong>として書き出し、別のワールドへ取り込めます。NPC の移植と同じ考え方の、施設版です。
+</p>
+<h3>エクスポート</h3>
+<p>
+  ワールドタブで <strong>facility（拠点）を選び</strong>、<strong>「エクスポート」</strong>を押します。あるいはツリーの右クリックメニューからも実行できます。施設の JSON と背景画像が zip にまとまり、exe と同じ場所の <code>facility\{ワールド名}\</code> へ保存されます。
+</p>
+<h3>インポート</h3>
+<p>
+  <strong>ツール → 施設をインポート</strong>（またはツリーの右クリック → 施設をインポート）で配置指定ダイアログが開きます。<code>facility\</code> 配下に書き出し済みの施設を一覧から選びます。
+</p>
+<table>
+  <tr><th>項目</th><th>説明</th></tr>
+  <tr><td>ワールド</td><td>プルダウンで <code>facility\</code> 配下の<strong>ワールド</strong>を選びます。下の一覧がそのワールドの施設に切り替わります。</td></tr>
+  <tr><td>施設一覧</td><td>選んだワールドの施設が並びます（出典・種別を表示）。</td></tr>
+  <tr><td>配置エリア</td><td>取り込む先の area を選びます。</td></tr>
+  <tr><td>接続先（施設）</td><td>取り込んだ施設をどの既存施設とつなぐかを選びます。</td></tr>
+  <tr><td>施設名</td><td>取り込む施設の名前を指定します。</td></tr>
+</table>
+<div class="note">
+  取り込み時、施設の <code>id</code> は自動採番されます。エクスポートでは接続（<code>connections</code>）は保持されず、<strong>インポート時に選んだ接続先施設と双方向に張り直され</strong>ます（<code>owner</code> も初期化）。背景画像は選んだワールドのキャラ／背景フォルダへ展開されます（ワールドフォルダが特定できない場合、背景画像はコピーされません）。
+</div>
+
+<h2 id="player2npc">17. プレイヤーを NPC 化 <span class="badge">v7</span></h2>
 <p>
   <strong>ツール → プレイヤーをNPCに</strong> から、プレイヤー（<code>player_data</code>）を NPC オブジェクトへ変換します。
   名前・年齢・性格・スキル・インベントリ・画像などはそのまま流用され、能力値は<strong>整数へ自動換算</strong>されます。
@@ -468,7 +509,7 @@
   生成後は<strong>ゲームで動作を確認</strong>してください。
 </div>
 
-<h2 id="player2preset">17. プレイヤーをプリセット化 <span class="badge">v10</span></h2>
+<h2 id="player2preset">18. プレイヤーをプリセット化 <span class="badge">v10</span></h2>
 <p>
   <strong>ツール → プレイヤーをプリセット化</strong> から、プレイヤー（<code>player_data</code>）を
   <strong>ゲームのキャラ作成画面で選べるキャラクタープリセット</strong>に変換して書き出します。
@@ -490,7 +531,7 @@
   出力後は<strong>ゲームのキャラ作成画面で動作を確認</strong>してください。
 </div>
 
-<h2 id="cleanup">18. ワールドデータのクリーンアップ <span class="badge">v9</span></h2>
+<h2 id="cleanup">19. ワールドデータのクリーンアップ <span class="badge">v9</span></h2>
 <p>
   <strong>ツール → ワールドデータをクリーンアップ</strong> から、ワールドを「遊び始める前」に近い状態へ一括で戻します。
   自分で作ったワールドを配布用に整えるときなどに使います。
@@ -505,7 +546,20 @@
   この操作は<strong>元に戻せません</strong>（保存するまではファイルには反映されません）。実行前に必ずバックアップを取ってください。
 </div>
 
-<h2 id="settings">19. 設定（言語・バックアップ・ウィンドウ・ゲーム導入先） <span class="badge">v7</span></h2>
+<h2 id="questlog">20. quest_event_log の圧縮 <span class="badge">v10.1</span></h2>
+<p>
+  <strong>ツール → quest_event_logを圧縮</strong> から、<code>game_variables</code> の <code>quest_event_log</code> を切り詰めます。
+  これはゲーム側の<strong>既知のバグ</strong>で、このログが際限なく肥大化しセーブが重くなる問題への<strong>緩和策</strong>です（ゲーム本体の修正までの一時対応）。
+</p>
+<ul>
+  <li><code>quest_event_log</code> は「<strong>〈プレイヤーの入力〉</strong>」で始まる区切りが連なった 1 本の文字列です。区切り単位（プレイヤーの入力から次の入力の直前まで）を 1 ターンと数え、<strong>最新の数ターンだけを残して</strong>それより古い内容を削除します。</li>
+  <li>実行前に確認ダイアログが表示され、処理後は<strong>削除したターン数</strong>が表示されます。</li>
+</ul>
+<div class="warn">
+  この操作は<strong>元に戻せません</strong>（保存するまではファイルには反映されません）。実行前に必ずバックアップを取ってください。
+</div>
+
+<h2 id="settings">21. 設定（言語・バックアップ・ウィンドウ・ゲーム導入先） <span class="badge">v7</span></h2>
 <p><strong>設定</strong>メニューから、UI 言語・自動バックアップ・ウィンドウの挙動を変更できます。設定は exe と同じ場所の <code>setting\settings.json</code> に保存されます（v9.2 以前の exe 直下の <code>settings.json</code> は初回起動時に自動で移動します <span class="badge">v10</span>）。</p>
 
 <h3>言語</h3>
@@ -540,12 +594,17 @@
   <strong>「ワールド毎にフォルダを分けて出力する」</strong>が ON（既定）なら <code>npc\{ワールド名}\</code>、OFF なら <code>npc\ALL\</code> へ出力します（<a href="#npcio">詳細</a>）。
 </p>
 
+<h3>NPC 画像の読み込みスキップ <span class="badge">v10.1</span></h3>
+<p>
+  <strong>「NPC画像を読み込まない」</strong>を ON にすると、NPC の顔画像・立ち絵（およびプレイヤーのキャラ画像）を読み込まなくなり、画像欄には<strong>「読み込みスキップ中」</strong>と表示されます。画像が多いワールドで<strong>切り替え・表示の動作を軽く</strong>したいときに使います（画像そのものは削除されません）。
+</p>
+
 <h3>その他（ウィンドウ）</h3>
 <p>
   ウィンドウサイズを<strong>前回のサイズを記憶</strong>するか<strong>固定サイズ</strong>で起動するかを選べます。起動位置の記憶も指定できます。
 </p>
 
-<h2 id="files">20. データの保存場所</h2>
+<h2 id="files">22. データの保存場所</h2>
 <table>
   <tr><th>種類</th><th>場所</th></tr>
   <tr><td>セーブデータ</td><td><code>%LocalAppData%\Darmabeko\Instantale\saves\{ワールド名}\savedata.json</code></td></tr>
@@ -554,13 +613,13 @@
   <tr><td>キャラクタープリセット <span class="badge">v10</span></td><td><code>%LocalAppData%\Darmabeko\Instantale\characters\{名前}\</code>（<a href="#player2preset">プレイヤーをプリセット化</a>の出力先）</td></tr>
 </table>
 <div class="note">
-  ツール側のファイル（設定 <code>setting\</code>・言語 <code>lang\</code>・名前プール <code>namelist\</code>・NPC <code>npc\</code>・アイテム倉庫 <code>item\</code>・テンプレ <code>templates\</code>）は、すべて exe と同じ場所に作られます（ポータブル）。
+  ツール側のファイル（設定 <code>setting\</code>・言語 <code>lang\</code>・名前プール <code>namelist\</code>・NPC <code>npc\</code>・施設 <code>facility\</code>・アイテム倉庫 <code>item\</code>・テンプレ <code>templates\</code>）は、すべて exe と同じ場所に作られます（ポータブル）。
 </div>
 <p class="sub" style="color:var(--muted)">
   ※ <code>%AppData%</code> はエクスプローラーのアドレス欄にそのまま入力すると開けます。
 </p>
 
-<h2 id="faq">21. 困ったときは</h2>
+<h2 id="faq">23. 困ったときは</h2>
 <ul>
   <li><strong>編集が反映されない</strong> … 入力欄から<strong>フォーカスを外す</strong>（別の場所をクリック）と反映されます。最後に「上書き保存」を忘れずに。</li>
   <li><strong>ゲームがセーブを読み込めなくなった</strong> … 自動バックアップ（<code>backups\</code> 内の zip）または手動コピーから戻してください。</li>
