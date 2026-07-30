@@ -14,6 +14,7 @@ namespace InstantaleSaveEditor
     internal sealed class FacilityPackage
     {
         public JsonObject Facility;         // facility 本体（クローン済み）
+        public JsonObject Program;          // free 施設プログラム（free 施設以外は null）
         public string OriginalName = "";   // 出力時の名前（背景画像フォルダ名）
         public string SourceWorld = "";    // 出典ワールド名
         public byte[] Image;                // 背景画像 image.png（無ければ null）
@@ -126,7 +127,9 @@ namespace InstantaleSaveEditor
 
         // ---------------- エクスポート ----------------
         // facility 本体 + backgrounds/{名前}/image.png を destZip に書き出す。
-        public static void Export(JsonObject fac, string worldDir, string sourceWorld, string originalId, string destZip)
+        // program は free 施設のプログラム本体（呼び出し側が world から解決して渡す。他種別では null）。
+        public static void Export(JsonObject fac, string worldDir, string sourceWorld, string originalId, string destZip,
+            JsonObject program = null)
         {
             string name = J.Str(fac, "name");
 
@@ -135,6 +138,13 @@ namespace InstantaleSaveEditor
             clone["connections"] = new JsonArray();
             // owner(NPC ID) も移植先では別の NPC を指してしまうため外す。
             if (clone.ContainsKey("owner")) clone["owner"] = null;
+            // free 施設の config: program_id は移植先で採番し直すため外し、進行フラグ(free_flags)は
+            // 出典プレイの状態なので空に戻す（プログラム本体は wrapper["program"] で別に持ち運ぶ）。
+            if (clone["config"] is JsonObject cfg)
+            {
+                if (cfg.ContainsKey("program_id")) cfg.Remove("program_id");
+                if (cfg.ContainsKey("free_flags")) cfg["free_flags"] = new JsonObject();
+            }
 
             var wrapper = new JsonObject
             {
@@ -145,6 +155,7 @@ namespace InstantaleSaveEditor
                 ["original_name"] = name,
                 ["facility"] = clone,
             };
+            if (program != null) wrapper["program"] = program.DeepClone();
 
             if (File.Exists(destZip)) File.Delete(destZip);
             using var zip = ZipFile.Open(destZip, ZipArchiveMode.Create);
@@ -169,6 +180,7 @@ namespace InstantaleSaveEditor
             return new FacilityPackage
             {
                 Facility = (JsonObject)fac.DeepClone(),
+                Program = (JsonObject)J.Obj(wrapper, "program")?.DeepClone(),
                 OriginalName = J.Str(wrapper, "original_name", J.Str(fac, "name")),
                 SourceWorld = J.Str(wrapper, "source_world"),
                 Image = ReadImage(zip),
@@ -199,6 +211,7 @@ namespace InstantaleSaveEditor
         private readonly List<string> _worlds;              // facility\ 配下のワールド名一覧
         private List<FacilityPackageInfo> _infos = new();   // 選択中ワールドの施設一覧
         private FacilityPackage _pkg;                        // 選択中パッケージ（未選択なら null）
+        private readonly JsonObject _root;                   // free 施設プログラムの挿入先（ルート直下）
         private readonly JsonObject _areas;
 
         private readonly ComboBox _cbWorld = new() { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill };
@@ -222,6 +235,7 @@ namespace InstantaleSaveEditor
             string presetAreaId = null, string presetConnectId = null)
         {
             _worldDir = worldDir; _worlds = worlds ?? new List<string>();
+            _root = root;
             _areas = J.Obj(root, "areas");
 
             Text = I18n.T("facimport.title");
@@ -461,6 +475,17 @@ namespace InstantaleSaveEditor
             if (target["connections"] is not JsonArray tconns) target["connections"] = tconns = new JsonArray();
             if (!tconns.Any(n => (n?.ToString() ?? "") == newFid)) tconns.Add(newFid);
             facilities[newFid] = fac;
+
+            // free 施設プログラムは新しい施設 ID で採番し直してルート直下へ入れ、config.program_id で結ぶ。
+            if (_pkg.Program != null)
+            {
+                var progs = FreeFacilityProgram.Ensure(_root);
+                string pid = FreeFacilityProgram.NewId(progs, newFid);
+                progs[pid] = _pkg.Program;
+                FreeFacilityProgram.SetProgramId(fac, pid);
+            }
+            // プログラムを持たない zip（この対応より前に出力したもの）の program_id は移植先で参照切れになるため外す。
+            else if (fac["config"] is JsonObject fcfg && fcfg.ContainsKey("program_id")) fcfg.Remove("program_id");
 
             // 背景画像を backgrounds/{名前}/image.png へ展開する（同名の既存画像は残す）。
             if (_pkg.Image != null && _worldDir != null)

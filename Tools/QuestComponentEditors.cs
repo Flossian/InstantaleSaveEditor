@@ -2,7 +2,7 @@
 //   EnemyEditDialog      … 敵/ボス1体（type ＋ data の基本情報・特性・スキル一覧・ドロップ品一覧）
 //   EnemySkillEditDialog … 敵スキル1件。effects は既存 EffectEditDialog を流用する
 //                          （プレイヤースキルと違い current_uses / usefulness を持たないため SkillEditDialog とは別）
-//   DropEditDialog       … ドロップ品1件（item_category は FieldOptions の item_type / item_detail.* を候補に使う）
+//   DropEditDialog       … ドロップ品1件（item_category は FieldOptions の item_type / item_sub_type.*（無ければ item_detail.*）を候補に使う）
 //   EventEditDialog      … イベント1件（event_name / category / event_description）
 // いずれも渡された JsonObject の複製へ書き戻し、OK 時のみ ResultNode を返す（キャンセルで無変更）。
 // 既知フィールドだけを上書きするため、元データの未知キーは保持される。
@@ -121,7 +121,16 @@ namespace InstantaleSaveEditor
                 var trait = J.Obj(_data, "trait"); if (trait == null) { trait = new JsonObject(); _data["trait"] = trait; }
                 trait["name"] = _traitName.Text;
                 trait["description"] = _traitDesc.Text;
-                // skills / drops は _data 内の配列を直接編集済み
+                // skills / drops は _data 内の配列を直接編集済み。
+                // ドロップは接尾辞付きの sub_type（"long_weapon" 等）だけ素の形へ直す
+                // （ライブラリや手編集由来の値でもゲームが落ちないように）。
+                foreach (var n in _drops)
+                {
+                    var cat = J.Obj(n as JsonObject, "item_category"); if (cat == null) continue;
+                    string t = J.Str(cat, "type"), s = J.Str(cat, "sub_type");
+                    string fixedSub = DropEditDialog.NormalizeSubType(t?.Trim(), s?.Trim());
+                    if (!string.Equals(fixedSub, s, StringComparison.Ordinal)) cat["sub_type"] = fixedSub;
+                }
                 ResultNode = _enemy;
                 DialogResult = DialogResult.OK; Close();
             };
@@ -319,7 +328,7 @@ namespace InstantaleSaveEditor
         }
     }
 
-    // ドロップ品1件の編集。item_category の候補は FieldOptions（item_type / item_detail.<type>）から供給する。
+    // ドロップ品1件の編集。item_category の候補は FieldOptions（item_type / item_sub_type.<type>）から供給する。
     internal sealed class DropEditDialog : Form
     {
         // rarity の候補（低→高）。ItemEditDialog と同じ並び。
@@ -371,13 +380,34 @@ namespace InstantaleSaveEditor
             Controls.Add(BuildOkCancel());
         }
 
-        // sub_type の候補を現在の type 配下（item_detail.<type>）から作り直す。入力中の値は保持。
+        // sub_type の候補を現在の type 配下から作り直す。入力中の値は保持。
+        // ドロップの sub_type はインベントリの item_detail と命名が違う種別がある
+        // （weapon は item_detail が "small_weapon" だが sub_type は "small"。ゲームが
+        //  Data\item_embeddings\{sub_type}_weapon.json を引くため接尾辞付きだと落ちる）。
+        // そのため item_sub_type.<type> を優先し、無い種別だけ item_detail.<type> を流用する。
         private void RefreshSubTypes()
         {
             string cur = _catSub.Text;
+            string type = _catType.Text.Trim();
+            var opts = FieldOptions.Get("item_sub_type." + type);
+            if (opts.Count == 0) opts = FieldOptions.Get("item_detail." + type);
             _catSub.Items.Clear();
-            _catSub.Items.AddRange(FieldOptions.Get("item_detail." + _catType.Text.Trim()).ToArray());
+            _catSub.Items.AddRange(opts.ToArray());
             _catSub.Text = cur;
+        }
+
+        // "_{type}" 付きの item_detail 名（例: type=weapon の "long_weapon"）を、剥がすと候補に一致する場合のみ
+        // 素の sub_type（"long"）へ直す。ライブラリや手編集由来の接尾辞付きの値でゲームが落ちるのを防ぐ。
+        // 候補に載っている値（material の "magical_material" 等）はそのまま。
+        internal static string NormalizeSubType(string type, string sub)
+        {
+            if (string.IsNullOrEmpty(type) || string.IsNullOrEmpty(sub)) return sub;
+            var opts = FieldOptions.Get("item_sub_type." + type);
+            if (opts.Count == 0 || opts.Contains(sub, StringComparer.Ordinal)) return sub;
+            string suffix = "_" + type;
+            if (!sub.EndsWith(suffix, StringComparison.Ordinal)) return sub;
+            string bare = sub[..^suffix.Length];
+            return opts.Contains(bare, StringComparer.Ordinal) ? bare : sub;
         }
 
         private Panel BuildOkCancel()
@@ -392,7 +422,7 @@ namespace InstantaleSaveEditor
                 _drop["item_appearance"] = _appearance.Text;
                 var cat = J.Obj(_drop, "item_category"); if (cat == null) { cat = new JsonObject(); _drop["item_category"] = cat; }
                 cat["type"] = _catType.Text;
-                cat["sub_type"] = _catSub.Text;
+                cat["sub_type"] = NormalizeSubType(_catType.Text.Trim(), _catSub.Text.Trim());
                 _drop["rarity"] = _rarity.Text;
                 _drop["value"] = v;
                 ResultNode = _drop;

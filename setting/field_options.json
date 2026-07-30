@@ -38,6 +38,7 @@
     "colosseum",
     "training_facility",
     "slave_market",
+    "free",
     "location",
     "dungeon_location",
     "ward",
@@ -63,6 +64,13 @@
     "large_weapon",
     "long_weapon",
     "throwable_weapon"
+  ],
+  "item_sub_type.weapon": [
+    "small",
+    "medium",
+    "large",
+    "long",
+    "throwable"
   ],
   "item_detail.wearable": [
     "headgear",

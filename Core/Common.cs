@@ -458,6 +458,11 @@ namespace InstantaleSaveEditor
         // 既定は false（従来通り JSON 編集ボタン）。WorldTab が quest / story_quest 編集時に true にする。
         public bool QuestComponentsEnabled { get; set; }
 
+        // free 施設プログラム（free_facility_programs の1件）の steps / prices / payouts を
+        // 専用パネル（FreeProgramStepsPanel / FreeProgramRatePanel）で編集するか。
+        // 既定は false（従来通り JSON 編集ボタン）。WorldTab がプログラム編集時に true にする。
+        public bool FreeProgramEnabled { get; set; }
+
         // image_src フィールドを「プレビュー＋パス欄＋参照ボタン」にし、画像一覧から選べるようにするか。
         // 既定は false（従来通りのテキスト欄）。ItemEditDialog が true にする。
         public bool ImageSrcPickerEnabled { get; set; }
@@ -670,8 +675,10 @@ namespace InstantaleSaveEditor
             { AddConnectionsRow(t, row); return; }
             // config（status / level_of_detail などのスカラ設定）は JSON 編集ボタンにせず、
             // 中身を項目ごとの欄に展開する（quest/story_quest/NPC/area の config 共通）。
-            if (field == "config" && IsScalarMap(val))
-            { AddConfigRow(t, row, (JsonObject)val); return; }
+            // free 施設の config は free_flags（進行フラグの辞書）を含むためスカラだけとは限らない。
+            // 入れ子の値だけを個別の JSON 編集ボタンに落として、他のキーは欄に展開する。
+            if (field == "config" && val is JsonObject cfgMap && cfgMap.Count > 0 && cfgMap.Count <= 12)
+            { AddConfigRow(t, row, cfgMap); return; }
             // attributes（item_detail＋数値ステータス等のスカラ辞書）は config 同様に項目ごとの欄へ展開する。
             // item_detail は現在の item_type に応じた候補のプルダウンにする（空の attributes でも欄を出す）。
             if (field == "attributes" && val is JsonObject ao && (ao.Count == 0 || IsScalarMap(val)))
@@ -691,6 +698,12 @@ namespace InstantaleSaveEditor
             // boss（単一の敵。なしは空オブジェクト）は選択/編集/なしのパネルで編集する（有効時のみ）。
             if (QuestComponentsEnabled && field == "boss" && val is not JsonValue)
             { AddQuestBossRow(t, row); return; }
+            // steps（free 施設プログラムの命令列）は行番号付き一覧＋並べ替えのパネルで編集する。
+            // prices / payouts（キー→{unit, mult}）は行編集パネル。いずれも有効時のみ・Apply() の対象外。
+            if (FreeProgramEnabled && field == "steps" && val is JsonArray fpSteps)
+            { AddFreeProgramStepsRow(t, row, fpSteps); return; }
+            if (FreeProgramEnabled && (field == "prices" || field == "payouts") && val is JsonObject fpRates)
+            { AddFreeProgramRateRow(t, row, fpRates); return; }
             // image_src（画像の相対パス）は、画像一覧から選べるプレビュー付き欄で表示する（有効時のみ）。
             if (field == "image_src" && ImageSrcPickerEnabled && val is JsonValue)
             { AddImageSrcRow(t, row, field, val.ToString()); return; }
@@ -993,6 +1006,22 @@ namespace InstantaleSaveEditor
             t.Controls.Add(panel, 1, row);
         }
 
+        // steps を FreeProgramStepsPanel で表示・編集する。編集は配列へ即時反映（Apply() の対象外）。
+        private void AddFreeProgramStepsRow(TableLayoutPanel t, int row, JsonArray steps)
+        {
+            var panel = new FreeProgramStepsPanel();
+            panel.Bind(steps);
+            t.Controls.Add(panel, 1, row);
+        }
+
+        // prices / payouts を FreeProgramRatePanel で表示・編集する（辞書へ即時反映）。
+        private void AddFreeProgramRateRow(TableLayoutPanel t, int row, JsonObject rates)
+        {
+            var panel = new FreeProgramRatePanel();
+            panel.Bind(rates);
+            t.Controls.Add(panel, 1, row);
+        }
+
         // boss を QuestBossPanel で表示・編集する。差し替えは _obj["boss"] へ即時反映（Apply() の対象外）。
         private void AddQuestBossRow(TableLayoutPanel t, int row)
         {
@@ -1052,10 +1081,33 @@ namespace InstantaleSaveEditor
                 tb.Leave += (_, _) => { if (_obj == null) return; if (double.TryParse(tb.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out double n)) { map[key] = n; Ok(tb); } else tb.BackColor = Color.MistyRose; };
                 inner.Controls.Add(tb, 1, r);
             }
+            else if (map[key] is not JsonValue)
+            {
+                // 入れ子（free 施設の config.free_flags 等）や null は、文字列欄に落とすと中身を潰す/
+                // null を "" に変えてしまうため JSON 編集にする。
+                inner.Controls.Add(MakeNestedJsonBtn(map, key), 1, r);
+            }
             else
             {
                 inner.Controls.Add(stringWidget(jv?.ToString() ?? ""), 1, r);
             }
+        }
+
+        // スカラ辞書の中の入れ子の値を JSON で編集するボタン（プレビュー付き）。結果は map[key] へ即時反映。
+        private Control MakeNestedJsonBtn(JsonObject map, string key)
+        {
+            var panel = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill };
+            var lbl = new Label { Text = J.Preview(map[key]), AutoSize = true, ForeColor = Color.DimGray, Padding = new Padding(0, 6, 8, 0) };
+            var btn = new Button { Text = I18n.T("btn.jsonEdit"), Width = 100 };
+            btn.Click += (_, _) =>
+            {
+                using var d = new JsonEditDialog(I18n.T("title.editField", LabelOf(key)), map[key]);
+                if (d.ShowDialog(this) != DialogResult.OK) return;
+                map[key] = d.ResultNode;
+                lbl.Text = J.Preview(map[key]);
+            };
+            panel.Controls.Add(lbl); panel.Controls.Add(btn);
+            return panel;
         }
 
         // スカラ辞書の文字列値を編集する素のテキスト欄（フォーカスアウトで map へ反映）。

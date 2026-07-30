@@ -31,6 +31,8 @@ namespace InstantaleSaveEditor
         // 項目の表示は Opening で選択ノードに合わせる。
         private readonly ContextMenuStrip _treeMenu = new();
         private readonly ToolStripMenuItem _miNew = new(), _miNewFacility = new(), _miImportNpc = new(), _miImportFac = new();
+        // free 施設（facility_type=="free"）専用。プログラム未設定なら作成、設定済みならそのプログラムへ移動する。
+        private readonly ToolStripMenuItem _miFreeProgram = new();
         private readonly ToolStripMenuItem _miCtxExportZip = new(), _miCtxExportPreset = new(), _miCtxExportFac = new(), _miCtxJson = new();
         private readonly ToolStripMenuItem _miCtxDup = new(), _miCtxDel = new();
         private readonly ToolStripSeparator _ctxSep = new(), _ctxSep2 = new();
@@ -90,6 +92,7 @@ namespace InstantaleSaveEditor
             _miNewFacility.Click += (_, _) => CreateFacility();
             _miImportNpc.Click += (_, _) => ImportNpcFromTree();
             _miImportFac.Click += (_, _) => ImportFacilityFromTree();
+            _miFreeProgram.Click += (_, _) => OpenOrCreateFreeProgram();
             _miCtxExportZip.Click += (_, _) => ExportNpc();
             _miCtxExportPreset.Click += (_, _) => ExportNpcPreset();
             _miCtxExportFac.Click += (_, _) => ExportFacility();
@@ -98,7 +101,7 @@ namespace InstantaleSaveEditor
             _miCtxDel.Click += (_, _) => Delete();
             _treeMenu.Items.AddRange(new ToolStripItem[]
             {
-                _miNew, _miNewFacility, _miImportNpc, _miImportFac, _ctxSep,
+                _miNew, _miNewFacility, _miImportNpc, _miImportFac, _miFreeProgram, _ctxSep,
                 _miCtxExportZip, _miCtxExportPreset, _miCtxExportFac, _miCtxJson, _ctxSep2,
                 _miCtxDup, _miCtxDel,
             });
@@ -131,6 +134,7 @@ namespace InstantaleSaveEditor
             _miNewFacility.Text = I18n.T("menu.tree.newFacility");
             _miImportNpc.Text = I18n.T("menu.tools.importNpc");         // ツールメニューと同じ文言・同じ機能
             _miImportFac.Text = I18n.T("menu.tools.importFacility");
+            // _miFreeProgram の文言はプログラムの有無で変わるため ConfigureTreeMenu が都度設定する。
             _miCtxExportZip.Text = I18n.T("btn.exportNpcZip");
             _miCtxExportPreset.Text = I18n.T("btn.exportNpcPreset");
             _miCtxExportFac.Text = I18n.T("menu.tree.exportFacility");
@@ -249,6 +253,15 @@ namespace InstantaleSaveEditor
                 else  // story_quests など area で区分けしないセクションは従来通りフラット
                     foreach (var k in itemKeys) node.Nodes.Add(SectionItemNode(sec, so, k));
                 _tree.Nodes.Add(node);
+            }
+            // free 施設プログラム（ルート直下。world_data の中ではない）もセクションとして並べる。
+            if (FreeFacilityProgram.Programs(_root) is JsonObject progs)
+            {
+                var pnode = new TreeNode($"{FreeFacilityProgram.RootKey} ({progs.Count})")
+                { Tag = new[] { "sec", FreeFacilityProgram.RootKey } };
+                foreach (var k in progs.Select(p => p.Key).OrderBy(k => k, StringComparer.Ordinal))
+                    pnode.Nodes.Add(SectionItemNode(FreeFacilityProgram.RootKey, progs, k));
+                _tree.Nodes.Add(pnode);
             }
             if (_root["index"] is JsonObject)
                 _tree.Nodes.Add(new TreeNode("index") { Tag = new[] { "obj", "index" } });
@@ -399,6 +412,8 @@ namespace InstantaleSaveEditor
             // enemies / boss / events の構造化編集はクエスト系のときだけ有効化する
             //（該当フィールドが無いレコードでは何も変わらないため story_quests にも許可する）。
             _form.QuestComponentsEnabled = tag[0] == "item" && (tag[1] == "quests" || tag[1] == "story_quests");
+            // steps / prices / payouts の構造化編集は free 施設プログラム選択時のみ有効化する。
+            _form.FreeProgramEnabled = tag[0] == "item" && tag[1] == FreeFacilityProgram.RootKey;
             switch (tag[0])
             {
                 case "obj":   // world_data / index など単一オブジェクト
@@ -440,6 +455,8 @@ namespace InstantaleSaveEditor
                         // area の connections（隣接エリアID配列）は一覧＋追加/削除の専用欄にする。
                         if (tag[1] == "areas") SetAreaConnectionHooks(tag[2]);
                         _form.Bind(itemObj);
+                        // プログラムのキーは施設 ID に紐づく（"free_{施設ID}"）ため機械的な複製はさせない。
+                        if (tag[1] == FreeFacilityProgram.RootKey) _btnDup.Enabled = false;
                     }
                     break;
                 case "facility":  // areas[area].nodes[node].facilities[facility]
@@ -638,6 +655,13 @@ namespace InstantaleSaveEditor
             _miNewFacility.Visible = facScope;
             _miImportNpc.Visible = kind == "npcs";
             _miImportFac.Visible = facScope || (tag != null && tag[0] == "sec" && tag[1] == "areas");
+            // free 施設は「プログラムを作成」（未設定時）/「プログラムを編集」（設定済み）を出す。
+            var freeFac = tag != null && tag[0] == "facility" ? _curContainer?[_curKey] as JsonObject : null;
+            if (freeFac != null && !FreeFacilityProgram.IsFree(freeFac)) freeFac = null;
+            _miFreeProgram.Visible = freeFac != null;
+            if (freeFac != null)
+                _miFreeProgram.Text = I18n.T(FreeFacilityProgram.Of(_root, freeFac) != null
+                    ? "menu.tree.editFreeProgram" : "menu.tree.newFreeProgram");
 
             // エクスポートはボタン列と同じ対象（NPC 項目 / 施設ノード）。壊れたレコードは対象外。
             bool validRec = _curContainer?[_curKey] is JsonObject;
@@ -651,7 +675,8 @@ namespace InstantaleSaveEditor
             _miCtxDup.Enabled = _btnDup.Enabled;   // 選択は Opening 内で済んでいるためボタンの状態をそのまま使う
             _miCtxDel.Enabled = _btnDel.Enabled;
 
-            bool g1 = _miNew.Visible || _miNewFacility.Visible || _miImportNpc.Visible || _miImportFac.Visible;
+            bool g1 = _miNew.Visible || _miNewFacility.Visible || _miImportNpc.Visible || _miImportFac.Visible
+                   || _miFreeProgram.Visible;
             bool g2 = _miCtxExportZip.Visible || _miCtxExportPreset.Visible || _miCtxExportFac.Visible || _miCtxJson.Visible;
             _ctxSep.Visible = g1 && (g2 || rec);
             _ctxSep2.Visible = g2 && rec;
@@ -820,6 +845,40 @@ namespace InstantaleSaveEditor
             SelectByTag("facility", areaId, nodeId, fid);
         }
 
+        // free 施設のプログラムを開く。未設定なら "free_{施設ID}" で骨格を作って config.program_id を結び、
+        // 設定済み（参照切れを含む）ならそのプログラムのツリーノードへ移動する。
+        private void OpenOrCreateFreeProgram()
+        {
+            if (_curContainer?[_curKey] is not JsonObject fac || !FreeFacilityProgram.IsFree(fac)) return;
+            if (!_form.Apply()) return;
+            string pid = FreeFacilityProgram.ProgramIdOf(fac);
+            var progs = FreeFacilityProgram.Programs(_root);
+            if (progs?[pid] is not JsonObject)
+            {
+                progs = FreeFacilityProgram.Ensure(_root);
+                pid = FreeFacilityProgram.NewId(progs, _curKey);
+                progs[pid] = FreeFacilityProgram.NewProgram(J.Str(fac, "name"));
+                FreeFacilityProgram.SetProgramId(fac, pid);
+            }
+            Populate();
+            SelectByTag("item", FreeFacilityProgram.RootKey, pid);
+        }
+
+        // world 全体のどの施設からも参照されなくなったプログラムを削除する（施設削除の後始末）。
+        // candidates は削除した施設が参照していたプログラム ID。
+        private void PruneOrphanPrograms(IEnumerable<string> candidates)
+        {
+            var progs = FreeFacilityProgram.Programs(_root);
+            if (progs == null) return;
+            var used = new HashSet<string>(StringComparer.Ordinal);
+            if (_root?["areas"] is JsonObject areas)
+                foreach (var akv in areas)
+                    foreach (var (_, fo) in EnumAreaFacilities(akv.Key))
+                        if (FreeFacilityProgram.ProgramIdOf(fo) is string p && p.Length > 0) used.Add(p);
+            foreach (var pid in candidates.Distinct())
+                if (pid.Length > 0 && !used.Contains(pid)) progs.Remove(pid);
+        }
+
         // Tag が一致するノードをツリー全体から探して選択する（新規作成した項目へフォーカスを移す用）。
         private void SelectByTag(params string[] tag)
         {
@@ -906,6 +965,7 @@ namespace InstantaleSaveEditor
 
         // 選択中の facility を JSON＋背景画像の zip として facility\ ライブラリへエクスポートする。
         // connections は移植先で無効な ID になるため保持しない（インポート時に接続先から張り直す）。
+        // free 施設はプログラム本体（ルート直下の free_facility_programs）も同梱する。
         private void ExportFacility()
         {
             if (_curContainer == null || _curKey == null || _curContainer[_curKey] is not JsonObject fac) return;
@@ -918,7 +978,7 @@ namespace InstantaleSaveEditor
             try
             {
                 dest = FacilityPortability.FreeExportPath(name, FacilityPortability.ExportWorldName(source));
-                FacilityPortability.Export(fac, _worldDir, source, _curKey, dest);
+                FacilityPortability.Export(fac, _worldDir, source, _curKey, dest, FreeFacilityProgram.Of(_root, fac));
             }
             catch (Exception ex)
             {
@@ -953,9 +1013,13 @@ namespace InstantaleSaveEditor
                 msg += "\n" + I18n.T("msg.deleteCascadeNote");
             if (MessageBox.Show(msg, I18n.T("title.confirm"), MessageBoxButtons.YesNo) != DialogResult.Yes) return;
 
+            // 削除で参照されなくなる free 施設プログラムを拾っておく（削除後に PruneOrphanPrograms で始末する）。
+            var programs = new List<string>();
             if (tag != null && tag[0] == "facility")
             {
                 var removed = new List<string> { _curKey };
+                programs.Add(FreeFacilityProgram.ProgramIdOf(_curContainer[_curKey] as JsonObject));
+                CollectDescendantPrograms(node, programs);
                 RemoveDescendantFacilities(node, removed);
                 _curContainer.Remove(_curKey);
                 foreach (var (_, fo) in EnumAreaFacilities(tag[1]))
@@ -963,12 +1027,29 @@ namespace InstantaleSaveEditor
             }
             else
             {
+                // area 削除では配下の施設もまとめて消えるため、その全施設のプログラムを対象にする。
+                if (tag != null && tag[0] == "item" && tag[1] == "areas")
+                    foreach (var (_, fo) in EnumAreaFacilities(_curKey))
+                        programs.Add(FreeFacilityProgram.ProgramIdOf(fo));
                 _curContainer.Remove(_curKey);
                 if (tag != null && tag[0] == "item" && tag[1] == "areas" && _root?["areas"] is JsonObject areas)
                     foreach (var kv in areas)
                         if (kv.Value is JsonObject o) RemoveConnection(o, _curKey);
             }
+            PruneOrphanPrograms(programs);
             _form.Clear(); Populate();
+        }
+
+        // ツリー上で node の配下に表示されている facility の program_id を再帰的に集める（削除前に呼ぶ）。
+        private void CollectDescendantPrograms(TreeNode node, List<string> programs)
+        {
+            foreach (TreeNode c in node.Nodes)
+            {
+                if (c.Tag is string[] t && t[0] == "facility"
+                    && J.Obj(J.Obj(_root?["areas"]?[t[1]] as JsonObject, "nodes")?[t[2]] as JsonObject, "facilities") is JsonObject facs)
+                    programs.Add(FreeFacilityProgram.ProgramIdOf(facs[t[3]] as JsonObject));
+                CollectDescendantPrograms(c, programs);
+            }
         }
 
         // ツリー上で node の配下に表示されている facility レコードを再帰的に削除し、削除 ID を removed へ積む。

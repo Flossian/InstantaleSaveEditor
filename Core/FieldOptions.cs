@@ -1,7 +1,7 @@
 // 列挙的フィールド（NPC の category / job など）の候補テンプレートを供給する。
 // 候補値はソースに直書きせず、JSON から読む:
 //   - 既定: 埋め込みリソース field_options.json（サンプルデータから抽出した固定候補）
-//   - 上書き: exe 隣の setting フォルダの外部 field_options.json（あればフィールド単位で差し替え）
+//   - 追加: exe 隣の setting フォルダの外部 field_options.json（あればフィールド単位で既定へ追記）
 // { "フィールド名": ["候補1", "候補2", ...], ... } 形式。外部ファイルを編集すれば
 // 候補の追加や他フィールドへの汎用化ができる（再ビルド不要）。
 using System.Reflection;
@@ -51,14 +51,24 @@ namespace InstantaleSaveEditor
             EnsureExternalSeed();
             var dict = new Dictionary<string, string[]>(StringComparer.Ordinal);
             MergeInto(dict, Parse(LoadEmbedded()));   // 既定
-            MergeInto(dict, Parse(LoadExternal()));   // 外部で上書き
+            MergeInto(dict, Parse(LoadExternal()));   // 外部の候補を追記
             return dict;
         }
 
+        // 外部ファイルの候補は「差し替え」ではなく既定への追記としてマージする（重複は除く・既定の順を先に保つ）。
+        // 差し替えにすると、ゲーム側の更新で増えた候補（例: facility_type の free）が、
+        // 初回起動時に書き出された古い外部ファイルを持つ環境では出てこないため。
         private static void MergeInto(Dictionary<string, string[]> dest, Dictionary<string, string[]> src)
         {
             if (src == null) return;
-            foreach (var kv in src) dest[kv.Key] = kv.Value;
+            foreach (var kv in src)
+            {
+                if (!dest.TryGetValue(kv.Key, out var baseVals)) { dest[kv.Key] = kv.Value; continue; }
+                var merged = new List<string>(baseVals);
+                foreach (var v in kv.Value)
+                    if (!merged.Contains(v, StringComparer.Ordinal)) merged.Add(v);
+                dest[kv.Key] = merged.ToArray();
+            }
         }
 
         // { フィールド名: [文字列...] } をパースする。配列でない値・非文字列要素は無視。例外時は null。
