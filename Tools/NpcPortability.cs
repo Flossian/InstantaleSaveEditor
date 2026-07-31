@@ -110,30 +110,22 @@ namespace InstantaleSaveEditor
                 Job = npc != null ? J.Str(npc, "job") : "",
             };
             var face = zip.GetEntry("images/face_image.png");
-            if (face != null)
-            {
-                using var s = face.Open();
-                using var ms = new MemoryStream();
-                s.CopyTo(ms);
-                info.FaceImage = ms.ToArray();
-            }
+            if (face != null) info.FaceImage = ZipSafe.ReadAllBytes(face);
             return info;
         }
 
-        // ファイル名に使えない文字を '_' に置き換える。
-        public static string SafeFileName(string s)
-        {
-            foreach (var c in Path.GetInvalidFileNameChars()) s = s.Replace(c, '_');
-            return string.IsNullOrWhiteSpace(s) ? "npc" : s;
-        }
+        // ファイル名に使えない文字を '_' に置き換える。区切り文字・".."・予約デバイス名も潰すため
+        // SafePath.FileName に委譲する（名前は zip 由来＝信頼できない値でもフォルダ名に使われる）。
+        public static string SafeFileName(string s) => SafePath.FileName(s, "npc");
 
         // ---------------- エクスポート ----------------
         // NPC 本体 + characters/{名前}/*.png を destZip に書き出す。
         public static void Export(JsonObject npc, string worldDir, string sourceWorld, string originalId, string destZip)
         {
             string name = J.Str(npc, "name");
+            // 名前は開いたワールド JSON 由来。取り込み時と同じサニタイズを掛けて同じ場所を指すようにする。
             string charDir = (worldDir != null && name.Length > 0)
-                ? Path.Combine(worldDir, "characters", name) : null;
+                ? Path.Combine(worldDir, "characters", SafeFileName(name)) : null;
 
             var clone = (JsonObject)npc.DeepClone();
             SanitizeForExport(clone);
@@ -203,10 +195,7 @@ namespace InstantaleSaveEditor
             foreach (var e in zip.Entries)
             {
                 if (!e.FullName.StartsWith("images/") || e.Name.Length == 0) continue;
-                using var s = e.Open();
-                using var ms = new MemoryStream();
-                s.CopyTo(ms);
-                pkg.Images[e.Name] = ms.ToArray();
+                if (ZipSafe.ReadAllBytes(e) is byte[] bytes) pkg.Images[e.Name] = bytes;
             }
             return pkg;
         }
@@ -217,8 +206,16 @@ namespace InstantaleSaveEditor
             if (charDir != null)
             {
                 Directory.CreateDirectory(charDir);
+                // zip のエントリ名は信頼できない（Unix 製 zip では ZipArchiveEntry.Name に "\" が残り、
+                // "..\..\evil.png" のような値で charDir の外へ書けてしまう）。ファイル名だけに落とす。
                 foreach (var kv in images)
-                    File.WriteAllBytes(Path.Combine(charDir, kv.Key), kv.Value);
+                {
+                    string file = SafePath.FileName(kv.Key, null);
+                    if (file == null) continue;
+                    string dest = SafePath.ResolveUnder(charDir, file);
+                    if (dest == null) continue;
+                    File.WriteAllBytes(dest, kv.Value);
+                }
             }
             RewriteImageSrc(npc, charDir);
         }
@@ -621,9 +618,15 @@ namespace InstantaleSaveEditor
             }
 
             // 既存NPCのリネーム（同名すべて）。フォルダ移動は最初の1件で済み、以降は image_src のみ更新。
+            // 元々同名の NPC が複数いる場合、全員を同じ新名にすると別の重複を作ってしまうため連番で分ける。
             if (renameExisting)
                 foreach (var kv in _npcs.Where(p => p.Value is JsonObject o && J.Str(o, "name") == _pkg.OriginalName).ToList())
-                    NpcPortability.RenameNpcOnDisk(kv.Value.AsObject(), _worldDir, existingNewName);
+                {
+                    string newName = existingNewName;
+                    for (int i = 2; NpcPortability.NameExists(_npcs, newName) && i < 1000; i++)
+                        newName = $"{existingNewName}({i})";
+                    NpcPortability.RenameNpcOnDisk(kv.Value.AsObject(), _worldDir, newName);
+                }
 
             // 取込NPCの組み立て。上書き時は既存 id を再利用する。
             var npc = _pkg.Npc;
@@ -644,7 +647,11 @@ namespace InstantaleSaveEditor
             // 上書き時は旧配置の登録から外す（id を再利用するため）。
             if (overwrite) RemoveFromAreaLists(overwriteId);
 
-            string charDir = _worldDir != null ? Path.Combine(_worldDir, "characters", incomingName) : null;
+            // incomingName は zip の original_name 由来のことがある（衝突が無いと入力欄は非表示のまま）。
+            // フォルダ名として使う前に必ずサニタイズする。
+            string charDir = _worldDir != null
+                ? Path.Combine(_worldDir, "characters", NpcPortability.SafeFileName(incomingName))
+                : null;
             try { NpcPortability.PlaceImages(npc, charDir, _pkg.Images); }
             catch (Exception ex) { MessageBox.Show(this, I18n.T("npcimport.errImageExtract") + "\n" + ex.Message); return; }
 

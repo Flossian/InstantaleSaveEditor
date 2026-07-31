@@ -96,6 +96,12 @@ namespace InstantaleSaveEditor
             return JsonNode.Parse(Encoding.UTF8.GetString(Transform(bytes))).AsObject();
         }
 
+        // ファイルが（難読化ではなく）平文 JSON かどうか。開いた形式を保って保存するために使う。
+        public static bool IsPlainJsonFile(string path)
+        {
+            try { return LooksLikePlainJson(File.ReadAllBytes(path)); } catch { return false; }
+        }
+
         // UTF-8 BOM を含む先頭空白を読み飛ばし、最初の文字が JSON の開始記号かを判定。
         private static bool LooksLikePlainJson(byte[] bytes)
         {
@@ -112,7 +118,89 @@ namespace InstantaleSaveEditor
             => Transform(Encoding.UTF8.GetBytes(root.ToJsonString(Compact)));
         // JSON を最小化 UTF-8 にしてファイルへ書き出す（ゲームが読める形式）。
         public static void Save(string path, JsonNode root)
-            => File.WriteAllBytes(path, Encode(root));
+            => WriteAtomic(path, Encode(root));
+
+        // 同じフォルダの一時ファイルへ書き切ってから置き換える。
+        // 直接上書きすると、書込中にクラッシュ・電源断が起きたときセーブ本体が壊れる。
+        public static void WriteAtomic(string path, byte[] bytes)
+        {
+            string dir = Path.GetDirectoryName(path);
+            string tmp = Path.Combine(string.IsNullOrEmpty(dir) ? "." : dir,
+                                      Path.GetFileName(path) + $".tmp{Environment.ProcessId}");
+            File.WriteAllBytes(tmp, bytes);
+            try
+            {
+                // File.Replace は元ファイルの属性を引き継ぎ、置換自体は不可分に行われる。
+                if (File.Exists(path)) File.Replace(tmp, path, null);
+                else File.Move(tmp, path);
+            }
+            catch
+            {
+                try { File.Delete(tmp); } catch { /* 後始末の失敗は握りつぶす */ }
+                throw;   // 元ファイルは無傷。呼び出し側がエラーを表示する
+            }
+        }
+    }
+
+    // ---------------- 信頼できないパスの検証 ----------------
+    // zip パッケージ（NPC/施設/アイテム）は利用者間で配布されるため、同梱 JSON の image_src や
+    // original_name、zip のエントリ名をそのまま Path.Combine に渡すと基準フォルダの外へ書き出せる。
+    //   ・Path.Combine は第2引数が絶対パスだと第1引数を捨てる（"C:\..." で任意の場所に着弾）
+    //   ・".." で親へ遡れる
+    //   ・"名前:ADS" は代替データストリームとして書き込める
+    // 書き出し先を作る前に必ずここを通し、基準フォルダ配下に収まることを確認する。
+    internal static class SafePath
+    {
+        private static readonly string[] Reserved =
+        {
+            "CON", "PRN", "AUX", "NUL",
+            "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+            "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+        };
+
+        // relative を baseDir 配下として解決する。配下に収まらなければ null（呼び出し側でスキップする）。
+        public static string ResolveUnder(string baseDir, string relative)
+        {
+            if (string.IsNullOrWhiteSpace(baseDir) || string.IsNullOrWhiteSpace(relative)) return null;
+            if (relative.Contains(':')) return null;   // ドライブ指定・代替データストリーム
+            try
+            {
+                string root = Path.GetFullPath(baseDir);
+                string full = Path.GetFullPath(Path.Combine(root, relative.Replace('/', Path.DirectorySeparatorChar)));
+                string prefix = root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                              + Path.DirectorySeparatorChar;
+                return full.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) ? full : null;
+            }
+            catch { return null; }
+        }
+
+        // 単一のファイル／フォルダ名に落とす。
+        // Windows の GetInvalidFileNameChars は区切り文字 '/' '\' と ':' を含むため、従来どおり '_' へ
+        // 置換するだけで階層・ドライブ指定・代替データストリームは消える（"..\..\x" → ".._.._x"）。
+        // 加えて "." ".."・末尾のドットと空白・予約デバイス名を潰す。
+        public static string FileName(string name, string fallback)
+        {
+            string s = name ?? "";
+            foreach (var c in Path.GetInvalidFileNameChars()) s = s.Replace(c, '_');
+            s = s.TrimEnd('.', ' ');
+            if (s.Length == 0 || s == "." || s == "..") return fallback;
+            string stem = s.Split('.')[0];
+            if (Reserved.Contains(stem, StringComparer.OrdinalIgnoreCase)) s = "_" + s;
+            return s;
+        }
+    }
+
+    // ---------------- 複数行テキストの改行変換 ----------------
+    // WinForms の TextBox は CRLF しか改行として扱わないが、実データの改行は LF 単独
+    //（life_log.content 240件中228件、quest.client_statement 118件中111件が LF のみ）。
+    // そのまま流し込むと全文が1行に潰れて実質編集できず、ユーザーが改行を1つ足すだけで
+    // CRLF が混入して LF/CRLF 混在になる。表示時に CRLF へ、書き戻し時に LF へ揃える。
+    internal static class LineEnds
+    {
+        public static string ToBox(string s)
+            => s?.Replace("\r\n", "\n").Replace('\r', '\n').Replace("\n", "\r\n");
+        public static string FromBox(string s)
+            => s?.Replace("\r\n", "\n").Replace('\r', '\n');
     }
 
     // ---------------- JSON 値の安全な取得 ----------------
@@ -311,7 +399,13 @@ namespace InstantaleSaveEditor
     // 下端のグリップを上下にドラッグすると高さが変わる。
     internal sealed class ResizableTextBox : Panel
     {
-        public TextBox Box { get; }     // 実際の入力欄。呼び出し側は .Box.Text で読み書きする。
+        public TextBox Box { get; }     // 実際の入力欄。
+        // モデルとの読み書きはこちらを使う（改行コードを実データの LF 単独へ揃える）。
+        public string Value
+        {
+            get => LineEnds.FromBox(Box.Text);
+            set => Box.Text = LineEnds.ToBox(value);
+        }
         private bool _drag;             // グリップをドラッグ中か
         private int _startY, _startH;   // ドラッグ開始時のカーソルY座標と高さ
 
@@ -366,7 +460,9 @@ namespace InstantaleSaveEditor
                 TextAlign = ContentAlignment.MiddleLeft,
                 BackColor = SystemColors.ControlLight,
             };
-            _header.Font = new Font(_header.Font, FontStyle.Bold);
+            var boldFont = new Font(_header.Font, FontStyle.Bold);
+            _header.Font = boldFont;
+            _header.Disposed += (_, _) => boldFont.Dispose();   // 自前で作った Font は自動では解放されない
             _open = open;
             _header.Click += (_, _) => { _open = !_open; _content.Visible = _open; UpdateHeader(); };
 
@@ -382,7 +478,7 @@ namespace InstantaleSaveEditor
     // フォーム上の1項目とその編集ウィジェットの対応。Kind により使うウィジェットが決まる:
     //   bool→Chk / int,dbl,text,strlist→Tb / abilities→Sub(6つの能力値欄) /
     //   json→Holder / combo→Combo / lifelog→Life / relationship→Rel
-    internal sealed class FieldRef { public string Name, Kind; public TextBox Tb; public CheckBox Chk; public JsonHolder Holder; public Dictionary<string, TextBox> Sub; public ComboBox Combo; public bool IdCombo; public LifeLogGrid Life; public RelationshipGrid Rel; }
+    internal sealed class FieldRef { public string Name, Kind; public TextBox Tb; public CheckBox Chk; public JsonHolder Holder; public Dictionary<string, TextBox> Sub; public ComboBox Combo; public bool IdCombo; public bool NullWhenEmpty; public LifeLogGrid Life; public RelationshipGrid Rel; }
 
     // 1つの JsonObject の各プロパティを自動でフォーム化する汎用コントロール。
     // 値の型ごとに最適なウィジェットを割り当て、編集はフォーカスアウト時に即モデルへ反映する。
@@ -410,9 +506,15 @@ namespace InstantaleSaveEditor
         private JsonObject _obj;                                          // 現在バインド中のオブジェクト
         private readonly Panel _host = new() { Dock = DockStyle.Fill, AutoScroll = true };  // スクロール領域
         private readonly List<FieldRef> _fields = new();                 // 生成した各項目の参照
+        // Leave（フォーカスアウト）でしかモデルへ書かない部品（config / attributes / 文字列辞書）の確定処理。
+        // メニューのショートカット（Ctrl+S）はフォーカスを移さないため Leave が発火せず、
+        // これらの編集が保存に乗らない。Apply() から同じ処理を呼べるよう登録しておく。
+        // false を返したものは型エラーとして保存を中断する。
+        private readonly List<Func<bool>> _commits = new();
+        private Control _injected;   // 呼び出し側が所有する差し込みコントロール（破棄対象外）
         // フィールド名 → ComboBox ファクトリ。Bind 前に RegisterComboField で登録し Bind 後にクリアしないこと。
         // idPrefixed=true は "ID: 名前" 形式の表示から ID 部分だけを保存するコンボ（エリア/施設/NPC 参照）。
-        private readonly Dictionary<string, (Func<string, ComboBox> factory, bool idPrefixed)> _comboFactories = new();
+        private readonly Dictionary<string, (Func<string, ComboBox> factory, bool idPrefixed, bool nullWhenEmpty)> _comboFactories = new();
 
         // relationship の対象キー（"player" 以外は NPC ID 等）を見出し表示名へ変換する任意のフック。
         // 未設定/空文字を返す場合はキーをそのまま表示する。WorldTab が NPC 一覧を引いて名前を返す。
@@ -497,14 +599,33 @@ namespace InstantaleSaveEditor
         }
 
         // 表示をクリアし、バインドを解除する。
-        public void Clear() { _obj = null; _host.Controls.Clear(); _fields.Clear(); }
+        public void Clear() { _obj = null; DisposeHost(); _fields.Clear(); _commits.Clear(); }
+
+        // 表示中のコントロールを破棄して取り除く。
+        // Controls.Clear() は切り離すだけで破棄しないため、レコードを選び直すたびに
+        // TextBox やプレビュー画像のネイティブ/GDI ハンドルが溜まり続ける。
+        // ただし呼び出し側が使い回す差し込みコントロール（NPC 画像・背景画像パネル）は破棄しない。
+        private void DisposeHost()
+        {
+            for (int i = _host.Controls.Count - 1; i >= 0; i--)
+            {
+                var c = _host.Controls[i];
+                _host.Controls.RemoveAt(i);
+                if (!ReferenceEquals(c, _injected)) c.Dispose();
+            }
+            _injected = null;
+        }
 
         // 指定フィールドをプルダウン式にする。factory は現在値を受け取り ComboBox を返す。
         // 毎回の Bind 前に呼ぶか、あるいは常時登録しておくこと。
         // idPrefixed=true のとき、保存時に "ID: 名前" 形式のテキストから ID 部分だけを取り出す。
         // 既定 false は値そのものを保存する（category/job/rarity 等。":" を含む値も壊さない）。
-        public void RegisterComboField(string fieldName, Func<string, ComboBox> factory, bool idPrefixed = false)
-            => _comboFactories[fieldName] = (factory, idPrefixed);
+        // nullWhenEmpty=true のとき、空欄は "" ではなく JSON null で保存する（未設定を null で表す
+        // owner/tier/current_area などの実データ規約に合わせる）。ID プルダウンは "" が有効な ID に
+        // ならないため常に null 扱いにする。
+        public void RegisterComboField(string fieldName, Func<string, ComboBox> factory, bool idPrefixed = false,
+                                       bool nullWhenEmpty = false)
+            => _comboFactories[fieldName] = (factory, idPrefixed, nullWhenEmpty || idPrefixed);
 
         // 登録済みのすべての ComboBox ファクトリを削除する。
         public void ClearComboFields() => _comboFactories.Clear();
@@ -522,7 +643,10 @@ namespace InstantaleSaveEditor
         public void Bind(JsonObject obj, Control injectControl = null, string injectAfterKey = null,
                          (string move, string after)? reorder = null, IEnumerable<string> keyOrder = null)
         {
-            _obj = obj; _host.Controls.Clear(); _fields.Clear();
+            // Controls.Clear() はフォーカス中の入力欄に Leave を発火させる。先に _obj を差し替えると
+            // CommitField が旧レコードの入力値を新レコードへ書き込むため、必ず _obj を外してから破棄する。
+            _obj = null; DisposeHost(); _fields.Clear(); _commits.Clear();
+            _obj = obj;
             _itemDetailCombo = null; _attrsInner = null; _attrsOuter = null; _attrsObj = null;
             _imageSrcBox = null; _imageSrcRefresh = null;
             if (obj == null) return;
@@ -569,6 +693,7 @@ namespace InstantaleSaveEditor
             // 目的の表示順: [t1(上)] → [injectControl] → [t2(下)]
             if (r2 > 0) _host.Controls.Add(t2);
             injectControl.Dock = DockStyle.Top;
+            _injected = injectControl;   // 呼び出し側が使い回すため DisposeHost で破棄しない
             _host.Controls.Add(injectControl);
             _host.Controls.Add(t1);
         }
@@ -578,6 +703,8 @@ namespace InstantaleSaveEditor
         public bool Apply()
         {
             if (_obj == null) return true;
+            // 即時反映のみの部品を先に確定する（Ctrl+S では Leave が発火しないため）。
+            foreach (var c in _commits) if (!c()) return false;
             foreach (var f in _fields)
             {
                 switch (f.Kind)
@@ -590,7 +717,7 @@ namespace InstantaleSaveEditor
                     case "dbl":
                         if (!double.TryParse(f.Tb.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out double dv)) return Fail(f.Name, I18n.T("type.number"));
                         _obj[f.Name] = dv; break;
-                    case "text": _obj[f.Name] = f.Tb.Text; break;
+                    case "text": _obj[f.Name] = LineEnds.FromBox(f.Tb.Text); break;
                     case "strlist": _obj[f.Name] = ToStringArray(f.Tb.Text); break;
                     case "abilities":
                         CommitAbilities(f.Name, f.Sub);   // 各欄の入力をそのまま反映（非破壊。空欄は null、構造は維持）
@@ -602,6 +729,8 @@ namespace InstantaleSaveEditor
                         // ID プルダウン（"ID: 名前" 形式）のみ ID 部分を取り出す。
                         // 値プルダウン（category/job/rarity 等）は ":" を含む値を壊さないよう全文を保存する。
                         string raw = f.Combo.Text.Trim();
+                        // 未設定を null で表すフィールド（owner/tier/current_area 等）は空欄を null で書く。
+                        if (raw.Length == 0 && f.NullWhenEmpty) { _obj[f.Name] = null; break; }
                         if (f.IdCombo)
                         {
                             int col = raw.IndexOf(':');
@@ -708,12 +837,18 @@ namespace InstantaleSaveEditor
             if (field == "image_src" && ImageSrcPickerEnabled && val is JsonValue)
             { AddImageSrcRow(t, row, field, val.ToString()); return; }
             // ComboBox ファクトリが登録されていれば優先して使う（文字列値のみ対象）。
-            if (_comboFactories.TryGetValue(field, out var combo) && val is JsonValue)
+            // 値が JSON null のフィールドもプルダウンで編集できるようにする（未設定の owner/tier/
+            // current_area などが JSON 編集ボタンに落ちると、実データの大半で選択 UI が使えなくなる）。
+            if (_comboFactories.TryGetValue(field, out var combo) && (val is JsonValue || val is null))
             {
-                var cb = combo.factory(val.ToString());
+                var cb = combo.factory(val?.ToString() ?? "");
                 cb.Dock = DockStyle.Fill;
                 t.Controls.Add(cb, 1, row);
-                _fields.Add(new FieldRef { Name = field, Kind = "combo", Combo = cb, IdCombo = combo.idPrefixed });
+                _fields.Add(new FieldRef
+                {
+                    Name = field, Kind = "combo", Combo = cb,
+                    IdCombo = combo.idPrefixed, NullWhenEmpty = combo.nullWhenEmpty,
+                });
                 return;
             }
             if (val is JsonValue jv)
@@ -753,7 +888,7 @@ namespace InstantaleSaveEditor
                     if (multi)
                     {
                         var rtb = new ResizableTextBox(520, 96) { Dock = DockStyle.Top, Margin = new Padding(3, 3, 3, 8) };
-                        rtb.Box.Text = s;
+                        rtb.Value = s;   // LF 単独の改行を CRLF に直して表示する
                         var fr = new FieldRef { Name = field, Kind = "text", Tb = rtb.Box };
                         rtb.Box.Leave += (_, _) => CommitField(fr);
                         t.Controls.Add(rtb, 1, row); _fields.Add(fr);
@@ -783,6 +918,9 @@ namespace InstantaleSaveEditor
             inner.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 96));
 
             var pic = new PictureBox { Width = 48, Height = 48, SizeMode = PictureBoxSizeMode.Zoom, BorderStyle = BorderStyle.FixedSingle, Margin = new Padding(2) };
+            // PictureBox.Dispose() は Image を破棄しない。レコードを選び直すたびに
+            // プレビュー画像の GDI ハンドルが残るため、破棄時に明示的に片付ける。
+            pic.Disposed += (_, _) => { pic.Image?.Dispose(); pic.Image = null; };
             var tb = new TextBox { Text = src, Dock = DockStyle.Fill };
             var fr = new FieldRef { Name = field, Kind = "text", Tb = tb };
             var btn = new Button { Text = I18n.T("btn.browse"), Width = 88, Margin = new Padding(2) };
@@ -859,9 +997,11 @@ namespace InstantaleSaveEditor
             {
                 inner.Controls.Add(new Label { Text = LabelOf(kv.Key), AutoSize = true, Padding = new Padding(2, 6, 4, 0) }, 0, r);
                 var rtb = new ResizableTextBox(480, 72) { Dock = DockStyle.Top, Margin = new Padding(3, 3, 3, 8) };
-                rtb.Box.Text = J.Str(map, kv.Key);
+                rtb.Value = J.Str(map, kv.Key);
                 string k = kv.Key;
-                rtb.Box.Leave += (_, _) => { if (_obj != null) map[k] = rtb.Box.Text; };
+                bool Commit() { if (_obj != null && !rtb.Box.IsDisposed) map[k] = rtb.Value; return true; }
+                rtb.Box.Leave += (_, _) => Commit();
+                _commits.Add(Commit);
                 inner.Controls.Add(rtb, 1, r);
                 r++;
             }
@@ -917,7 +1057,10 @@ namespace InstantaleSaveEditor
                 var cb = new ComboBox
                 { DropDownStyle = ComboBoxStyle.DropDown, Width = 220, AutoCompleteMode = AutoCompleteMode.SuggestAppend, AutoCompleteSource = AutoCompleteSource.ListItems };
                 cb.Text = J.Str(_attrsObj, "item_detail");
-                cb.Leave += (_, _) => { if (_obj != null) _attrsObj["item_detail"] = cb.Text.Trim(); };
+                // _attrsObj は ApplyAttributeSchema で差し替わるため、フィールドを都度読む。
+                bool CommitDetail() { if (_obj != null && _attrsObj != null && !cb.IsDisposed) _attrsObj["item_detail"] = cb.Text.Trim(); return true; }
+                cb.Leave += (_, _) => CommitDetail();
+                _commits.Add(CommitDetail);
                 _itemDetailCombo = cb;
                 inner.Controls.Add(cb, 1, r);
                 PopulateItemDetail();   // 初期候補を現在の item_type から流し込む
@@ -1072,13 +1215,30 @@ namespace InstantaleSaveEditor
             else if (jv != null && jv.GetValueKind() == JsonValueKind.Number && TryGetInteger(jv, out long lv))
             {
                 var tb = new TextBox { Text = lv.ToString(), Width = 160 };
-                tb.Leave += (_, _) => { if (_obj == null) return; if (long.TryParse(tb.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out long n)) { map[key] = n; Ok(tb); } else tb.BackColor = Color.MistyRose; };
+                // 不正値は赤くするだけで書き込まない。Apply（保存直前）では型エラーとして中断させる。
+                bool Commit()
+                {
+                    if (_obj == null || tb.IsDisposed) return true;
+                    if (long.TryParse(tb.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out long n))
+                    { map[key] = n; Ok(tb); return true; }
+                    tb.BackColor = Color.MistyRose; return false;
+                }
+                tb.Leave += (_, _) => Commit();
+                _commits.Add(() => Commit() || Fail(key, I18n.T("type.integer")));
                 inner.Controls.Add(tb, 1, r);
             }
             else if (jv != null && jv.GetValueKind() == JsonValueKind.Number)
             {
                 var tb = new TextBox { Text = GetNumber(jv).ToString(CultureInfo.InvariantCulture), Width = 160 };
-                tb.Leave += (_, _) => { if (_obj == null) return; if (double.TryParse(tb.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out double n)) { map[key] = n; Ok(tb); } else tb.BackColor = Color.MistyRose; };
+                bool Commit()
+                {
+                    if (_obj == null || tb.IsDisposed) return true;
+                    if (double.TryParse(tb.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out double n))
+                    { map[key] = n; Ok(tb); return true; }
+                    tb.BackColor = Color.MistyRose; return false;
+                }
+                tb.Leave += (_, _) => Commit();
+                _commits.Add(() => Commit() || Fail(key, I18n.T("type.number")));
                 inner.Controls.Add(tb, 1, r);
             }
             else if (map[key] is not JsonValue)
@@ -1114,7 +1274,9 @@ namespace InstantaleSaveEditor
         private Control MakePlainStringBox(JsonObject map, string key, string val)
         {
             var tb = new TextBox { Text = val, Dock = DockStyle.Fill };
-            tb.Leave += (_, _) => { if (_obj != null) map[key] = tb.Text; };
+            bool Commit() { if (_obj != null && !tb.IsDisposed) map[key] = tb.Text; return true; }
+            tb.Leave += (_, _) => Commit();
+            _commits.Add(Commit);
             return tb;
         }
 
@@ -1148,11 +1310,15 @@ namespace InstantaleSaveEditor
                 var cb = new ComboBox { DropDownStyle = ComboBoxStyle.DropDown, Width = 200 };
                 cb.Items.AddRange(new object[] { "incomplete", "completed" });
                 cb.Text = val;
-                cb.Leave += (_, _) => { if (_obj != null) cfg[key] = cb.Text.Trim(); };
+                bool CommitCombo() { if (_obj != null && !cb.IsDisposed) cfg[key] = cb.Text.Trim(); return true; }
+                cb.Leave += (_, _) => CommitCombo();
+                _commits.Add(CommitCombo);
                 return cb;
             }
             var tb = new TextBox { Text = val, Dock = DockStyle.Fill };
-            tb.Leave += (_, _) => { if (_obj != null) cfg[key] = tb.Text; };
+            bool Commit() { if (_obj != null && !tb.IsDisposed) cfg[key] = tb.Text; return true; }
+            tb.Leave += (_, _) => Commit();
+            _commits.Add(Commit);
             return tb;
         }
 
@@ -1230,7 +1396,7 @@ namespace InstantaleSaveEditor
                     if (double.TryParse(f.Tb.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out double dv)) { _obj[f.Name] = dv; Ok(f.Tb); } else Bad(f.Tb);
                     break;
                 case "text":
-                    _obj[f.Name] = f.Tb.Text; Ok(f.Tb);
+                    _obj[f.Name] = LineEnds.FromBox(f.Tb.Text); Ok(f.Tb);
                     break;
             }
         }

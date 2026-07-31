@@ -157,15 +157,22 @@ namespace InstantaleSaveEditor
             string curArea = AreaComboHelper.ExtractId(_cbCurArea.Text);
             string curLoc = AreaComboHelper.ExtractId(_cbCurLoc.Text);
 
+            string category = J.Str(_pd, "category");
+            var look = LinesToArray(_tbLook.Text);
+
             // 実 NPC のキー順に合わせて組み立てる。
             var npc = new JsonObject
             {
                 ["name"] = Clone(_pd["name"]) ?? "",
                 ["id"] = id,
                 ["category"] = Clone(_pd["category"]) ?? "",
-                ["profile"] = Clone(_pd["profile"]) ?? "",
-                ["personality"] = Clone(_pd["personality"]) ?? "",
-                ["look_description"] = Clone(_pd["look_description"]) ?? "",
+                // profile / personality / look_description が空だとゲームの読込が無限ロードになる
+                // （実データは全 NPC が非空。player_data の personality は空のことが多い）。
+                // WorldRecordFactory の新規作成と同じ既定文で必ず埋める。
+                ["profile"] = NonEmpty(_pd["profile"], WorldRecordFactory.DefaultProfile()),
+                ["personality"] = NonEmpty(_pd["personality"], WorldRecordFactory.DefaultPersonality()),
+                ["look_description"] = NonEmpty(_pd["look_description"],
+                                                WorldRecordFactory.DefaultLookDescription(category, look)),
                 ["speech_style"] = EmptyToNull(_tbSpeech.Text),
                 ["job"] = _cbJob.Text.Trim(),
                 ["state"] = _tbState.Text,
@@ -183,7 +190,7 @@ namespace InstantaleSaveEditor
                 ["location"] = new JsonObject { ["area"] = null, ["node"] = null, ["facility"] = null },
                 ["inventory"] = Clone(_pd["inventory"]) ?? new JsonObject(),
                 ["image_src"] = Clone(_pd["image_src"]) ?? new JsonObject(),
-                ["look"] = LinesToArray(_tbLook.Text),
+                ["look"] = look,
                 ["memory"] = Clone(_pd["memory"]) ?? new JsonObject(),
                 ["life_log"] = new JsonArray(),   // 他NPCに合わせて消去する
 
@@ -233,6 +240,7 @@ namespace InstantaleSaveEditor
             if (J.Obj(_root, "npcs") is not JsonObject npcsInRoot)
             { npcsInRoot = _npcs; _root["npcs"] = npcsInRoot; }
             npcsInRoot[id] = npc;
+            ReserveNpcId(id);
 
             Added = true;
             ResultSummary = I18n.T("p2n.summary", J.Str(npc, "name"), id, J.Str(npc, "current_area"), J.Str(npc, "current_location"));
@@ -263,13 +271,33 @@ namespace InstantaleSaveEditor
         }
 
         // ---------------- 既定値・ヘルパ ----------------
-        // npcs の数値キー最大+1 を新 ID として返す（数値以外のキーは無視）。
+        // 文字列が空（null・空文字・空白のみ）なら既定文へ差し替える。
+        private static JsonNode NonEmpty(JsonNode src, string fallback)
+        {
+            string s = src?.ToString();
+            return string.IsNullOrWhiteSpace(s) ? fallback : Clone(src);
+        }
+
+        // 新 ID の既定値を返す。ゲームは index.npc をグローバルな採番カウンタとして使い、
+        // 実データでは index.npc == 最大キー+1 に密着していることが多い。単純に最大+1 を返すと
+        // 次にゲームが生成する NPC と同じ ID になり上書きされるため、index.npc も考慮して
+        // 未使用の ID を選ぶ（ここでは採番せず、確定は AddToNpcs の ReserveNpcId で行う）。
         private string NextNpcKey()
         {
             int max = -1;
             foreach (var kv in _npcs)
                 if (int.TryParse(kv.Key, out int n) && n > max) max = n;
-            return (max + 1).ToString();
+            int cur = Math.Max(max + 1, (int)J.Int(J.Obj(_root, "index"), "npc", 0));
+            while (_npcs.ContainsKey(cur.ToString())) cur++;
+            return cur.ToString();
+        }
+
+        // 使用した ID の次を index.npc へ書き戻し、ゲーム側の採番と衝突しないようにする。
+        private void ReserveNpcId(string id)
+        {
+            if (J.Obj(_root, "index") is not JsonObject index) return;
+            if (!int.TryParse(id, out int n)) return;
+            if (n + 1 > J.Int(index, "npc", 0)) index["npc"] = n + 1;
         }
 
         // player.location（施設ID 文字列）を current_location の既定として返す。

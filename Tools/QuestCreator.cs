@@ -309,10 +309,10 @@ namespace InstantaleSaveEditor
             var area = J.Obj(q, "area");
             _tbTitle.Text = J.Str(q, "quest_title");
             _tbClient.Text = J.Str(q, "client_name");
-            _summary.Box.Text = J.Str(q, "request_summary");
-            _statement.Box.Text = J.Str(q, "client_statement");
+            _summary.Value = J.Str(q, "request_summary");
+            _statement.Value = J.Str(q, "client_statement");
             _tbDungeon.Text = J.Str(area, "name");
-            _layout.Box.Text = J.Str(area, "layout_description");
+            _layout.Value = J.Str(area, "layout_description");
             _tbLocations.Text = LocationsCsv(area);
             _cbAtmo.Text = J.Str(area, "atomosphere");
             if (_templates[i].Difficulty is int d) _numDiff.Value = Math.Min(_numDiff.Maximum, Math.Max(_numDiff.Minimum, d));
@@ -353,7 +353,7 @@ namespace InstantaleSaveEditor
             { locations.Add(loc); locList.Add(loc); }
 
             // ダンジョン area を場所一覧から生成し、index で採番
-            var area = BuildDungeonArea(_tbDungeon.Text.Trim(), _layout.Box.Text, locList, _cbBgm.Text.Trim());
+            var area = BuildDungeonArea(_tbDungeon.Text.Trim(), _layout.Value, locList, _cbBgm.Text.Trim());
             area["id"] = areaId;
             RenumberDungeon(area, index, areas);
 
@@ -361,12 +361,12 @@ namespace InstantaleSaveEditor
             {
                 ["quest_title"] = _tbTitle.Text,
                 ["client_name"] = _tbClient.Text,
-                ["request_summary"] = _summary.Box.Text,
-                ["client_statement"] = _statement.Box.Text,
+                ["request_summary"] = _summary.Value,
+                ["client_statement"] = _statement.Value,
                 ["area"] = new JsonObject
                 {
                     ["name"] = _tbDungeon.Text.Trim(),
-                    ["layout_description"] = _layout.Box.Text,
+                    ["layout_description"] = _layout.Value,
                     ["locations"] = locations,
                     ["atomosphere"] = _cbAtmo.Text.Trim(),   // 元データの綴り
                 },
@@ -746,7 +746,7 @@ namespace InstantaleSaveEditor
             t.Controls.Add(Lbl(label), 0, r);
             var rtb = new ResizableTextBox(460, 70) { Dock = DockStyle.Top, Margin = new Padding(3, 3, 3, 8) };
             t.Controls.Add(rtb, 1, r);
-            t.Controls.Add(TemplateBtn(label, getter, v => rtb.Box.Text = v), 2, r); r++;
+            t.Controls.Add(TemplateBtn(label, getter, v => rtb.Value = v), 2, r); r++;
             return rtb;
         }
         private Button TemplateBtn(string label, Func<JsonObject, string> getter, Action<string> setter)

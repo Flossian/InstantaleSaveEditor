@@ -282,6 +282,10 @@ namespace InstantaleSaveEditor
         }
 
         // ファイルをバイト列経由で読み込み、GDI+ のファイルロックを回避する。
+        // ファイルを掴まずに画像を読む。Image.FromFile / new Bitmap(path) は Image を破棄するまで
+        // ファイルをロックするため、同じファイルへの保存（取込元＝取込先、顔切抜きの上書き）が失敗する。
+        private static Image LoadUnlocked(string path) => Image.FromStream(new MemoryStream(File.ReadAllBytes(path)));
+
         private static void LoadPb(PictureBox pb, string path)
         {
             pb.Image?.Dispose();
@@ -304,8 +308,9 @@ namespace InstantaleSaveEditor
             string dest = Path.Combine(_charDir, "face_image.png");
             try
             {
-                using var img = Image.FromFile(dlg.FileName);
-                img.Save(dest, ImageFormat.Png);
+                // Image.FromFile はファイルを掴んだままになり、取込元と取込先が同じだと保存に失敗する。
+                // 他の読み込み（LoadPb 等）と同じくバイト列経由にしてロックを避ける。
+                using (var img = LoadUnlocked(dlg.FileName)) img.Save(dest, ImageFormat.Png);
                 if (!_skip) LoadPb(_pbFace, dest);
             }
             catch (Exception ex)
@@ -328,8 +333,7 @@ namespace InstantaleSaveEditor
             string dest = Path.Combine(_charDir, StandFiles[ExternalIdx]);
             try
             {
-                using (var img = Image.FromFile(dlg.FileName))
-                    img.Save(dest, ImageFormat.Png);
+                using (var img = LoadUnlocked(dlg.FileName)) img.Save(dest, ImageFormat.Png);
                 if (!_skip) LoadPb(_pbStand[ExternalIdx], dest);
                 UpdateButtonStyles(); // 取込済みになったので「使用する」を有効化（スキップ中は無効のまま）
 
@@ -349,7 +353,8 @@ namespace InstantaleSaveEditor
             string dest = Path.Combine(_charDir, "face_image.png");
             try
             {
-                using var bmp = new Bitmap(src);
+                using var srcImg = LoadUnlocked(src);   // src をロックせずに読む（dest と同一のこともある）
+                using var bmp = new Bitmap(srcImg);
                 using var dlg = new FaceCropDialog(bmp);
                 if (dlg.ShowDialog(FindForm()) == DialogResult.OK && !dlg.CropRect.IsEmpty)
                 {

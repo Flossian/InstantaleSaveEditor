@@ -101,7 +101,8 @@ namespace InstantaleSaveEditor
     internal sealed class TextEditDialog : Form
     {
         private readonly TextBox _t;
-        public string Value => _t.Text;
+        // 実データの改行は LF 単独。TextBox は CRLF しか改行と見ないため表示時/取得時に変換する。
+        public string Value => LineEnds.FromBox(_t.Text);
 
         public TextEditDialog(string title, string value)
         {
@@ -113,7 +114,7 @@ namespace InstantaleSaveEditor
                 WordWrap = true,
                 Dock = DockStyle.Fill,
                 AcceptsReturn = true,
-                Text = value,
+                Text = LineEnds.ToBox(value),
             };
             var ok = new Button { Text = I18n.T("btn.ok"), Dock = DockStyle.Right, Width = 90, DialogResult = DialogResult.OK };
             var cancel = new Button { Text = I18n.T("btn.cancel"), Dock = DockStyle.Right, Width = 90, DialogResult = DialogResult.Cancel };

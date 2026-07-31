@@ -118,11 +118,7 @@ namespace InstantaleSaveEditor
         private static byte[] ReadImage(ZipArchive zip)
         {
             var e = zip.GetEntry("images/image.png");
-            if (e == null) return null;
-            using var s = e.Open();
-            using var ms = new MemoryStream();
-            s.CopyTo(ms);
-            return ms.ToArray();
+            return ZipSafe.ReadAllBytes(e);
         }
 
         // ---------------- エクスポート ----------------
@@ -164,7 +160,7 @@ namespace InstantaleSaveEditor
                 w.Write(wrapper.ToJsonString(Codec.Pretty));
 
             string bg = (worldDir != null && name.Length > 0)
-                ? Path.Combine(worldDir, "backgrounds", name, "image.png") : null;
+                ? Path.Combine(worldDir, "backgrounds", NpcPortability.SafeFileName(name), "image.png") : null;
             if (bg != null && File.Exists(bg))
                 zip.CreateEntryFromFile(bg, "images/image.png");
         }
@@ -187,17 +183,20 @@ namespace InstantaleSaveEditor
             };
         }
 
-        // area 配下（全ノード）の facilities の数値キー最大+1 を新しい施設 ID として返す。
-        // connections はノードを跨いで同一エリア内の施設を参照するため、ノード単位ではなくエリア全体で採番する。
-        public static string NextFacilityId(JsonObject area)
+        // 新しい施設 ID を返す。施設 ID はダンジョンを除くエリアをまたいで一意で（実データ 3 ワールドの
+        // 非ダンジョン施設 357 件すべてで重複なし）、ゲームは index.facility をグローバルなカウンタとして
+        // 使う。エリア内の最大+1 で採番すると他エリアの既存施設と衝突するため、ワールドタブの新規作成
+        // （WorldTab.CreateFacility）と同じ採番器を共用する。
+        public static string NextFacilityId(JsonObject areas, JsonObject index)
         {
-            int max = -1;
-            if (J.Obj(area, "nodes") is JsonObject nodes)
-                foreach (var nk in nodes)
-                    if (J.Obj(nk.Value as JsonObject, "facilities") is JsonObject facs)
-                        foreach (var kv in facs)
-                            if (int.TryParse(kv.Key, out int n) && n > max) max = n;
-            return (max + 1).ToString();
+            var (_, facIds) = WorldRecordFactory.CollectNodeFacilityIds(areas);
+            if (index != null) return QuestCreator.NextId(index, "facility", facIds.Contains);
+            // index を持たないファイル向けのフォールバック（全施設の最大+1 から空きを探す）。
+            int cur = 0;
+            foreach (var id in facIds)
+                if (int.TryParse(id, out int n) && n >= cur) cur = n + 1;
+            while (facIds.Contains(cur.ToString())) cur++;
+            return cur.ToString();
         }
     }
 
@@ -468,7 +467,10 @@ namespace InstantaleSaveEditor
 
             // 取込施設の組み立て。connections はエクスポートで空にしているため、接続先と双方向に張る。
             var fac = _pkg.Facility;
-            string newFid = FacilityPortability.NextFacilityId(area);
+            // owner(NPC ID) は移植先では別の NPC を指す。エクスポート側でも外しているが、
+            // 手書きの zip が値を持っている場合に備えて取込側でも必ず null に戻す。
+            fac["owner"] = null;
+            string newFid = FacilityPortability.NextFacilityId(_areas, J.Obj(_root, "index"));
             fac["id"] = newFid;
             fac["name"] = name;
             fac["connections"] = new JsonArray { targetFid };
@@ -492,7 +494,8 @@ namespace InstantaleSaveEditor
             {
                 try
                 {
-                    string dir = Path.Combine(_worldDir, "backgrounds", name);
+                    // name は zip の original_name 由来のことがあるためサニタイズしてから使う。
+                    string dir = Path.Combine(_worldDir, "backgrounds", NpcPortability.SafeFileName(name));
                     string path = Path.Combine(dir, "image.png");
                     if (!File.Exists(path))
                     {

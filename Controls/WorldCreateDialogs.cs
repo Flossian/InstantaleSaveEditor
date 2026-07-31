@@ -194,12 +194,13 @@ namespace InstantaleSaveEditor
 
         // 記述フィールドの既定文（空だとゲームの読込が無限ロードになるため必ず非空にする）。
         // profile / personality はゲーム内容用の汎用文（作成後に上書き前提）。
-        private static string DefaultProfile() => "この地で暮らす人物。詳しい経歴はまだ語られていない。";
-        private static string DefaultPersonality() => "落ち着いた物腰で、接する相手に応じて態度を変える。";
+        // プレイヤーの NPC 化（PlayerToNpc）でも同じ既定文を使うため internal。
+        internal static string DefaultProfile() => "この地で暮らす人物。詳しい経歴はまだ語られていない。";
+        internal static string DefaultPersonality() => "落ち着いた物腰で、接する相手に応じて態度を変える。";
 
         // look_description は立ち絵生成のプロンプトに使われるため、外見タグ（look）があればそれを
         // 列挙して充てる。タグが無ければ category を使い、それも無ければ最低限の非空文字にする。
-        private static string DefaultLookDescription(string category, JsonArray look)
+        internal static string DefaultLookDescription(string category, JsonArray look)
         {
             var tags = look.Select(t => t?.ToString())
                            .Where(s => !string.IsNullOrWhiteSpace(s))

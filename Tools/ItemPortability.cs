@@ -8,6 +8,35 @@ using System.Text.Json.Nodes;
 
 namespace InstantaleSaveEditor
 {
+    // 配布 zip（NPC/施設/アイテム）から中身を読むときの共通ガード。
+    // エントリを無制限に MemoryStream へ展開すると、圧縮率の高い細工 zip（zip bomb）1 つで
+    // メモリを食い潰せる。一覧画面は npc\ / facility\ / item\ 配下の全 zip を無条件に走査するため、
+    // 置いておくだけで画面を開いた瞬間に落とせてしまう。上限を超えるエントリは読まない。
+    internal static class ZipSafe
+    {
+        public const long MaxEntryBytes = 32L * 1024 * 1024;   // 画像1枚として十分な上限
+
+        // エントリを丸ごと読む。宣言サイズが上限超過、または実際の読み出しが上限を超えたら null。
+        public static byte[] ReadAllBytes(ZipArchiveEntry e, long max = MaxEntryBytes)
+        {
+            if (e == null || e.Length > max) return null;
+            try
+            {
+                using var s = e.Open();
+                using var ms = new MemoryStream();
+                var buf = new byte[81920];
+                int n;
+                while ((n = s.Read(buf, 0, buf.Length)) > 0)
+                {
+                    if (ms.Length + n > max) return null;   // 宣言サイズを偽っている場合の保険
+                    ms.Write(buf, 0, n);
+                }
+                return ms.ToArray();
+            }
+            catch { return null; }
+        }
+    }
+
     // zip から読み出したアイテムパッケージ。
     internal sealed class ItemPackage
     {
@@ -77,10 +106,7 @@ namespace InstantaleSaveEditor
             foreach (var e in zip.Entries)
             {
                 if (!e.FullName.StartsWith("image/") || e.Name.Length == 0) continue;
-                using var s = e.Open();
-                using var ms = new MemoryStream();
-                s.CopyTo(ms);
-                pkg.ImageBytes = ms.ToArray();
+                pkg.ImageBytes = ZipSafe.ReadAllBytes(e);
                 break;   // アイテムの画像は1枚のみ
             }
             return pkg;
@@ -88,10 +114,12 @@ namespace InstantaleSaveEditor
 
         // 同梱画像を GameAssetRoot 配下の元の相対パスへ書き出す。
         // 既に同名ファイルがある（ゲーム標準アセット等）場合は触らない。
+        // imageRel は配布 zip 由来（＝信頼できない）ため、assetRoot 配下に収まる場合のみ書き出す。
         public static void PlaceImage(string assetRoot, string imageRel, byte[] bytes)
         {
             if (string.IsNullOrEmpty(assetRoot) || string.IsNullOrEmpty(imageRel) || bytes == null) return;
-            string full = Path.Combine(assetRoot, imageRel.Replace('/', Path.DirectorySeparatorChar));
+            string full = SafePath.ResolveUnder(assetRoot, imageRel);
+            if (full == null) return;   // assetRoot の外を指す細工されたパスは無視する
             if (File.Exists(full)) return;
             string dir = Path.GetDirectoryName(full);
             if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);

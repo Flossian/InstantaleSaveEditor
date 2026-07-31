@@ -127,8 +127,9 @@ namespace InstantaleSaveEditor
             }
 
             // --- ストーリークエスト（開始集落以外を昇順難易度で巡る） ---
-            int storyCount = Math.Min(settlements - 1, _questNames.StoryTitles.Count);
-            var storyTitles = PickDistinct(_questNames.StoryTitles, storyCount);
+            var storyPool = Require(_questNames.StoryTitles, "quests.json (story_titles)");
+            int storyCount = Math.Min(settlements - 1, storyPool.Count);
+            var storyTitles = PickDistinct(storyPool, storyCount);
             for (int i = 0; i < storyCount; i++)
             {
                 string sid = i.ToString();
@@ -491,7 +492,8 @@ namespace InstantaleSaveEditor
             return (PickFacilityName(svc, tier, townName), tier);
         }
 
-        // tier を basic/standard/advanced から重み付きで選ぶ（開始集落は標準が多め）。
+        // tier を basic/standard/advanced から重み付きで選ぶ（basic 35% / standard 45% / advanced 20%）。
+        // 集落による差は付けない。
         private string PickTier()
         {
             int r = _rng.Next(100);
@@ -596,7 +598,7 @@ namespace InstantaleSaveEditor
             int difficultyLevel = JitterDifficulty(areaDifficulty);
             int experienceLevel = JitterDifficulty(areaDifficulty);
             var look = new JsonArray { lookHead };
-            foreach (var t in _rng.Sample(_npcNames.LookTags, 5)) look.Add(t);
+            foreach (var t in _rng.Sample(Require(_npcNames.LookTags, "npc.json (look_tags)"), 5)) look.Add(t);
 
             return new JsonObject
             {

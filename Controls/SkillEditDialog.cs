@@ -44,7 +44,7 @@ namespace InstantaleSaveEditor
             _maxUses.Text = J.Int(_sk, "max_uses").ToString();
             _curUses.Text = J.Int(_sk, "current_uses").ToString();
             _useful.Text = J.Int(_sk, "usefulness").ToString();
-            _desc.Text = J.Str(_sk, "description");
+            _desc.Text = LineEnds.ToBox(J.Str(_sk, "description"));
             RefreshEffects();
 
             // --- レイアウト ---
@@ -92,12 +92,14 @@ namespace InstantaleSaveEditor
                 if (!TryInt(_curUses, "skill.field.currentUses", out long cu)) return;
                 if (!TryInt(_useful, "skill.field.usefulness", out long us)) return;
                 _sk["name"] = _name.Text;
-                _sk["description"] = _desc.Text;
+                _sk["description"] = LineEnds.FromBox(_desc.Text);
                 _sk["max_uses"] = mx;
                 _sk["current_uses"] = cu;
                 _sk["element"] = _element.Text;
                 _sk["skill_type"] = _type.Text;
-                _sk["usefulness"] = us;
+                // usefulness は player_data のスキルにしか無い（実データの NPC スキル 458 件は
+                // 全て未所持）。無い相手に足すと実データに無い形になるため、元からある場合だけ書く。
+                if (_sk.ContainsKey("usefulness")) _sk["usefulness"] = us;
                 _sk["effects"] = _effects;   // 切り離していた配列を付け直す
                 ResultNode = _sk;
                 DialogResult = DialogResult.OK; Close();
@@ -210,7 +212,7 @@ namespace InstantaleSaveEditor
             _duration.Text = J.Int(_ef, "duration").ToString();
             _statusName.Text = J.Str(_ef, "status_name");
             _intensity.Text = J.Int(_ef, "intensity").ToString();
-            _desc.Text = J.Str(_ef, "description");
+            _desc.Text = LineEnds.ToBox(J.Str(_ef, "description"));
             RefreshPerTurn();
 
             // 各行は「ラベル＋フィールドを1つにまとめたコンテナ」を1セルに置く。表示切替はコンテナ単位で行うため、
@@ -307,7 +309,7 @@ namespace InstantaleSaveEditor
                 if (t == "text_status")
                 {
                     o["status_name"] = _statusName.Text;
-                    o["description"] = _desc.Text;
+                    o["description"] = LineEnds.FromBox(_desc.Text);
                     if (!SkillEditDialog.TryInt(_duration, "effect.field.duration", out long du)) return;
                     o["duration"] = du;
                     if (!SkillEditDialog.TryInt(_intensity, "effect.field.intensity", out long it)) return;

@@ -374,7 +374,9 @@ namespace InstantaleSaveEditor
                     var (x, y, _, _) = CellRect(_dragId);
                     _dragOffset = new Point(_pressPos.X - x * CellSize, _pressPos.Y - y * CellSize);
                     _dragging = true;
-                    HideTip();
+                    // OnMouseLeave と同じく _hoverId も落とす。残したままだとドラッグ後に
+                    // 同じアイテム上へ戻ったとき「変化なし」と判定され、ツールチップが復帰しない。
+                    HideTip(); _hoverId = null;
                 }
             }
 
@@ -975,19 +977,16 @@ namespace InstantaleSaveEditor
             int rows = Math.Max(1, Settings.Current?.InventoryGridRows ?? 6);
             int w = Math.Max(1, (int)J.Int(item, "width_slots", 1));
             int h = Math.Max(1, (int)J.Int(item, "height_slots", 1));
-            item["grid_pos"] = ItemPortability.FindFreeGridPos(_inv, w, h, cols, rows);
+            // 追加・倉庫取り出しと同じく画面の左上から詰める（zip インポートだけ下に置かれるのを防ぐ）。
+            item["grid_pos"] = ItemPortability.FindFreeGridPosTopLeft(_inv, w, h, cols, rows);
 
             _inv[newId] = item;
             Reload();
             MessageBox.Show(I18n.T("msg.itemImported", J.Str(item, "name", newId), newId), I18n.T("title.importDone"), MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
-        // ファイル名に使えない文字を '_' に置き換える。
-        private static string SafeFileName(string s)
-        {
-            foreach (var c in Path.GetInvalidFileNameChars()) s = s.Replace(c, '_');
-            return string.IsNullOrWhiteSpace(s) ? "item" : s;
-        }
+        // ファイル名に使えない文字を '_' に置き換える（".." や予約デバイス名も潰す共通実装）。
+        private static string SafeFileName(string s) => SafePath.FileName(s, "item");
 
         // inventory に追加する新ID（item_N の N=既存最大+1）。
         public static string NextItemId(JsonObject inv)
