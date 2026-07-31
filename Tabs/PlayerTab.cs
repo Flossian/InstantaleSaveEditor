@@ -161,7 +161,7 @@ namespace InstantaleSaveEditor
             }
             // 説明3項目（複数行）。
             foreach (var tb in new[] { "profile", "personality", "look_description" })
-                _pd[tb] = _descs[tb].Text;
+                _pd[tb] = LineEnds.FromBox(_descs[tb].Text);   // 改行は実データに合わせて LF で書き戻す
 
             // 基礎能力値（小数で保持）。無ければ作る。
             var oas = J.Obj(_pd, "original_ability_scores");
@@ -189,16 +189,7 @@ namespace InstantaleSaveEditor
             // 装備: コンボの選択をアイテムID(なし=スロットのキーを持たせない)として反映。
             // 未装備スロットを null キーで増やすと、装備なしの元データ（空辞書 {}）と差分が出る。
             // 値があるスロットだけキーを持たせ、無ければキーを削除して元データと同一に保つ。
-            var weapon = ComboVal(_cbWeapon);
-            var wearable = ComboVal(_cbWearable);
-            var eq = J.Obj(_pd, "equipments");
-            if (eq == null && (weapon != null || wearable != null))
-            { eq = new JsonObject(); _pd["equipments"] = eq; }   // 装備が付くときだけ辞書を新設
-            if (eq != null)
-            {
-                SetEquipSlot(eq, "weapon", weapon);
-                SetEquipSlot(eq, "wearable", wearable);
-            }
+            CommitEquipments();
 
             // 生涯ログ: グリッドの行内容を life_log 配列へ反映。
             if (_lifeLog != null) _pd["life_log"] = _lifeLog.ToArray();
@@ -280,7 +271,7 @@ namespace InstantaleSaveEditor
             {
                 t.Controls.Add(L(I18n.T(label)), 0, row++);
                 var rtb = new ResizableTextBox(520, 90) { Dock = DockStyle.Top, Margin = new Padding(3, 3, 3, 8) };
-                rtb.Box.Text = J.Str(_pd, key);
+                rtb.Value = J.Str(_pd, key);   // LF 単独の改行を CRLF に直して表示する
                 t.Controls.Add(rtb, 0, row++); _descs[key] = rtb.Box;
             }
             g.Controls.Add(t);
@@ -390,7 +381,10 @@ namespace InstantaleSaveEditor
             // プレイヤーのみアイテム倉庫を併設する（NPC では無効）。
             // 変更時は装備コンボを作り直す（削除したアイテムを装備していた場合の追従）。
             _invPanel = new InventoryPanel(warehouseEnabled: true) { Dock = DockStyle.Top };
-            _invPanel.InventoryChanged += () => RefreshEquipCombos();
+            // インベントリを操作すると装備コンボを作り直すが、その復元元はモデル（_pd["equipments"]）。
+            // 先に現在の選択をモデルへ書いておかないと、まだ Apply() していない装備変更が
+            // 無言で元の値へ巻き戻る。
+            _invPanel.InventoryChanged += () => { CommitEquipments(); RefreshEquipCombos(); };
             // 個別倉庫(item\{world}\{char})の場所決定にワールド名（_worldDir 末尾）とキャラ名（player_data.name）を渡す。
             string worldName = string.IsNullOrEmpty(_worldDir) ? null : Path.GetFileName(_worldDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
             _invPanel.Bind(EnsureObj("inventory"), worldName, J.Str(_pd, "name"));   // 無ければ作る（追加操作の受け皿）
@@ -539,6 +533,20 @@ namespace InstantaleSaveEditor
         // コンボ選択をJSON値へ。「なし」(Id=null)は null、それ以外はアイテムID文字列。
         private static JsonNode ComboVal(ComboBox cb)
             => cb.SelectedItem is EquipChoice c && c.Id != null ? JsonValue.Create(c.Id) : null;
+
+        // 装備コンボの選択をモデルへ反映する。Apply() のほか、コンボを作り直す前にも呼ぶ。
+        private void CommitEquipments()
+        {
+            if (_pd == null || _cbWeapon == null || _cbWearable == null) return;
+            var weapon = ComboVal(_cbWeapon);
+            var wearable = ComboVal(_cbWearable);
+            var eq = J.Obj(_pd, "equipments");
+            if (eq == null && (weapon != null || wearable != null))
+            { eq = new JsonObject(); _pd["equipments"] = eq; }   // 装備が付くときだけ辞書を新設
+            if (eq == null) return;
+            SetEquipSlot(eq, "weapon", weapon);
+            SetEquipSlot(eq, "wearable", wearable);
+        }
 
         // 装備スロットを反映する。値があればキーへ設定、なし(null)ならキー自体を削除する。
         // （未装備を null キーとして残すと、装備なしの元データ {} との差分になるため。）

@@ -17,6 +17,7 @@ namespace InstantaleSaveEditor
         private JsonObject _root;                                           // 編集中のデータ全体
         private string _path;                                               // 現在のファイルパス
         private byte[] _baseline;                                           // 最後に読込/保存した時点の内容（未保存変更の検出用）
+        private bool _srcPlain;                                             // 開いたファイルが平文 JSON だったか
         private readonly Settings _settings;                                // ツール設定（バックアップ・表示）
 
         private const int MaxRecentFiles = 10;   // 「最近開いたファイル」の保持件数
@@ -422,6 +423,9 @@ namespace InstantaleSaveEditor
             }
             _root = root;
             _path = path;
+            // 平文 JSON（エクスポートした確認用ファイル等）を開いた場合は、保存時に黙って
+            // 難読化で上書きしないよう覚えておく。
+            _srcPlain = Codec.IsPlainJsonFile(path);
             // 数値の表記を UI の書き戻しと同じ形へ揃えておく（未保存変更の誤検知防止）。
             CanonicalizeNumbers(_root);
             // 次回ダイアログの初期位置に使うため、開いたフォルダを記憶する（AddRecent が設定保存も行う）。
@@ -484,16 +488,28 @@ namespace InstantaleSaveEditor
             if (_root == null) return false;
             if (_path == null) return SaveFileAs();
             if (!ApplyAll()) return false;
+            // 平文 JSON を開いていた場合、難読化で上書きすると形式が黙って変わる。どちらで書くか確認する。
+            bool plain = _srcPlain;
+            if (plain)
+            {
+                var ans = MessageBox.Show(this, I18n.T("msg.plainSaveConfirm"), I18n.T("title.confirm"),
+                    MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
+                if (ans == DialogResult.Cancel) return false;
+                if (ans == DialogResult.Yes) { plain = false; _srcPlain = false; }   // 以後は難読化で保存する
+            }
             byte[] bytes;
             try
             {
                 // 書き込む内容を先に確定し、上書き直前にディスク上のファイルをバックアップする。
-                bytes = Codec.Encode(_root);
+                bytes = plain
+                    ? new UTF8Encoding(false).GetBytes(_root.ToJsonString(Codec.Pretty))
+                    : Codec.Encode(_root);
                 BackupManager.BackupBeforeOverwrite(_path, bytes, _settings);
-                File.WriteAllBytes(_path, bytes);
+                Codec.WriteAtomic(_path, bytes);
             }
             catch (Exception ex) { MessageBox.Show(this, ex.Message, I18n.T("title.saveFailed"), MessageBoxButtons.OK, MessageBoxIcon.Error); return false; }
-            _baseline = bytes;
+            // 未保存判定は保存形式によらず難読化後のバイトで統一する。
+            _baseline = Codec.Encode(_root);
             Status("status.saved");
             return true;
         }

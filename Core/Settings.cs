@@ -137,9 +137,19 @@ namespace InstantaleSaveEditor
                     : s.BackupBaseFolderOverride;
                 Directory.CreateDirectory(destDir);
 
-                // 出力ファイル名 = <プレイヤー名>_savedata_yyyyMMdd_HHmmss.zip
+                // 出力ファイル名 = <プレイヤー名>_<スロット名>_savedata_yyyyMMdd_HHmmss.zip
+                // スロット名（セーブの親フォルダ）を入れて系列を分ける。BackupBaseFolderOverride で
+                // 複数ワールドを1フォルダにまとめても、世代削除が別ワールドの分を巻き込まない
+                // （world_data.json はプレイヤー名が取れず全て "unknown" になるため特に重要）。
+                string slot = Sanitize(Path.GetFileName(Path.GetDirectoryName(savePath)) ?? "");
+                string prefix = $"{player}_{slot}_savedata_";
                 string stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-                string zipPath = Path.Combine(destDir, $"{player}_savedata_{stamp}.zip");
+                // 秒精度なので同一秒に2回保存すると衝突する。ZipArchiveMode.Create は内部で
+                // FileMode.CreateNew を使い IOException になるため、空きが出るまで連番を足す
+                // （黙ってバックアップだけ欠落するのを防ぐ）。
+                string zipPath = Path.Combine(destDir, $"{prefix}{stamp}.zip");
+                for (int i = 2; File.Exists(zipPath) && i < 1000; i++)
+                    zipPath = Path.Combine(destDir, $"{prefix}{stamp}_{i}.zip");
 
                 // 内部エントリ名は元ファイル名のまま。バイトは無変換で格納する（内容は同一）。
                 string entryName = Path.GetFileName(savePath);
@@ -151,7 +161,11 @@ namespace InstantaleSaveEditor
                 }
 
                 // 世代の自動削除（ON のときのみ）。同系列の新しい順に保持数だけ残す。
-                if (s.AutoDeleteOldBackups) PruneOld(destDir, player, s.BackupRetentionCount);
+                // 既定の（セーブ隣の）backups\ は1スロット専用なので、旧命名 <プレイヤー名>_savedata_*
+                // のバックアップもまとめて刈る。共有フォルダ指定時は他ワールドの分を消さないため対象外。
+                if (s.AutoDeleteOldBackups)
+                    PruneOld(destDir, prefix, s.BackupRetentionCount,
+                             string.IsNullOrWhiteSpace(s.BackupBaseFolderOverride) ? $"{player}_savedata_" : null);
             }
             catch (Exception ex)
             {
@@ -160,15 +174,17 @@ namespace InstantaleSaveEditor
             }
         }
 
-        // 同一系列（<player>_savedata_*.zip）を更新日時の新しい順に keep 件残し、超過分を削除する。
-        private static void PruneOld(string destDir, string player, int keep)
+        // 同系列のバックアップを更新日時の新しい順に keep 件残し、超過分を削除する。
+        // legacyPrefix が指定された場合は旧命名の系列も同じ枠で刈る（null なら対象外）。
+        private static void PruneOld(string destDir, string prefix, int keep, string legacyPrefix)
         {
             if (keep < 1) keep = 1;
-            var files = new DirectoryInfo(destDir)
-                .GetFiles($"{player}_savedata_*.zip")
-                .OrderByDescending(f => f.LastWriteTimeUtc)
-                .ToList();
-            foreach (var f in files.Skip(keep))
+            var dir = new DirectoryInfo(destDir);
+            var files = dir.GetFiles($"{prefix}*.zip").ToList();
+            if (legacyPrefix != null) files.AddRange(dir.GetFiles($"{legacyPrefix}*.zip"));
+            foreach (var f in files.DistinctBy(f => f.FullName)
+                                   .OrderByDescending(f => f.LastWriteTimeUtc)
+                                   .Skip(keep))
                 try { f.Delete(); } catch { /* 削除失敗は無視 */ }
         }
 

@@ -128,11 +128,7 @@ namespace InstantaleSaveEditor
         // 倉庫に追加する新 id（item_N の N=既存最大+1。インベントリと同じ採番）。
         private string NextId() => InventoryPanel.NextItemId(_items);
 
-        // ファイル/フォルダ名に使えない文字を '_' に置き換える。
-        private static string Safe(string s)
-        {
-            foreach (var c in Path.GetInvalidFileNameChars()) s = s.Replace(c, '_');
-            return string.IsNullOrWhiteSpace(s) ? "item" : s;
-        }
+        // ファイル/フォルダ名に使えない文字を '_' に置き換える（".." や予約デバイス名も潰す）。
+        private static string Safe(string s) => SafePath.FileName(s, "item");
     }
 }

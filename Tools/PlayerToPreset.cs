@@ -78,6 +78,7 @@ namespace InstantaleSaveEditor
             var oas = _abilities;
             foreach (var key in AbilityKeys)
                 RoText(t, ref r, $"{I18n.T("ability." + key)} ({key})", RoundedAbility(oas, key).ToString());
+            if (AbilitiesUnset()) Note(t, ref r, I18n.T("p2p.note.abilitiesUnset", DefaultAbility.ToString()));
 
             // ── プリセット固有（gender は category から自動判別。gold/point_use は編集可） ──
             Header(t, ref r, I18n.T("p2p.header.edit"));
@@ -215,8 +216,23 @@ namespace InstantaleSaveEditor
         }
 
         // ---------------- 推定・解決 ----------------
+        // 能力値が未設定のときに充てる中庸値。実データでは NPC の約 45% が ability_scores の
+        // 各項目を null のまま持つ（ゲームが必要になった時点で埋める）。そのまま 0 として扱うと
+        // 実プリセットに存在しない能力値 0 で出力され、point_use も AbilityCost[6]=-5 の合計で
+        // 負値（実プリセットは 16〜300）になるため、未設定は既定値で補う。
+        private const long DefaultAbility = 10;
+
+        // その能力値が数値として設定されているか（null・キー無し・非数値は未設定とみなす）。
+        private static bool HasAbility(JsonObject oas, string key)
+            => oas?[key] is JsonValue v && v.TryGetValue<double>(out _);
+
         private static long RoundedAbility(JsonObject oas, string key)
-            => (long)Math.Round(J.Dbl(oas, key), MidpointRounding.AwayFromZero);
+            => HasAbility(oas, key)
+                ? (long)Math.Round(J.Dbl(oas, key), MidpointRounding.AwayFromZero)
+                : DefaultAbility;
+
+        // 能力値がひとつも設定されていない（＝全項目を既定値で補っている）か。
+        private bool AbilitiesUnset() => !AbilityKeys.Any(k => HasAbility(_abilities, k));
 
         // 能力値スコア → 累計才能値コスト（ゲームの対応表）。6〜30 の範囲外は端の値へ丸める。
         private static readonly Dictionary<long, long> AbilityCost = new()

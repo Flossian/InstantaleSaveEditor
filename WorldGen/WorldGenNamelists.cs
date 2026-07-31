@@ -65,9 +65,33 @@ namespace InstantaleSaveEditor
             => (_ext?[key] is JsonArray ea ? parse(ea) : null)
              ?? (_emb?[key] is JsonArray ba ? parse(ba) : null);
 
-        // "categories" 配列を返す（外部が非空ならそれを丸ごと採用、無ければ埋め込み）。
+        // "categories" 配列を返す。外部 namelist はカテゴリ単位（type、facilities は type+tier）で
+        // 埋め込みを上書きし、外部に書かれていないカテゴリは埋め込みの値を残す。
+        // 丸ごと置換にすると、一部の施設種別だけ差し替えるつもりで外部ファイルを置いたときに、
+        // 書かなかった種別の名前プールが全て消え、施設名が facility_type の文字列そのものになる。
         public JsonArray Categories()
-            => _ext?["categories"] is JsonArray a && a.Count > 0 ? a : _emb?["categories"] as JsonArray ?? new JsonArray();
+        {
+            var emb = _emb?["categories"] as JsonArray;
+            var ext = _ext?["categories"] as JsonArray;
+            if (ext == null || ext.Count == 0) return Copy(emb);
+            if (emb == null || emb.Count == 0) return Copy(ext);
+
+            var extKeys = new HashSet<(string type, string tier)>();
+            foreach (var n in ext) if (CategoryKey(n) is { } k) extKeys.Add(k);
+
+            var merged = Copy(ext);
+            foreach (var n in emb)
+                if (CategoryKey(n) is { } k && !extKeys.Contains(k)) merged.Add(n.DeepClone());
+            return merged;
+        }
+
+        // カテゴリの同一性キー。facilities.json は同じ type を tier 違いで複数持つため tier も含める。
+        private static (string type, string tier)? CategoryKey(JsonNode n)
+            => n is JsonObject o ? (J.Str(o, "type"), J.Str(o, "tier")) : null;
+
+        // 親付きノードは別の配列へ入れられないため複製して返す。
+        private static JsonArray Copy(JsonArray a)
+            => a == null ? new JsonArray() : (JsonArray)a.DeepClone();
 
         // "categories" 配下の names を全カテゴリ統合で集める（worlds/dungeons/quests 用）。
         public List<string> FlattenCategories()

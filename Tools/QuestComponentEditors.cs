@@ -65,7 +65,7 @@ namespace InstantaleSaveEditor
             var trait = J.Obj(_data, "trait");
             _type.Text = J.Str(_enemy, "type", defaultType);
             _name.Text = J.Str(_data, "name");
-            _desc.Text = J.Str(_data, "description");
+            _desc.Text = LineEnds.ToBox(J.Str(_data, "description"));
             _race.Text = J.Str(_data, "race");
             _size.Text = J.Str(_data, "size", src == null ? "medium" : "");
             _attr.Text = J.Str(_data, "attribute_type", src == null ? "balanced" : "");
@@ -73,7 +73,7 @@ namespace InstantaleSaveEditor
             _prompt.Text = string.Join(Environment.NewLine,
                 (J.Arr(look, "image_generation_prompt") ?? new JsonArray()).Select(n => n?.ToString() ?? ""));
             _traitName.Text = J.Str(trait, "name");
-            _traitDesc.Text = J.Str(trait, "description");
+            _traitDesc.Text = LineEnds.ToBox(J.Str(trait, "description"));
             RefreshSkills();
             RefreshDrops();
 
@@ -109,7 +109,7 @@ namespace InstantaleSaveEditor
             {
                 _enemy["type"] = _type.Text;
                 _data["name"] = _name.Text;
-                _data["description"] = _desc.Text;
+                _data["description"] = LineEnds.FromBox(_desc.Text);
                 var look = J.Obj(_data, "look"); if (look == null) { look = new JsonObject(); _data["look"] = look; }
                 look["category"] = _lookCat.Text;
                 var prompts = new JsonArray();
@@ -120,7 +120,7 @@ namespace InstantaleSaveEditor
                 _data["attribute_type"] = _attr.Text;
                 var trait = J.Obj(_data, "trait"); if (trait == null) { trait = new JsonObject(); _data["trait"] = trait; }
                 trait["name"] = _traitName.Text;
-                trait["description"] = _traitDesc.Text;
+                trait["description"] = LineEnds.FromBox(_traitDesc.Text);
                 // skills / drops は _data 内の配列を直接編集済み。
                 // ドロップは接尾辞付きの sub_type（"long_weapon" 等）だけ素の形へ直す
                 // （ライブラリや手編集由来の値でもゲームが落ちないように）。
@@ -251,7 +251,7 @@ namespace InstantaleSaveEditor
             _element.Text = J.Str(_sk, "element");
             _type.Text = J.Str(_sk, "skill_type", "physical");
             _maxUses.Text = J.Int(_sk, "max_uses", src == null ? 1 : 0).ToString();
-            _desc.Text = J.Str(_sk, "description");
+            _desc.Text = LineEnds.ToBox(J.Str(_sk, "description"));
             RefreshEffects();
 
             var grid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, AutoScroll = true, Padding = new Padding(8) };
@@ -291,7 +291,7 @@ namespace InstantaleSaveEditor
             {
                 if (!SkillEditDialog.TryInt(_maxUses, "skill.field.maxUses", out long mx)) return;
                 _sk["name"] = _name.Text;
-                _sk["description"] = _desc.Text;
+                _sk["description"] = LineEnds.FromBox(_desc.Text);
                 _sk["element"] = _element.Text;
                 _sk["skill_type"] = _type.Text;
                 _sk["max_uses"] = mx;
@@ -356,7 +356,7 @@ namespace InstantaleSaveEditor
             _catType.TextChanged += (_, _) => RefreshSubTypes();
 
             _name.Text = J.Str(_drop, "item_name");
-            _desc.Text = J.Str(_drop, "description");
+            _desc.Text = LineEnds.ToBox(J.Str(_drop, "description"));
             _appearance.Text = J.Str(_drop, "item_appearance");
             _catType.Text = J.Str(cat, "type", src == null ? "material" : "");
             RefreshSubTypes();
@@ -418,7 +418,7 @@ namespace InstantaleSaveEditor
             {
                 if (!SkillEditDialog.TryInt(_value, "drop.field.value", out long v)) return;
                 _drop["item_name"] = _name.Text;
-                _drop["description"] = _desc.Text;
+                _drop["description"] = LineEnds.FromBox(_desc.Text);
                 _drop["item_appearance"] = _appearance.Text;
                 var cat = J.Obj(_drop, "item_category"); if (cat == null) { cat = new JsonObject(); _drop["item_category"] = cat; }
                 cat["type"] = _catType.Text;
@@ -454,7 +454,7 @@ namespace InstantaleSaveEditor
             _ev = src != null ? (JsonObject)src.DeepClone() : new JsonObject();
             _name.Text = J.Str(_ev, "event_name");
             _category.Text = J.Str(_ev, "category", src == null ? "neutral" : "");
-            _desc.Text = J.Str(_ev, "event_description");
+            _desc.Text = LineEnds.ToBox(J.Str(_ev, "event_description"));
 
             var grid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, AutoScroll = true, Padding = new Padding(8) };
             grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150));
@@ -476,7 +476,7 @@ namespace InstantaleSaveEditor
             {
                 _ev["event_name"] = _name.Text;
                 _ev["category"] = _category.Text;
-                _ev["event_description"] = _desc.Text;
+                _ev["event_description"] = LineEnds.FromBox(_desc.Text);
                 ResultNode = _ev;
                 DialogResult = DialogResult.OK; Close();
             };

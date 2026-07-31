@@ -467,7 +467,9 @@ namespace InstantaleSaveEditor
                     _form.ClearComboFields();
                     // facility_type / tier は FieldOptions（外部 JSON 由来）のテンプレート候補のプルダウンにする。
                     _form.RegisterComboField("facility_type", val => MakeValueCombo(FieldOptions.Get("facility_type"), val));
-                    _form.RegisterComboField("tier", val => MakeValueCombo(FieldOptions.Get("tier"), val));
+                    // tier は実データで未設定を null で表すため、空欄は "" ではなく null で書き戻す。
+                    _form.RegisterComboField("tier", val => MakeValueCombo(FieldOptions.Get("tier"), val),
+                                             nullWhenEmpty: true);
                     // owner は所有者 NPC の ID。NPC 一覧から "ID: 名前" で選べるプルダウンにする。
                     _form.RegisterComboField("owner", val => MakeNpcCombo(val), idPrefixed: true);
                     // connections（接続施設ID配列）は同一エリア内の施設のみを候補にした専用欄にする。
@@ -915,11 +917,141 @@ namespace InstantaleSaveEditor
             if (MessageBox.Show(I18n.T("msg.duplicateConfirm", name, _curKind, _curKey), I18n.T("title.duplicateConfirm"),
                     MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
             if (!_form.Apply()) return;   // 表示中の編集を反映してから複製
-            string nk = NextKey(_curContainer);
+            var tag = _tree.SelectedNode?.Tag as string[];
+            var index = _root?["index"] as JsonObject;
+            var areas = _root?["areas"]?.AsObject();
+
+            // facility は ID がエリアを跨いで一意のため新規作成と同じグローバル採番を使い、
+            // connections は相手側にも張って双方向に保つ（実データは非対称ゼロ）。
+            if (tag != null && tag[0] == "facility")
+            {
+                if (_curContainer[_curKey]?.DeepClone() is not JsonObject fo) return;
+                string fid = FacilityPortability.NextFacilityId(areas, index);
+                fo["id"] = fid;
+                _curContainer[fid] = fo;
+                if (fo["connections"] is JsonArray conns)
+                    foreach (var peerId in conns.Select(n => n?.ToString() ?? "").ToList())
+                        if (EnumAreaFacilities(tag[1]).FirstOrDefault(p => p.id == peerId).fo is JsonObject peer)
+                            AddConnection(peer, fid);
+                CloneFacilityProgram(fo, fid);
+                Populate(); SelectByTag("facility", tag[1], tag[2], fid);
+                return;
+            }
+
+            if (tag != null && tag[0] == "item" && tag[1] == "areas") { DuplicateArea(index, areas); return; }
+
+            string nk = DuplicateKeyFor(tag, index);
             var clone = _curContainer[_curKey]?.DeepClone();
             if (clone is JsonObject co && co.ContainsKey("id")) co["id"] = nk;
             _curContainer[nk] = clone;
+            // 通常クエストは必ずどこかのエリアの quests に載る（実データ 78/78）。複製元と同じエリアへ登録する。
+            if (tag != null && tag[0] == "item" && tag[1] == "quests") RegisterQuestLikeOriginal(_curKey, nk);
             Populate();
+        }
+
+        // 複製先のキー。ID を持つセクションは index カウンタで採番して既存 ID を飛ばす
+        // （辞書内の最大+1 だとゲームが次に払い出す ID と衝突して上書きされる）。
+        private string DuplicateKeyFor(string[] tag, JsonObject index)
+        {
+            if (index != null && tag != null && tag[0] == "item")
+                switch (tag[1])
+                {
+                    case "npcs": return NpcPortability.NextNpcId(index, _curContainer);
+                    case "quests": return QuestCreator.NextId(index, "quest", _curContainer.ContainsKey);
+                }
+            return NextKey(_curContainer);
+        }
+
+        // 複製元クエストを掲示しているエリアの quests に、複製したクエストも登録する。
+        private void RegisterQuestLikeOriginal(string srcId, string newId)
+        {
+            if (_root?["areas"] is not JsonObject areas) return;
+            foreach (var kv in areas)
+            {
+                if (kv.Value is not JsonObject a || J.Arr(a, "quests") is not JsonArray arr) continue;
+                if (!arr.Any(n => (n?.ToString() ?? "") == srcId)) continue;
+                if (!arr.Any(n => (n?.ToString() ?? "") == newId)) arr.Add(newId);
+                return;
+            }
+        }
+
+        // 複製した施設が free 施設なら、プログラム本体も複製して新しい ID で結び直す
+        // （複製元と同じプログラムを指したままだと、片方の編集がもう片方にも及ぶ）。
+        private void CloneFacilityProgram(JsonObject fac, string newFid)
+        {
+            string pid = FreeFacilityProgram.ProgramIdOf(fac);
+            if (string.IsNullOrEmpty(pid)) return;
+            var progs = FreeFacilityProgram.Ensure(_root);
+            if (progs?[pid]?.DeepClone() is not JsonNode prog) return;   // 参照切れならそのまま
+            string npid = FreeFacilityProgram.NewId(progs, newFid);
+            progs[npid] = prog;
+            FreeFacilityProgram.SetProgramId(fac, npid);
+        }
+
+        // エリアの複製。node/facility の ID はワールド全体で一意なので全て採番し直し、内部参照
+        // （entrance_node / entrance_facility / 施設間 connections）を新 ID へ張り替える。
+        // エリア間接続・掲示クエスト・NPC 一覧・施設の owner は複製元と共有できないため空にする。
+        private void DuplicateArea(JsonObject index, JsonObject areas)
+        {
+            if (areas == null || index == null) { MessageBox.Show(I18n.T("msg.noAreasIndex")); return; }
+            if (_curContainer[_curKey]?.DeepClone() is not JsonObject area) return;
+
+            var (nodeIds, facIds) = WorldRecordFactory.CollectNodeFacilityIds(areas);
+            string aid = QuestCreator.NextId(index, "area", areas.ContainsKey);
+            area["id"] = aid;
+
+            var facMap = new Dictionary<string, string>();
+            var newNodes = new JsonObject();
+            string entranceNode = null;
+            foreach (var nkv in (J.Obj(area, "nodes") ?? new JsonObject()).ToList())
+            {
+                if (nkv.Value is not JsonObject nd) continue;
+                string nid = QuestCreator.NextId(index, "node", nodeIds.Contains);
+                nodeIds.Add(nid);
+                nd["id"] = nid;
+                entranceNode ??= nid;
+                var newFacs = new JsonObject();
+                foreach (var fkv in (J.Obj(nd, "facilities") ?? new JsonObject()).ToList())
+                {
+                    if (fkv.Value is not JsonObject fo) continue;
+                    string fid = QuestCreator.NextId(index, "facility", facIds.Contains);
+                    facIds.Add(fid);
+                    facMap[fkv.Key] = fid;
+                    fo["id"] = fid;
+                    newFacs[fid] = fo;
+                }
+                nd["facilities"] = newFacs;
+                newNodes[nid] = nd;
+            }
+            area["nodes"] = newNodes;
+
+            // 旧 ID で書かれた内部参照を新 ID へ差し替える（対応の無い参照は落とす）。
+            foreach (var nkv in newNodes)
+            {
+                if (nkv.Value is not JsonObject nd) continue;
+                if (facMap.TryGetValue(J.Str(nd, "entrance_facility"), out var nef)) nd["entrance_facility"] = nef;
+                if (J.Obj(nd, "facilities") is not JsonObject fs) continue;
+                foreach (var fkv in fs)
+                {
+                    if (fkv.Value is not JsonObject fo) continue;
+                    fo["owner"] = null;
+                    CloneFacilityProgram(fo, fkv.Key);
+                    if (fo["connections"] is not JsonArray conns) continue;
+                    var mapped = new JsonArray();
+                    foreach (var c in conns)
+                        if (facMap.TryGetValue(c?.ToString() ?? "", out var nc)) mapped.Add(nc);
+                    fo["connections"] = mapped;
+                }
+            }
+
+            area["entrance_node"] = entranceNode;
+            area["connections"] = new JsonArray();
+            area["quests"] = new JsonArray();
+            if (area.ContainsKey("resident_npcs")) area["resident_npcs"] = new JsonArray();
+            if (area.ContainsKey("adventurer_npcs")) area["adventurer_npcs"] = new JsonArray();
+
+            areas[aid] = area;
+            Populate(); SelectByTag("item", "areas", aid);
         }
 
         // 選択中の項目を生 JSON で直接編集する。OK なら差し替えてフォームを再バインドし、ツリーの表示名も更新する。
@@ -1010,7 +1142,19 @@ namespace InstantaleSaveEditor
             string msg = I18n.T("msg.deleteConfirm", _curKind, _curKey);
             if (node != null && node.Nodes.Count > 0 && tag != null
                 && (tag[0] == "facility" || (tag[0] == "item" && tag[1] == "areas")))
+            {
                 msg += "\n" + I18n.T("msg.deleteCascadeNote");
+                // 施設の接続ツリーは entrance_facility を根とする全域木なので、入口や
+                // ハブを消すとエリアの施設がまとめて消える。件数と名前を出して気付けるようにする。
+                if (tag[0] == "facility")
+                {
+                    var doomed = new List<string>();
+                    CollectDescendantLabels(node, doomed);
+                    if (doomed.Count > 0)
+                        msg += "\n" + I18n.T("msg.deleteCascadeCount", (doomed.Count + 1).ToString(),
+                            string.Join("\n", doomed.Take(15)) + (doomed.Count > 15 ? "\n…" : ""));
+                }
+            }
             if (MessageBox.Show(msg, I18n.T("title.confirm"), MessageBoxButtons.YesNo) != DialogResult.Yes) return;
 
             // 削除で参照されなくなる free 施設プログラムを拾っておく（削除後に PruneOrphanPrograms で始末する）。
@@ -1024,20 +1168,123 @@ namespace InstantaleSaveEditor
                 _curContainer.Remove(_curKey);
                 foreach (var (_, fo) in EnumAreaFacilities(tag[1]))
                     foreach (var id in removed) RemoveConnection(fo, id);
+                DetachFacilityRefs(tag[1], removed);
             }
             else
             {
+                bool isArea = tag != null && tag[0] == "item" && tag[1] == "areas";
                 // area 削除では配下の施設もまとめて消えるため、その全施設のプログラムを対象にする。
-                if (tag != null && tag[0] == "item" && tag[1] == "areas")
+                if (isArea)
                     foreach (var (_, fo) in EnumAreaFacilities(_curKey))
                         programs.Add(FreeFacilityProgram.ProgramIdOf(fo));
                 _curContainer.Remove(_curKey);
-                if (tag != null && tag[0] == "item" && tag[1] == "areas" && _root?["areas"] is JsonObject areas)
+                if (isArea && _root?["areas"] is JsonObject areas)
+                {
                     foreach (var kv in areas)
                         if (kv.Value is JsonObject o) RemoveConnection(o, _curKey);
+                    DetachAreaRefs(_curKey);
+                }
+                else if (tag != null && tag[0] == "item" && tag[1] == "npcs") DetachNpcRefs(_curKey);
+                // 通常クエストのみ。story_quests は areas[].quests から参照されず、ID 空間が
+                // quests と重複するため、ここで消すと同番の通常クエストの掲示が失われる。
+                else if (tag != null && tag[0] == "item" && tag[1] == "quests") DetachQuestRefs(_curKey);
             }
             PruneOrphanPrograms(programs);
             _form.Clear(); Populate();
+        }
+
+        // ---------------- 削除時の参照整理 ----------------
+        // 実データでは NPC・施設・クエストへの参照は必ず実在する ID を指し、未設定は null で表される。
+        // レコードを消したときに参照だけが残ると壊れたワールドになるため、配列からは要素を取り除き、
+        // 単一値のフィールドは null に戻す。
+
+        // 配列から id と一致する要素を（重複していても）すべて取り除く。
+        private static void RemoveFromArray(JsonArray arr, string id)
+        {
+            if (arr == null) return;
+            for (int i = arr.Count - 1; i >= 0; i--)
+                if ((arr[i]?.ToString() ?? "") == id) arr.RemoveAt(i);
+        }
+
+        // 全エリアの facility を (ID, オブジェクト) で列挙する。
+        private IEnumerable<(string id, JsonObject fo)> EnumAllFacilities()
+        {
+            if (_root?["areas"] is not JsonObject areas) yield break;
+            foreach (var akv in areas)
+                foreach (var pair in EnumAreaFacilities(akv.Key))
+                    yield return pair;
+        }
+
+        // 削除した NPC への参照を外す（エリアの住民/冒険者一覧・施設の owner・パーティ）。
+        private void DetachNpcRefs(string npcId)
+        {
+            if (_root?["areas"] is JsonObject areas)
+                foreach (var kv in areas)
+                {
+                    if (kv.Value is not JsonObject a) continue;
+                    RemoveFromArray(J.Arr(a, "resident_npcs"), npcId);
+                    RemoveFromArray(J.Arr(a, "adventurer_npcs"), npcId);
+                }
+            foreach (var (_, fo) in EnumAllFacilities())
+                if (J.Str(fo, "owner") == npcId) fo["owner"] = null;
+            if (J.Obj(_root, "game_variables") is JsonObject gv)
+            {
+                RemoveFromArray(J.Arr(gv, "party"), npcId);
+                RemoveFromArray(J.Arr(gv, "original_party"), npcId);
+            }
+        }
+
+        // 削除したクエストへの参照を外す（エリアの掲示クエスト一覧）。
+        private void DetachQuestRefs(string questId)
+        {
+            if (_root?["areas"] is not JsonObject areas) return;
+            foreach (var kv in areas)
+                if (kv.Value is JsonObject a) RemoveFromArray(J.Arr(a, "quests"), questId);
+        }
+
+        // 削除した施設への参照を外す（同エリア NPC の現在地/初期配置・ノードの入口施設）。
+        private void DetachFacilityRefs(string areaId, IEnumerable<string> facIds)
+        {
+            var set = new HashSet<string>(facIds.Where(s => !string.IsNullOrEmpty(s)));
+            if (set.Count == 0) return;
+            if (_root?["npcs"] is JsonObject npcs)
+                foreach (var kv in npcs)
+                {
+                    if (kv.Value is not JsonObject n) continue;
+                    if (J.Str(n, "current_area") == areaId && set.Contains(J.Str(n, "current_location")))
+                        n["current_location"] = null;
+                    if (J.Obj(n, "initial_location") is JsonObject il
+                        && J.Str(il, "area") == areaId && set.Contains(J.Str(il, "facility")))
+                        il["facility"] = null;
+                }
+            if (J.Obj(_root?["areas"]?[areaId] as JsonObject, "nodes") is JsonObject nodes)
+                foreach (var nk in nodes)
+                    if (nk.Value is JsonObject nd && set.Contains(J.Str(nd, "entrance_facility")))
+                        nd["entrance_facility"] = null;
+        }
+
+        // 削除したエリアへの参照を外す（NPC の現在地・初期配置。配下施設も一緒に消えるため施設側も null）。
+        private void DetachAreaRefs(string areaId)
+        {
+            if (_root?["npcs"] is not JsonObject npcs) return;
+            foreach (var kv in npcs)
+            {
+                if (kv.Value is not JsonObject n) continue;
+                if (J.Str(n, "current_area") == areaId)
+                { n["current_area"] = null; n["current_location"] = null; }
+                if (J.Obj(n, "initial_location") is JsonObject il && J.Str(il, "area") == areaId)
+                { il["area"] = null; il["facility"] = null; }
+            }
+        }
+
+        // ツリー上で node の配下に表示されている facility の表示名を再帰的に集める（削除確認の件数用）。
+        private static void CollectDescendantLabels(TreeNode node, List<string> labels)
+        {
+            foreach (TreeNode c in node.Nodes)
+            {
+                if (c.Tag is string[] t && t[0] == "facility") labels.Add(c.Text);
+                CollectDescendantLabels(c, labels);
+            }
         }
 
         // ツリー上で node の配下に表示されている facility の program_id を再帰的に集める（削除前に呼ぶ）。

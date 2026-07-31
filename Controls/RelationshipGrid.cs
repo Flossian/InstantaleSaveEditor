@@ -71,12 +71,15 @@ namespace InstantaleSaveEditor
         public JsonObject ToObject()
         {
             var result = new JsonObject();
+            var dropped = new List<string>();
             // player を先に書き、続けて残りを行順に書く。
             foreach (DataGridViewRow r in OrderedRows())
             {
                 var meta = r.Tag as RowMeta;
                 string key = (meta?.Key ?? r.Cells[ColTarget].Value?.ToString())?.Trim();
-                if (string.IsNullOrEmpty(key) || result.ContainsKey(key)) continue;
+                if (string.IsNullOrEmpty(key)) continue;
+                // 対象キーは辞書のキー。重複すると後の行が消えるため、黙って捨てずに知らせる。
+                if (result.ContainsKey(key)) { dropped.Add(key); continue; }
                 bool affArray = meta?.AffTextArray ?? true;   // 新規行は配列形式を既定とする
                 string affText = r.Cells[ColAffText].Value?.ToString() ?? "";
                 result[key] = new JsonObject
@@ -87,6 +90,9 @@ namespace InstantaleSaveEditor
                     ["conversation_count"] = ParseLong(r, ColConv),
                 };
             }
+            if (dropped.Count > 0)
+                MessageBox.Show(I18n.T("msg.relationshipDuplicate", string.Join(", ", dropped.Distinct())),
+                    I18n.T("title.confirm"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return result;
         }
 

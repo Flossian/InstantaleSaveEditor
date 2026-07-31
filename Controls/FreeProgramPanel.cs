@@ -126,7 +126,14 @@ namespace InstantaleSaveEditor
         // 行テーブルを作り直す。キー名の変更は辞書の作り替えになるため、確定ごとに全体を再構築する。
         private void Rebuild()
         {
-            _rows.Controls.Clear();
+            // Controls.Clear() は破棄せず切り離すだけ。キー名の変更・追加・削除のたびに
+            // 呼ばれるため、破棄しないと行の TextBox/Button のハンドルが溜まり続ける。
+            for (int i = _rows.Controls.Count - 1; i >= 0; i--)
+            {
+                var c = _rows.Controls[i];
+                _rows.Controls.RemoveAt(i);
+                c.Dispose();
+            }
             _rows.RowStyles.Clear();
             if (_model == null) return;
             int r = 0;
