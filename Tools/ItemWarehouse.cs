@@ -51,7 +51,12 @@ namespace InstantaleSaveEditor
             if (_loaded) return;
             _loaded = true;
             if (!Available || !Directory.Exists(_dir)) return;
-            foreach (var zip in Directory.EnumerateFiles(_dir, "*.zip"))
+            // 一覧の取得自体が失敗する（権限なし・列挙中に削除された）場合もファイル読込を
+            // 止めないよう、ここで確定させて例外を吸収する。
+            string[] zips;
+            try { zips = Directory.GetFiles(_dir, "*.zip"); }
+            catch { return; }
+            foreach (var zip in zips)
             {
                 try
                 {

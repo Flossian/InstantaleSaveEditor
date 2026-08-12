@@ -69,53 +69,76 @@ namespace InstantaleSaveEditor
 
         protected override void Dispose(bool disposing)
         {
-            if (disposing) I18n.LanguageChanged -= OnLanguageChanged;
+            if (disposing)
+            {
+                I18n.LanguageChanged -= OnLanguageChanged;
+                // player_data 無しのファイルを開いた後は _imagePanel が親から外れたままのため、
+                // コントロールツリー経由では破棄されない。ここで明示的に破棄する。
+                _imagePanel.Dispose();
+            }
             base.Dispose(disposing);
         }
 
         // player_data を読み込み、各セクションを縦に並べて表示する。player_data 無しなら案内のみ。
         public void Bind(JsonObject root, string filePath = null)
         {
+            // 旧セクションの破棄はフォーカス中の入力欄に Leave を発火させ、コミット処理が走る。
+            // 先に新しいモデルを入れると旧ファイルの入力値が新ファイルへ書き込まれるため、
+            // 必ずモデルを外してから破棄する（ObjectForm.Bind と同じ手順）。
+            _pd = null; _root = null; _areas = null;
+            // Controls.Clear() は切り離すだけで破棄しない。再バインドのたびに旧セクション
+            // （インベントリの画像キャッシュ含む）のハンドルが溜まり、枯渇でクラッシュするため破棄する。
+            // _imagePanel は使い回すため破棄対象から除外する。
+            Ui.DisposeChildren(_host, keep: _imagePanel);
+            _basic.Clear(); _abil.Clear(); _combos.Clear(); _descs.Clear();
+
             _root = root; _filePath = filePath;
             _areas = J.Obj(root, "areas");
             _pd = J.Obj(root, "player_data");
             _worldDir = WorldTab.ResolveWorldDir(filePath);
-            // Controls.Clear() は切り離すだけで破棄しない。再バインドのたびに旧セクション
-            // （インベントリの画像キャッシュ含む）のハンドルが溜まり、枯渇でクラッシュするため破棄する。
-            // _imagePanel は使い回すため先に親から外して破棄対象から除外する。
-            _imagePanel.Parent?.Controls.Remove(_imagePanel);
-            for (int i = _host.Controls.Count - 1; i >= 0; i--)
-            {
-                var c = _host.Controls[i];
-                _host.Controls.RemoveAt(i);
-                c.Dispose();
-            }
-            _basic.Clear(); _abil.Clear(); _combos.Clear();
             if (_pd == null)
             {
+                // このパスでは _imagePanel を作り直さないため、抱えている画像だけ先に解放する
+                // （外したまま放置すると GDI ハンドルが終了まで残る）。
+                _imagePanel.LoadImages(null);
                 _host.Controls.Add(new Label { Text = I18n.T("msg.noPlayerData"), AutoSize = true, Padding = new Padding(12) });
                 return;
             }
 
-            // 1列レイアウト。各セクションを Dock=Top で横幅いっぱい（ウィンドウ幅に追従）に。
-            var stack = new NonJumpingScrollPanel { Dock = DockStyle.Fill, ColumnCount = 1, AutoScroll = true, Padding = new Padding(8) };
-            stack.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            try
+            {
+                // 1列レイアウト。各セクションを Dock=Top で横幅いっぱい（ウィンドウ幅に追従）に。
+                var stack = new NonJumpingScrollPanel { Dock = DockStyle.Fill, ColumnCount = 1, AutoScroll = true, Padding = new Padding(8) };
+                stack.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
 
-            var sections = new Control[]
-            {
-                BuildJsonEdit(),
-                BuildBasic(), BuildDescriptions(), BuildImages(), BuildAbilities(), BuildBody(),
-                BuildSkills(), BuildTraits(), BuildInventoryAndEquip(), BuildLifeLog(), BuildAreaHistory(), BuildOpaque(),
-            };
-            for (int i = 0; i < sections.Length; i++)
-            {
-                sections[i].Dock = DockStyle.Top;
-                stack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-                stack.Controls.Add(sections[i], 0, i);
+                var sections = new Control[]
+                {
+                    BuildJsonEdit(),
+                    BuildBasic(), BuildDescriptions(), BuildImages(), BuildAbilities(), BuildBody(),
+                    BuildSkills(), BuildTraits(), BuildInventoryAndEquip(), BuildLifeLog(), BuildAreaHistory(), BuildOpaque(),
+                };
+                for (int i = 0; i < sections.Length; i++)
+                {
+                    sections[i].Dock = DockStyle.Top;
+                    stack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                    stack.Controls.Add(sections[i], 0, i);
+                }
+
+                _host.Controls.Add(stack);
+                LinkAreaCombos();
             }
-
-            _host.Controls.Add(stack);
-            LinkAreaCombos();
+            catch (Exception ex)
+            {
+                // 途中で失敗すると、破棄済みコントロールを指したままの中途半端なタブが残る。
+                // そのまま保存すると Apply() が破棄済みの欄を読んで失敗し続けるため、
+                // 表示を捨てて _pd も外し（Apply() は何もしない）、原因を出して開き直しを促す。
+                Ui.DisposeChildren(_host, keep: _imagePanel);
+                _basic.Clear(); _abil.Clear(); _combos.Clear(); _descs.Clear();
+                _pd = null;
+                _imagePanel.LoadImages(null);
+                _host.Controls.Add(new Label
+                { Text = I18n.T("msg.tabBuildFailed", ex.Message), AutoSize = true, Padding = new Padding(12), ForeColor = Color.Firebrick });
+            }
         }
 
         // current_area の選択変更に追従して location(施設)・current_node(ノード)の候補を作り直す。
@@ -169,16 +192,18 @@ namespace InstantaleSaveEditor
                 }
                 else _pd[key] = tb.Text;
             }
-            // 説明3項目（複数行）。
-            foreach (var tb in new[] { "profile", "personality", "look_description" })
-                _pd[tb] = LineEnds.FromBox(_descs[tb].Text);   // 改行は実データに合わせて LF で書き戻す
+            // 説明3項目（複数行）。欄が無い（構築に失敗した）場合は触らない。
+            foreach (var key in new[] { "profile", "personality", "look_description" })
+                if (_descs.TryGetValue(key, out var box))
+                    _pd[key] = LineEnds.FromBox(box.Text);   // 改行は実データに合わせて LF で書き戻す
 
             // 基礎能力値（小数で保持）。無ければ作る。
             var oas = J.Obj(_pd, "original_ability_scores");
             if (oas == null) { oas = new JsonObject(); _pd["original_ability_scores"] = oas; }
             foreach (var key in AbilityKeys)
             {
-                if (!double.TryParse(_abil[key].Text, NumberStyles.Float, CultureInfo.InvariantCulture, out double dv)) return Fail(key, I18n.T("type.number"));
+                if (!_abil.TryGetValue(key, out var abox)) continue;   // 欄が無い（構築に失敗した）場合は触らない
+                if (!double.TryParse(abox.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out double dv)) return Fail(key, I18n.T("type.number"));
                 oas[key] = dv;
             }
 
@@ -230,7 +255,10 @@ namespace InstantaleSaveEditor
                     return;
                 }
                 _root["player_data"] = obj;
-                Bind(_root, _filePath);   // 差し替え後のデータでUIを再構築
+                // Bind() はこのボタンごとタブを作り直すため、クリック処理が終わってから行う
+                // （実行中のボタンを破棄すると破棄済みハンドルへ処理が戻って落ちる）。
+                var root = _root; var path = _filePath;
+                Ui.Defer(this, () => Bind(root, path));   // 差し替え後のデータでUIを再構築
             };
             flow.Controls.Add(btn);
             return flow;

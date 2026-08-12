@@ -74,15 +74,13 @@ namespace InstantaleSaveEditor
         public void Bind(JsonObject root)
         {
             _root = root;
+            // 破棄はフォーカス中の入力欄に Leave を発火させ、コミット処理が走る。旧レコードの
+            // 入力値が書き込まれるのを防ぐため、先に各フォームのバインドを外す（Clear() が行う）。
+            foreach (var f in _forms) f.Clear();
+            _forms.Clear();
             // Controls.Clear() は切り離すだけで破棄しない。再バインド（ファイル読込・言語切替・
             // ツール実行後）のたびに旧グループのハンドルが溜まり、枯渇でクラッシュするため破棄する。
-            for (int i = _scroll.Controls.Count - 1; i >= 0; i--)
-            {
-                var c = _scroll.Controls[i];
-                _scroll.Controls.RemoveAt(i);
-                c.Dispose();
-            }
-            _forms.Clear();
+            Ui.DisposeChildren(_scroll);
             var gv = J.Obj(root, "game_variables");
             if (gv == null)
             {

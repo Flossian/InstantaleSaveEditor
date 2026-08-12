@@ -1,4 +1,5 @@
 // 共通部品: コーデック / JSON ヘルパ / JSON編集ダイアログ / 汎用オブジェクトフォーム
+using System.Drawing.Drawing2D;
 using System.Globalization;
 using System.Text;
 using System.Text.Encodings.Web;
@@ -246,6 +247,35 @@ namespace InstantaleSaveEditor
              : v.ToString();
     }
 
+    // ---------------- コントロールの破棄・再構築 ----------------
+    // Controls.Clear() は子を切り離すだけで破棄しない。再構築のたびに TextBox や画像の
+    // ネイティブ/GDI ハンドルが溜まり、枯渇するとアプリが落ちる。破棄手順はここに集約する。
+    internal static class Ui
+    {
+        // parent の子をすべて破棄する。keep を渡すと、それだけは（入れ子にあっても）親から
+        // 外して破棄せずに残す（使い回す差し込みパネル用）。
+        // Dispose() は親からの取り外しも行うため、一覧を控えてから破棄する。
+        public static void DisposeChildren(Control parent, Control keep = null)
+        {
+            if (parent == null) return;
+            keep?.Parent?.Controls.Remove(keep);
+            var children = parent.Controls.Cast<Control>().ToArray();
+            parent.SuspendLayout();   // Controls.Clear() 相当のレイアウト抑止（1つ外すたびの再計算を防ぐ）
+            try { foreach (var c in children) c.Dispose(); }
+            finally { parent.ResumeLayout(); }
+        }
+
+        // 再構築をメッセージ処理の後まで遅らせる。ボタンの Click や入力欄の Leave の中から
+        // 自分自身を含む親を作り直すと、処理が破棄済みハンドルへ戻って ObjectDisposedException
+        // になる。anchor には作り直しで破棄されないコントロールを渡すこと。
+        public static void Defer(Control anchor, Action action)
+        {
+            if (anchor != null && anchor.IsHandleCreated && !anchor.IsDisposed && !anchor.Disposing)
+                anchor.BeginInvoke(action);
+            else action();
+        }
+    }
+
     // ---------------- 画像の原寸表示 ----------------
     // PictureBox にクリックハンドラを登録し、画像を別ウィンドウで原寸（スクロール付き）表示する。
     // NpcImagePanel / BackgroundImagePanel など複数のパネルから共通で使う。
@@ -256,10 +286,10 @@ namespace InstantaleSaveEditor
             pb.Click += (_, _) =>
             {
                 if (pb.Image == null) return;
-                // Clone() はストリーム由来画像の浅い複製で、ビューアを開いたまま元画像が
+                // Image.Clone() はストリーム由来画像の浅い複製で、ビューアを開いたまま元画像が
                 // 破棄される（別レコード選択・立ち絵切替等）と再描画時に GDI+ 例外で落ちる。
-                // 新しい Bitmap への描き写しで元と完全に独立させる。
-                var img = new Bitmap(pb.Image);
+                // ピクセルごと複製して元と完全に独立させる。
+                var img = ClonePixels(pb.Image);
                 var area = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1200, 800);
                 var f = new Form
                 {
@@ -275,6 +305,25 @@ namespace InstantaleSaveEditor
                 f.Controls.Add(scroll);
                 f.Show();
             };
+        }
+
+        // 元画像から独立した複製を作る。new Bitmap(Image) は既定の補間で描き直すため
+        // 原寸表示がぼやけて縁に半透明の縁取りが出るうえ、常に 32bppArgb へ変換される
+        // （ピクセルアートの確認用途では実ファイルと見た目が変わってしまう）。
+        // Clone(矩形, 元の形式) はピクセルデータごと複製するため見た目と形式を保てる。
+        private static Image ClonePixels(Image src)
+        {
+            if (src is Bitmap bmp)
+            {
+                try { return bmp.Clone(new Rectangle(0, 0, bmp.Width, bmp.Height), bmp.PixelFormat); }
+                catch { /* 複製できない形式は下の描き写しにフォールバックする */ }
+            }
+            var copy = new Bitmap(src.Width, src.Height);
+            using var g = Graphics.FromImage(copy);
+            g.InterpolationMode = InterpolationMode.NearestNeighbor;   // 原寸なので補間しない
+            g.PixelOffsetMode = PixelOffsetMode.Half;                  // 半ピクセルずれを防ぐ
+            g.DrawImage(src, 0, 0, src.Width, src.Height);
+            return copy;
         }
     }
 
@@ -610,12 +659,7 @@ namespace InstantaleSaveEditor
         // ただし呼び出し側が使い回す差し込みコントロール（NPC 画像・背景画像パネル）は破棄しない。
         private void DisposeHost()
         {
-            for (int i = _host.Controls.Count - 1; i >= 0; i--)
-            {
-                var c = _host.Controls[i];
-                _host.Controls.RemoveAt(i);
-                if (!ReferenceEquals(c, _injected)) c.Dispose();
-            }
+            Ui.DisposeChildren(_host, keep: _injected);
             _injected = null;
         }
 
@@ -1472,14 +1516,9 @@ namespace InstantaleSaveEditor
 
             void Fill()
             {
-                // Controls.Clear() は切り離すだけで破棄しない。メンバー追加/削除のたびに
-                // 行のハンドルが溜まるため破棄する。
-                for (int i = outer.Controls.Count - 1; i >= 0; i--)
-                {
-                    var c = outer.Controls[i];
-                    outer.Controls.RemoveAt(i);
-                    c.Dispose();
-                }
+                // 行のハンドルが溜まらないよう破棄して作り直す。削除/追加ボタンは自分自身が
+                // この中で破棄されるため、呼び出し側は Ui.Defer 経由で呼ぶこと。
+                Ui.DisposeChildren(outer);
                 var party = Party();
                 var members = party.Select(n => n?.ToString() ?? "").ToList();
 
@@ -1503,7 +1542,8 @@ namespace InstantaleSaveEditor
                         {
                             int idx = FindIndex(Party(), cid);
                             if (idx >= 0) Party().RemoveAt(idx);
-                            Fill();
+                            // Fill() はこのボタン自身を破棄するため、クリック処理が終わってから作り直す。
+                            Ui.Defer(outer, Fill);
                         };
                         line.Controls.Add(del);
                     }
@@ -1533,7 +1573,8 @@ namespace InstantaleSaveEditor
                             I18n.T("title.addDead"), MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
                         return;
                     if (FindIndex(Party(), id) < 0) Party().Add(id);
-                    Fill();
+                    // 追加ボタン・プルダウンごと作り直すため、クリック処理が終わってから行う。
+                    Ui.Defer(outer, Fill);
                 };
                 addLine.Controls.Add(new Label { Text = I18n.T("label.addColon"), AutoSize = true, Padding = new Padding(2, 6, 4, 0) });
                 addLine.Controls.Add(combo);

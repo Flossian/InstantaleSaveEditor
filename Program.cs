@@ -192,11 +192,16 @@ namespace InstantaleSaveEditor
         // 「最近開いたファイル」のドロップダウンを設定の履歴から作り直す。履歴が空なら無効化する。
         private void RebuildRecentMenu()
         {
+            // Clear() は切り離すだけ。旧項目は Click ハンドラごと残るため破棄して作り直す。
+            var old = _miFileRecent.DropDownItems.Cast<ToolStripItem>().ToArray();
             _miFileRecent.DropDownItems.Clear();
+            foreach (var it in old) it.Dispose();
             var list = _settings.RecentFiles;
             if (list != null)
                 foreach (var p in list)
                 {
+                    // 設定ファイルが壊れている（null 要素）と起動時に落ちるため読み飛ばす。
+                    if (string.IsNullOrEmpty(p)) continue;
                     string path = p;
                     // & はニーモニック扱いされて表示が崩れるためエスケープする。
                     var mi = new ToolStripMenuItem(path.Replace("&", "&&"));
@@ -256,8 +261,10 @@ namespace InstantaleSaveEditor
                 w = _settings.SavedWindowWidth > 0 ? _settings.SavedWindowWidth : 1040;
                 h = _settings.SavedWindowHeight > 0 ? _settings.SavedWindowHeight : 760;
             }
-            Width = Math.Clamp(w, 400, wa.Width);
-            Height = Math.Clamp(h, 300, wa.Height);
+            // 作業領域が下限より狭い環境（極小の仮想ディスプレイ等）では Math.Clamp が
+            // min>max で例外になるため、上限側を優先して下限を潰す。
+            Width = Math.Clamp(w, Math.Min(400, wa.Width), wa.Width);
+            Height = Math.Clamp(h, Math.Min(300, wa.Height), wa.Height);
 
             // 位置: RememberLast かつ位置記憶 ON で保存値があるときのみ復元。それ以外はセンター。
             if (_settings.WindowSizeMode == WindowSizeMode.RememberLast && _settings.RememberWindowPosition
@@ -275,7 +282,18 @@ namespace InstantaleSaveEditor
         // （位置記憶 ON なら位置も）を保存する。
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
-            if (!e.Cancel && !ConfirmUnsavedChanges())
+            // ここで例外が抜けると e.Cancel が評価されないままウィンドウ処理が巻き戻り、
+            // 「閉じられない」状態になる（タスクマネージャ以外で終了できなくなる）。
+            // 未保存確認が失敗した場合は確認を諦めてそのまま閉じられるようにする。
+            bool ok;
+            try { ok = e.Cancel || ConfirmUnsavedChanges(); }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, I18n.T("msg.closeCheckFailed") + "\n\n" + ex.Message,
+                    I18n.T("title.error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
+                ok = true;
+            }
+            if (!ok)
             {
                 e.Cancel = true;
                 base.OnFormClosing(e);
@@ -539,7 +557,13 @@ namespace InstantaleSaveEditor
             if (!ApplyAll()) return;
             using var dlg = new SaveFileDialog { Filter = I18n.T("filter.json"), DefaultExt = "json", FileName = "savedata_plain.json" };
             if (dlg.ShowDialog(this) != DialogResult.OK) return;
-            File.WriteAllText(dlg.FileName, _root.ToJsonString(Codec.Pretty), new UTF8Encoding(false));
+            try { File.WriteAllText(dlg.FileName, _root.ToJsonString(Codec.Pretty), new UTF8Encoding(false)); }
+            catch (Exception ex)
+            {
+                // 書き込み先が読み取り専用・ロック中・取り外し済みでも保存失敗として扱う。
+                MessageBox.Show(this, ex.Message, I18n.T("title.saveFailed"), MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
             MessageBox.Show(this, I18n.T("msg.exportedPlain"),
                 I18n.T("title.export"), MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
@@ -776,17 +800,25 @@ namespace InstantaleSaveEditor
             Application.Run(new MainForm(settings));
         }
 
+        private static bool _showingUnhandled;   // ダイアログ表示中フラグ（再入抑止）
+
         // 想定外の例外の内容を表示する。長大なスタックトレースは先頭のみ残す。
+        // MessageBox はメッセージポンプを回すため、描画・レイアウト経路の例外は表示中に再発する。
+        // そのままだとダイアログが際限なく積み重なって操作不能になるため、表示中の再発は捨てる。
         private static void ShowUnhandled(Exception ex)
         {
+            if (_showingUnhandled) return;
+            _showingUnhandled = true;
             try
             {
                 string detail = ex?.ToString() ?? "";
                 if (detail.Length > 1500) detail = detail[..1500] + "\n...";
-                MessageBox.Show(I18n.T("msg.unhandledError") + "\n" + detail,
+                // 所有者を指定して本体の裏に隠れないようにする。
+                MessageBox.Show(Form.ActiveForm, I18n.T("msg.unhandledError") + "\n" + detail,
                     I18n.T("title.error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             catch { /* 表示にも失敗する状況では何もできない */ }
+            finally { _showingUnhandled = false; }
         }
     }
 }

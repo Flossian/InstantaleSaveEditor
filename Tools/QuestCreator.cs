@@ -178,8 +178,16 @@ namespace InstantaleSaveEditor
             }
             return cands.FirstOrDefault(Directory.Exists);
         }
+        // テンプレ置き場。無ければ exe 隣に作る。作れない場所（Program Files 等の書込不可）でも
+        // ここで落ちないよう、パスだけ返して実際の読み書き側の失敗に委ねる。
         public static string TemplatesRoot()
-            => FindTemplatesRoot() ?? Directory.CreateDirectory(Path.Combine(AppContext.BaseDirectory, "templates")).FullName;
+        {
+            var found = FindTemplatesRoot();
+            if (found != null) return found;
+            string path = Path.Combine(AppContext.BaseDirectory, "templates");
+            try { return Directory.CreateDirectory(path).FullName; }
+            catch { return path; }
+        }
         private static string QuestsDir => Path.Combine(TemplatesRoot(), "quests");
         internal static string EnemiesDir => Path.Combine(TemplatesRoot(), "enemies");
         internal static string BossesDir => Path.Combine(TemplatesRoot(), "bosses");

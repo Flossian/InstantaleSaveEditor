@@ -200,10 +200,18 @@ namespace InstantaleSaveEditor
         // dungeon / npcs / quests は、紐づく area（拠点）ごとの見出しノードでグループ化する。
         private void Populate()
         {
+            // 途中で失敗しても更新抑止が解除されない（ツリーが空のまま固まる）ことがないよう
+            // EndUpdate は必ず通す。
             _tree.BeginUpdate();
+            try { PopulateCore(); }
+            finally { _tree.EndUpdate(); }
+        }
+
+        private void PopulateCore()
+        {
             _tree.Nodes.Clear();
             _form.Clear();
-            if (_root == null) { _tree.EndUpdate(); return; }
+            if (_root == null) return;
 
             if (_root["world_data"] is JsonObject)
                 _tree.Nodes.Add(new TreeNode("world_data") { Tag = new[] { "obj", "world_data" } });
@@ -241,14 +249,16 @@ namespace InstantaleSaveEditor
 
                 var node = new TreeNode($"{sec} ({so.Count})") { Tag = new[] { "sec", sec } };
                 var itemKeys = so.Select(p => p.Key).OrderBy(k => k.Length).ThenBy(k => k).ToList();
+                // レコードがオブジェクトでない（JSON編集で壊れた／別バージョン）場合でもツリーを
+                // 壊さないよう、グループ分けのキー取得はオブジェクトのときだけ行う。
                 if (sec == "npcs")
                     AddGroups(node, sec, itemKeys,
                         // 死亡 NPC は area で分けず「死者」グループへ一括りにする。
-                        k => so[k] is JsonObject npc && J.NpcIsDead(npc) ? DeadKey : IdStr(so[k]?["current_area"]),
+                        k => so[k] is not JsonObject npc ? "" : J.NpcIsDead(npc) ? DeadKey : IdStr(npc["current_area"]),
                         k => SectionItemNode(sec, so, k));
                 else if (sec == "quests")
                     AddGroups(node, sec, itemKeys,
-                        k => IdStr(so[k]?["neighboring_settlement_id"]),
+                        k => so[k] is JsonObject q ? IdStr(q["neighboring_settlement_id"]) : "",
                         k => SectionItemNode(sec, so, k));
                 else  // story_quests など area で区分けしないセクションは従来通りフラット
                     foreach (var k in itemKeys) node.Nodes.Add(SectionItemNode(sec, so, k));
@@ -265,7 +275,6 @@ namespace InstantaleSaveEditor
             }
             if (_root["index"] is JsonObject)
                 _tree.Nodes.Add(new TreeNode("index") { Tag = new[] { "obj", "index" } });
-            _tree.EndUpdate();
         }
 
         // セクション内の1レコードを項目ノード化する。NPC は死亡扱い(config.is_dead)なら「（死亡）」を付ける。
@@ -318,7 +327,7 @@ namespace InstantaleSaveEditor
         {
             if (areaId == DeadKey) return I18n.T("world.group.dead", count);
             if (string.IsNullOrEmpty(areaId)) return I18n.T("world.group.noArea", count);
-            if (_root?["areas"]?[areaId] is JsonObject ao)
+            if (J.Obj(_root, "areas")?[areaId] is JsonObject ao)
             {
                 string nm = J.Str(ao, "name");
                 return nm.Length > 0 ? $"{areaId}: {nm} ({count})" : $"{areaId} ({count})";
@@ -460,7 +469,7 @@ namespace InstantaleSaveEditor
                     }
                     break;
                 case "facility":  // areas[area].nodes[node].facilities[facility]
-                    _curContainer = J.Obj(J.Obj(_root?["areas"]?[tag[1]] as JsonObject, "nodes")?[tag[2]] as JsonObject, "facilities");
+                    _curContainer = J.Obj(J.Obj(J.Obj(_root, "areas")?[tag[1]] as JsonObject, "nodes")?[tag[2]] as JsonObject, "facilities");
                     _curKey = tag[3];
                     if (_curContainer?[_curKey] is not JsonObject facObj)
                     { _form.ClearComboFields(); _form.Clear(); SetBtns(_curContainer != null); break; }
@@ -496,7 +505,7 @@ namespace InstantaleSaveEditor
         // 見つからなければ null（呼び出し側でキーをそのまま表示）。
         private string ResolveNpcName(string key)
         {
-            var npcs = _root?["npcs"]?.AsObject();
+            var npcs = J.Obj(_root, "npcs");
             if (npcs == null || string.IsNullOrEmpty(key)) return null;
             if (npcs[key] is JsonObject byId) return J.Str(byId, "name");
             foreach (var kv in npcs)
@@ -509,7 +518,7 @@ namespace InstantaleSaveEditor
         // 追加・削除時は相手エリアの connections も書き換えて双方向を保つ。
         private void SetAreaConnectionHooks(string selfId)
         {
-            var areas = _root?["areas"]?.AsObject();
+            var areas = J.Obj(_root, "areas");
             _form.ConnectionNamer = id => areas?[id] is JsonObject o ? J.Str(o, "name", id) : null;
             _form.ConnectionCandidates = () => areas == null
                 ? Enumerable.Empty<(string, string)>()
@@ -551,7 +560,7 @@ namespace InstantaleSaveEditor
         // 指定エリア配下の全ノードの facility を (ID, オブジェクト) で列挙する。
         private IEnumerable<(string id, JsonObject fo)> EnumAreaFacilities(string areaId)
         {
-            if (J.Obj(_root?["areas"]?[areaId] as JsonObject, "nodes") is not JsonObject nodes) yield break;
+            if (J.Obj(J.Obj(_root, "areas")?[areaId] as JsonObject, "nodes") is not JsonObject nodes) yield break;
             foreach (var nk in nodes)
                 if (J.Obj(nk.Value as JsonObject, "facilities") is JsonObject facs)
                     foreach (var fk in facs)
@@ -562,7 +571,7 @@ namespace InstantaleSaveEditor
         // category / job は FieldOptions（外部 JSON 由来のテンプレート候補）の自由入力プルダウンにする。
         private void RegisterNpcCombos(JsonObject npcObj)
         {
-            var areas = _root?["areas"]?.AsObject();
+            var areas = J.Obj(_root, "areas");
             string curArea = J.Str(npcObj, "current_area");
             _form.ClearComboFields();
             _form.RegisterComboField("current_area",
@@ -600,7 +609,7 @@ namespace InstantaleSaveEditor
                 AutoCompleteMode = AutoCompleteMode.SuggestAppend,
                 AutoCompleteSource = AutoCompleteSource.ListItems,
             };
-            var npcs = _root?["npcs"]?.AsObject();
+            var npcs = J.Obj(_root, "npcs");
             if (npcs != null)
                 foreach (var kv in npcs.OrderBy(p => p.Key.Length).ThenBy(p => p.Key))
                 {
@@ -623,7 +632,7 @@ namespace InstantaleSaveEditor
         // 変更後のエリアに無いノードを指していた場合は選択をクリアする。
         private void LinkAreaLocation()
         {
-            var areas = _root?["areas"]?.AsObject();
+            var areas = J.Obj(_root, "areas");
             var areaCb = _form.GetCombo("current_area");
             var locCb = _form.GetCombo("current_location");
             if (areaCb == null || locCb == null) return;
@@ -757,8 +766,8 @@ namespace InstantaleSaveEditor
         // 新しいエリア（拠点/ダンジョン）を作成して areas へ挿入する。
         private void CreateArea()
         {
-            var areas = _root?["areas"]?.AsObject();
-            var index = _root?["index"]?.AsObject();
+            var areas = J.Obj(_root, "areas");
+            var index = J.Obj(_root, "index");
             if (areas == null || index == null) { MessageBox.Show(I18n.T("msg.noAreasIndex")); return; }
             if (!_form.Apply()) return;
             using var d = new AreaCreateDialog();
@@ -772,9 +781,9 @@ namespace InstantaleSaveEditor
         // 新しい NPC を作成して npcs へ挿入する（冒険者登録を選んだ場合は配置エリアの adventurer_npcs にも追加）。
         private void CreateNpc(string presetArea)
         {
-            var npcs = _root?["npcs"]?.AsObject();
-            var areas = _root?["areas"]?.AsObject();
-            var index = _root?["index"]?.AsObject();
+            var npcs = J.Obj(_root, "npcs");
+            var areas = J.Obj(_root, "areas");
+            var index = J.Obj(_root, "index");
             if (npcs == null || areas == null || index == null) { MessageBox.Show(I18n.T("msg.noNpcsAreasIndex")); return; }
             if (!_form.Apply()) return;
             using var d = new NpcCreateDialog(areas, presetArea);
@@ -809,8 +818,8 @@ namespace InstantaleSaveEditor
         private void CreateFacility()
         {
             var tag = _tree.SelectedNode?.Tag as string[];
-            var areas = _root?["areas"]?.AsObject();
-            var index = _root?["index"]?.AsObject();
+            var areas = J.Obj(_root, "areas");
+            var index = J.Obj(_root, "index");
             if (tag == null || areas == null || index == null) { MessageBox.Show(I18n.T("msg.noAreasIndex")); return; }
 
             string areaId, nodeId, baseFid;
@@ -919,7 +928,7 @@ namespace InstantaleSaveEditor
             if (!_form.Apply()) return;   // 表示中の編集を反映してから複製
             var tag = _tree.SelectedNode?.Tag as string[];
             var index = _root?["index"] as JsonObject;
-            var areas = _root?["areas"]?.AsObject();
+            var areas = J.Obj(_root, "areas");
 
             // facility は ID がエリアを跨いで一意のため新規作成と同じグローバル採番を使い、
             // connections は相手側にも張って双方向に保つ（実データは非対称ゼロ）。
@@ -1257,7 +1266,7 @@ namespace InstantaleSaveEditor
                         && J.Str(il, "area") == areaId && set.Contains(J.Str(il, "facility")))
                         il["facility"] = null;
                 }
-            if (J.Obj(_root?["areas"]?[areaId] as JsonObject, "nodes") is JsonObject nodes)
+            if (J.Obj(J.Obj(_root, "areas")?[areaId] as JsonObject, "nodes") is JsonObject nodes)
                 foreach (var nk in nodes)
                     if (nk.Value is JsonObject nd && set.Contains(J.Str(nd, "entrance_facility")))
                         nd["entrance_facility"] = null;
@@ -1293,7 +1302,7 @@ namespace InstantaleSaveEditor
             foreach (TreeNode c in node.Nodes)
             {
                 if (c.Tag is string[] t && t[0] == "facility"
-                    && J.Obj(J.Obj(_root?["areas"]?[t[1]] as JsonObject, "nodes")?[t[2]] as JsonObject, "facilities") is JsonObject facs)
+                    && J.Obj(J.Obj(J.Obj(_root, "areas")?[t[1]] as JsonObject, "nodes")?[t[2]] as JsonObject, "facilities") is JsonObject facs)
                     programs.Add(FreeFacilityProgram.ProgramIdOf(facs[t[3]] as JsonObject));
                 CollectDescendantPrograms(c, programs);
             }
@@ -1305,7 +1314,7 @@ namespace InstantaleSaveEditor
             foreach (TreeNode c in node.Nodes)
             {
                 if (c.Tag is string[] t && t[0] == "facility"
-                    && J.Obj(J.Obj(_root?["areas"]?[t[1]] as JsonObject, "nodes")?[t[2]] as JsonObject, "facilities") is JsonObject facs
+                    && J.Obj(J.Obj(J.Obj(_root, "areas")?[t[1]] as JsonObject, "nodes")?[t[2]] as JsonObject, "facilities") is JsonObject facs
                     && facs.ContainsKey(t[3]))
                 { facs.Remove(t[3]); removed.Add(t[3]); }
                 RemoveDescendantFacilities(c, removed);

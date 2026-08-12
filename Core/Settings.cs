@@ -87,6 +87,10 @@ namespace InstantaleSaveEditor
                 Current = !File.Exists(p)
                     ? new Settings()
                     : JsonSerializer.Deserialize<Settings>(File.ReadAllText(p, Encoding.UTF8), JsonOpts) ?? new Settings();
+                // 手書きで極端な値が入っていてもグリッド確保でメモリ不足にならないよう丸める
+                // （設定ダイアログ側の上下限と同じ範囲）。
+                Current.InventoryGridColumns = Math.Clamp(Current.InventoryGridColumns, 1, 64);
+                Current.InventoryGridRows = Math.Clamp(Current.InventoryGridRows, 1, 64);
                 return Current;
             }
             catch { return Current = new Settings(); }

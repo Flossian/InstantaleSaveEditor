@@ -128,12 +128,9 @@ namespace InstantaleSaveEditor
         {
             // Controls.Clear() は破棄せず切り離すだけ。キー名の変更・追加・削除のたびに
             // 呼ばれるため、破棄しないと行の TextBox/Button のハンドルが溜まり続ける。
-            for (int i = _rows.Controls.Count - 1; i >= 0; i--)
-            {
-                var c = _rows.Controls[i];
-                _rows.Controls.RemoveAt(i);
-                c.Dispose();
-            }
+            // 行内の削除ボタン・キー欄からは自分自身を破棄することになるため、
+            // それらの呼び出しは Ui.Defer 経由にしてある。
+            Ui.DisposeChildren(_rows);
             _rows.RowStyles.Clear();
             if (_model == null) return;
             int r = 0;
@@ -151,7 +148,7 @@ namespace InstantaleSaveEditor
                 _rows.Controls.Add(SkillEditDialog.MakeBtn(I18n.T("btn.delete"), () =>
                 {
                     _model.Remove(captured);
-                    Rebuild();
+                    Ui.Defer(this, Rebuild);   // このボタン自身が破棄されるため後回しにする
                 }), 3, r);
                 r++;
             }
@@ -173,7 +170,7 @@ namespace InstantaleSaveEditor
                 var kept = _model.Select(p => (Key: p.Key == key ? nk : p.Key, Val: p.Value?.DeepClone())).ToList();
                 _model.Clear();
                 foreach (var (k, v) in kept) _model[k] = v;
-                Rebuild();
+                Ui.Defer(this, Rebuild);   // Leave 処理中にこの欄自身を破棄しないよう後回しにする
             };
             return tb;
         }
