@@ -256,7 +256,10 @@ namespace InstantaleSaveEditor
             pb.Click += (_, _) =>
             {
                 if (pb.Image == null) return;
-                var img = (Image)pb.Image.Clone();
+                // Clone() はストリーム由来画像の浅い複製で、ビューアを開いたまま元画像が
+                // 破棄される（別レコード選択・立ち絵切替等）と再描画時に GDI+ 例外で落ちる。
+                // 新しい Bitmap への描き写しで元と完全に独立させる。
+                var img = new Bitmap(pb.Image);
                 var area = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1200, 800);
                 var f = new Form
                 {
@@ -1469,7 +1472,14 @@ namespace InstantaleSaveEditor
 
             void Fill()
             {
-                outer.Controls.Clear();
+                // Controls.Clear() は切り離すだけで破棄しない。メンバー追加/削除のたびに
+                // 行のハンドルが溜まるため破棄する。
+                for (int i = outer.Controls.Count - 1; i >= 0; i--)
+                {
+                    var c = outer.Controls[i];
+                    outer.Controls.RemoveAt(i);
+                    c.Dispose();
+                }
                 var party = Party();
                 var members = party.Select(n => n?.ToString() ?? "").ToList();
 

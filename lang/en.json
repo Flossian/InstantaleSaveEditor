@@ -137,6 +137,7 @@
   "msg.compactQuestLog.confirm": "Compact quest_event_log.\n\n- Treat each span from a \"player input\" marker up to (not including) the next one as one entry, keep only the newest {0} entries, and delete the older content\n\nThis cannot be undone. Changes are not written to the file until you save. Proceed?",
   "msg.compactQuestLog.done": "quest_event_log compacted.\n\nEntries removed: {0}",
   "msg.jsonError": "The JSON could not be applied because it contains a syntax error. Fix the text and press OK again.\nDetails:",
+  "msg.unhandledError": "An unexpected error occurred. The last operation was aborted, but you can keep working and save.\nDetails:",
   "msg.jsonNotObject": "Could not replace {0}.\nThe JSON as a whole must be an object ({{ \"key\": value, ... }} format).\nReplacing it with an array or a string would corrupt the save data, so the change was discarded.",
   "msg.typeError": "{0} must be a {1}.",
   "msg.confirmDelete": "Delete?",

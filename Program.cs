@@ -766,11 +766,27 @@ namespace InstantaleSaveEditor
         {
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
+            // UI スレッドの想定外の例外で即終了せず、内容を表示して作業を続行（保存）できるようにする。
+            Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+            Application.ThreadException += (_, e) => ShowUnhandled(e.Exception);
             var settings = Settings.Load();   // 起動時に設定をロードしてからフォームを生成する
             FieldOptions.EnsureMigrated();    // field_options.json も同様に exe 直下 → setting フォルダへ移行しておく
             I18n.Init(settings.Language);      // フォーム生成前に言語を確定する（初回書き出し・辞書構築）
             Application.AddMessageFilter(new ComboWheelGuard());   // 閉じたプルダウンへのホイールで値が変わるのを防ぐ
             Application.Run(new MainForm(settings));
+        }
+
+        // 想定外の例外の内容を表示する。長大なスタックトレースは先頭のみ残す。
+        private static void ShowUnhandled(Exception ex)
+        {
+            try
+            {
+                string detail = ex?.ToString() ?? "";
+                if (detail.Length > 1500) detail = detail[..1500] + "\n...";
+                MessageBox.Show(I18n.T("msg.unhandledError") + "\n" + detail,
+                    I18n.T("title.error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            catch { /* 表示にも失敗する状況では何もできない */ }
         }
     }
 }

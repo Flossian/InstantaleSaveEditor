@@ -137,6 +137,7 @@
   "msg.compactQuestLog.confirm": "压缩 quest_event_log。\n\n・将「〈玩家输入〉」到下一次输入之前的内容视为一条，仅保留最新 {0} 条，删除更早的内容\n\n此操作无法撤销。在保存之前不会写入文件。是否执行？",
   "msg.compactQuestLog.done": "已压缩 quest_event_log。\n\n删除条数：{0}",
   "msg.jsonError": "JSON 存在语法错误，无法应用。请修正内容后再按 OK。\n详情:",
+  "msg.unhandledError": "发生了意外错误。上一步操作已中断，但您可以继续编辑并保存。\n详情:",
   "msg.jsonNotObject": "无法替换 {0}。\n整个 JSON 必须是对象（{{ \"键\": 值, ... }} 的形式）。\n若替换为数组或字符串会损坏存档数据，因此已放弃更改。",
   "msg.typeError": "{0} 必须输入{1}。",
   "msg.confirmDelete": "要删除吗？",

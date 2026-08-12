@@ -80,7 +80,17 @@ namespace InstantaleSaveEditor
             _areas = J.Obj(root, "areas");
             _pd = J.Obj(root, "player_data");
             _worldDir = WorldTab.ResolveWorldDir(filePath);
-            _host.Controls.Clear(); _basic.Clear(); _abil.Clear(); _combos.Clear();
+            // Controls.Clear() は切り離すだけで破棄しない。再バインドのたびに旧セクション
+            // （インベントリの画像キャッシュ含む）のハンドルが溜まり、枯渇でクラッシュするため破棄する。
+            // _imagePanel は使い回すため先に親から外して破棄対象から除外する。
+            _imagePanel.Parent?.Controls.Remove(_imagePanel);
+            for (int i = _host.Controls.Count - 1; i >= 0; i--)
+            {
+                var c = _host.Controls[i];
+                _host.Controls.RemoveAt(i);
+                c.Dispose();
+            }
+            _basic.Clear(); _abil.Clear(); _combos.Clear();
             if (_pd == null)
             {
                 _host.Controls.Add(new Label { Text = I18n.T("msg.noPlayerData"), AutoSize = true, Padding = new Padding(12) });
