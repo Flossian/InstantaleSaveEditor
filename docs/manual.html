@@ -111,7 +111,7 @@
 <div class="wrap">
 
 <header class="title">
-  <h1>Instantale Save Editor 説明書 <span class="badge">v10.1</span></h1>
+  <h1>Instantale Save Editor 説明書 <span class="badge">v10.3</span></h1>
   <div class="sub">ゲーム Instantale のセーブデータ／ワールドデータ編集ツール（非公式）</div>
 </header>
 
@@ -165,6 +165,9 @@
 <div class="note">
   <code>player_data</code> や <code>game_variables</code> を含まないファイル（<code>world_data.json</code> など）も開けます。該当タブには「ありません」と表示されます。
 </div>
+<div class="note">
+  難読化されていない平文の JSON として開いたファイルを保存するときは、どちらの形式（難読化／平文）で書き出すかを確認します。<span class="badge">v10.3</span>
+</div>
 <div class="warn">
   保存するとファイルが上書きされます。<strong>初回は必ずコピーを取ってから</strong>編集してください。
 </div>
@@ -175,7 +178,7 @@
   <tr><th>項目</th><th>説明</th></tr>
   <tr><td>開く... (Ctrl+O)</td><td>セーブ／ワールドデータを読み込みます。ウィンドウへの JSON ファイルのドラッグ＆ドロップでも開けます。</td></tr>
   <tr><td>最近開いたファイル <span class="badge">v9.2</span></td><td>最近開いたファイル（最大 10 件）を一覧から開き直します。</td></tr>
-  <tr><td>上書き保存 (Ctrl+S)</td><td>開いているファイルにそのまま保存します。</td></tr>
+  <tr><td>上書き保存 (Ctrl+S)</td><td>開いているファイルにそのまま保存します。書き込みは一時ファイルへ行ってから置き換えるため、保存中に異常終了してもセーブ本体は壊れません。<span class="badge">v10.3</span></td></tr>
   <tr><td>名前を付けて保存... (Ctrl+Shift+S)</td><td>別名・別の場所に保存します。</td></tr>
   <tr><td>JSONをエクスポート...</td><td>読みやすい整形 JSON を書き出します（中身の確認・バックアップ用。ゲームには読み込めません）。</td></tr>
   <tr><td>終了</td><td>ツールを閉じます。</td></tr>
@@ -231,6 +234,7 @@
 </p>
 <ul>
   <li>長い文章はリサイズ可能なテキスト枠、配列や複雑な構造は「JSON編集...」ボタンで編集します。</li>
+  <li>所有者・等級・現在地など、値が未設定（<code>null</code>）の項目もプルダウンで選べます。空欄のまま保存すると <code>null</code> のままになります。<span class="badge">v10.3</span></li>
   <li>ツリー上部の「JSON直接編集」ボタンで、選択中の項目（world_data／index／NPC・エリア等の各レコード）を生の JSON テキストとして丸ごと編集できます。フォームでは直せない壊れたデータの修復にも使えます。<span class="badge">v10</span></li>
   <li>NPC を選ぶと説明文の下に画像パネル（<a href="#image">詳細</a>）、facility（拠点）を選ぶと背景画像（クリックで原寸表示。差し替え不可）が表示されます。</li>
   <li>ダンジョン（<code>size</code> が <code>dungeon</code> の <code>areas</code>）は dungeon として別ツリーに表示されます（操作は通常の <code>areas</code> と同じ）。</li>
@@ -247,6 +251,12 @@
 </div>
 <div class="warn">
   エリア・施設の削除では、<strong>そのツリー上の下位ノード（配下の施設など）もまとめて削除</strong>されます。<span class="badge">v10.1</span>
+  まとめて消える施設の件数と名前は、削除の確認画面に表示されます。<span class="badge">v10.3</span>
+</div>
+<div class="note">
+  <strong>複製・削除の整合性</strong> <span class="badge">v10.3</span><br>
+  施設・エリア・クエストを複製すると ID を採番し直し、接続やクエストの掲示先も新しい ID へ張り替えます（free 施設のプログラムも一緒に複製されます）。
+  削除では、その項目を指していた NPC・施設・クエスト・エリア側の参照も整理します。
 </div>
 <div class="note">
   <strong>未生成 NPC について</strong> <span class="badge">v9.1</span><br>
@@ -420,7 +430,8 @@
   <strong>集落数は 9 を推奨します。</strong>ゲーム側は集落 9 個のワールドを前提としており、9 以外にするとゲームがクラッシュして読み込めない恐れがあります（9 以外を指定すると生成前に警告が出ます）。
 </div>
 <div class="note">
-  生成に使う名前プール（ワールド名・エリア名・NPC 名・施設名など）は、exe と同じ場所の <code>namelist</code> フォルダの JSON を書き換えると再ビルドなしでカスタマイズできます（無い・空のキーは内蔵の既定値が使われます）。
+  生成に使う名前プール（ワールド名・エリア名・NPC 名・施設名など）は、exe と同じ場所の <code>namelist</code> フォルダの JSON を書き換えると再ビルドなしでカスタマイズできます。
+  上書きはカテゴリ（キー）単位で、書かなかったカテゴリには内蔵の名前プールがそのまま使われます。<span class="badge">v10.3</span>
 </div>
 
 <h2 id="quest">14. クエスト作成</h2>
@@ -467,6 +478,11 @@
 <div class="note">
   取り込み時に <code>id</code> は自動採番され、配置先に合わせて <code>current_area</code> / <code>current_location</code> / <code>initial_location</code> が設定されます。
   画像は <code>characters/{名前}/</code> へ展開されます。
+  <span class="badge">v10.3</span> ゲーム側の採番と衝突しない <code>id</code> を割り当て、プロフィール等が空のときは既定値で補います（空のままだとゲームが無限ロードになることがあるため）。
+</div>
+<div class="note">
+  <strong>zip の取り込みについて</strong> <span class="badge">v10.3</span><br>
+  配布された NPC・施設・アイテムの zip を取り込むときは、パッケージ外へ書き出そうとする不正なパスや極端に大きいエントリを取り込まないようにしています。とはいえ、出所の分からない zip は取り込まないでください。
 </div>
 
 <h2 id="facilityio">16. 施設のエクスポート／インポート <span class="badge">v10.1</span></h2>
@@ -571,7 +587,7 @@
 <p>
   自動バックアップが ON（既定）のとき、上書き保存の直前に元のファイルを zip で退避します。
   保存先は既定でセーブと同じ場所の <code>backups\</code>（変更可）。
-  ファイル名は <code>{キャラ名}_savedata_日時.zip</code> です。
+  ファイル名は <code>{キャラ名}_{スロット名}_savedata_日時.zip</code> です（スロット名は v10.3 で追加。複数のワールドを同じフォルダへ退避しても、古い世代の自動削除が混ざりません）。<span class="badge">v10.3</span>
 </p>
 <table>
   <tr><th>項目</th><th>説明</th></tr>

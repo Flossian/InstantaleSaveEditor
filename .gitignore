@@ -27,3 +27,4 @@ readme-en-worklog.md
 memory/*
 graphify-out
 .gitignore
+release/
