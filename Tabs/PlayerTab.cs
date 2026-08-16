@@ -419,6 +419,8 @@ namespace InstantaleSaveEditor
             // プレイヤーのみアイテム倉庫を併設する（NPC では無効）。
             // 変更時は装備コンボを作り直す（削除したアイテムを装備していた場合の追従）。
             _invPanel = new InventoryPanel(warehouseEnabled: true) { Dock = DockStyle.Top };
+            // item の採番をセーブの index.item と同期させる（インベントリ内 最大+1 ではゲームの採番と衝突する）。
+            _invPanel.SaveRootProvider = () => _root;
             // インベントリを操作すると装備コンボを作り直すが、その復元元はモデル（_pd["equipments"]）。
             // 先に現在の選択をモデルへ書いておかないと、まだ Apply() していない装備変更が
             // 無言で元の値へ巻き戻る。

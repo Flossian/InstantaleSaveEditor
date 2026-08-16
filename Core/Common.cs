@@ -603,6 +603,11 @@ namespace InstantaleSaveEditor
         // 既定は false（従来通り JSON 編集ボタン）。WorldTab が NPC 編集時に true にする。
         public bool InventoryGridEnabled { get; set; }
 
+        // InventoryPanel に渡す、セーブのルート（index.item を含む）を返すフック。
+        // item の採番をゲームと同じ index.item カウンタ方式にするために使う（WorldTab が設定）。
+        // 未設定ならインベントリ内 最大+1 の従来採番になる。
+        public Func<JsonObject> SaveRootProvider { get; set; }
+
         // skills フィールドを一覧＋追加/編集/削除（SkillListPanel）にするか。
         // 既定は false（従来通り JSON 編集ボタン）。WorldTab が NPC 編集時に true にする。
         public bool SkillsGridEnabled { get; set; }
@@ -1173,7 +1178,7 @@ namespace InstantaleSaveEditor
         // 追加/削除/編集は inv へ即時反映されるため FieldRef は登録しない（Apply() の対象外）。
         private void AddInventoryRow(TableLayoutPanel t, int row, JsonObject inv)
         {
-            var panel = new InventoryPanel { Dock = DockStyle.Top };
+            var panel = new InventoryPanel { Dock = DockStyle.Top, SaveRootProvider = SaveRootProvider };
             panel.Bind(inv);
             t.Controls.Add(panel, 1, row);
         }

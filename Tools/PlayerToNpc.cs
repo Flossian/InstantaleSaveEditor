@@ -236,6 +236,9 @@ namespace InstantaleSaveEditor
                     MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
                 return;
 
+            // インベントリはプレイヤーの複製のため、item ID を index.item で採番し直して
+            // プレイヤーの持ち物と同じ ID がセーブ内に二重に存在しないようにする。
+            InventoryPanel.ReassignItemIds(_root, npc);
             // _root["npcs"] が無い（player_data のみ等）ファイルにも対応する。
             if (J.Obj(_root, "npcs") is not JsonObject npcsInRoot)
             { npcsInRoot = _npcs; _root["npcs"] = npcsInRoot; }

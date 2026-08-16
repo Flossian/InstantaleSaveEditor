@@ -84,6 +84,8 @@ namespace InstantaleSaveEditor
             split.Panel2.Controls.Add(right);
 
             Controls.Add(split);
+            // NPC インベントリの item 採番をセーブの index.item と同期させる（デリゲートは呼び出し時の _root を読む）。
+            _form.SaveRootProvider = () => _root;
             _tree.AfterSelect += (_, e) => OnSelect(e.Node);
 
             // ツリーの右クリックメニュー。TreeView は右クリックで選択が動かないため、
@@ -952,6 +954,10 @@ namespace InstantaleSaveEditor
             string nk = DuplicateKeyFor(tag, index);
             var clone = _curContainer[_curKey]?.DeepClone();
             if (clone is JsonObject co && co.ContainsKey("id")) co["id"] = nk;
+            // NPC はインベントリごと複製されるため、item ID を index.item で採番し直して
+            // 複製元と同じ ID がセーブ内に二重に存在しないようにする（equipments も追従）。
+            if (tag != null && tag[0] == "item" && tag[1] == "npcs" && clone is JsonObject npcClone)
+                InventoryPanel.ReassignItemIds(_root, npcClone);
             _curContainer[nk] = clone;
             // 通常クエストは必ずどこかのエリアの quests に載る（実データ 78/78）。複製元と同じエリアへ登録する。
             if (tag != null && tag[0] == "item" && tag[1] == "quests") RegisterQuestLikeOriginal(_curKey, nk);

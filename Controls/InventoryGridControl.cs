@@ -877,7 +877,7 @@ namespace InstantaleSaveEditor
             }
             if (item == null) return;
 
-            string newId = NextItemId(_inv);
+            string newId = NewId();
             int cols = Math.Max(1, Settings.Current?.InventoryGridColumns ?? 4);
             int rows = Math.Max(1, Settings.Current?.InventoryGridRows ?? 6);
             int w = Math.Max(1, (int)J.Int(item, "width_slots", 1));
@@ -903,7 +903,7 @@ namespace InstantaleSaveEditor
             int cols = Math.Max(1, Settings.Current?.InventoryGridColumns ?? 4);
             int rows = Math.Max(1, Settings.Current?.InventoryGridRows ?? 6);
             item["grid_pos"] = ItemPortability.FindFreeGridPosTopLeft(_inv, 1, 1, cols, rows);
-            _inv[NextItemId(_inv)] = item;
+            _inv[NewId()] = item;
             Reload();
         }
 
@@ -972,7 +972,7 @@ namespace InstantaleSaveEditor
             try { ItemPortability.PlaceImage(assetRoot, pkg.ImageRelPath, pkg.ImageBytes); } catch { }
 
             var item = pkg.Item;
-            string newId = NextItemId(_inv);
+            string newId = NewId();
             int cols = Math.Max(1, Settings.Current?.InventoryGridColumns ?? 4);
             int rows = Math.Max(1, Settings.Current?.InventoryGridRows ?? 6);
             int w = Math.Max(1, (int)J.Int(item, "width_slots", 1));
@@ -988,7 +988,98 @@ namespace InstantaleSaveEditor
         // ファイル名に使えない文字を '_' に置き換える（".." や予約デバイス名も潰す共通実装）。
         private static string SafeFileName(string s) => SafePath.FileName(s, "item");
 
-        // inventory に追加する新ID（item_N の N=既存最大+1）。
+        // ---------------- item ID の採番 ----------------
+        // セーブのルート（index.item を含む）を返すフック。このパネルは対象インベントリしか
+        // 持たないため、バインド元（PlayerTab / WorldTab→ObjectForm）が設定する。
+        // 未設定・null 返しならインベントリ内 最大+1 の従来採番になる（ルートが無い用途の保険）。
+        public Func<JsonObject> SaveRootProvider { get; set; }
+
+        // 追加・インポート・倉庫取り出しが使う新 ID。
+        private string NewId() => IssueItemId(SaveRootProvider?.Invoke(), _inv);
+
+        // セーブ全体で一意な新規 item ID を発行する。ゲームは index.item をグローバルな採番
+        // カウンタとして使う（払い出してからカウンタを進める）ため、同じ規則で採番して次の値を
+        // 書き戻す。インベントリ内の最大+1 だけで決めると index.item が進まず、ゲームが同じ ID を
+        // 配り直して既存アイテムが上書き消滅する（合成品のドラッグで KeyError クラッシュ）。
+        // 使用中の ID はカウンタがデータとずれていても飛ばす。index.item が無い・数値でない場合は
+        // セーブ全体の使用中最大+1 で採番し、index があれば次の値を書き戻す。
+        public static string IssueItemId(JsonObject root, JsonObject inv)
+        {
+            if (root == null) return NextItemId(inv);
+            var taken = TakenItemNumbers(root, inv);
+            var index = J.Obj(root, "index");
+            long cur = J.Int(index, "item", -1);
+            if (cur < 0) cur = taken.Count == 0 ? 0 : taken.Max() + 1;
+            while (taken.Contains(cur)) cur++;
+            if (index != null) index["item"] = cur + 1;
+            return "item_" + cur;
+        }
+
+        // キャラ（NPC / player_data 同形）のインベントリ全 item を index.item 方式で採番し直し、
+        // equipments の参照 ID も追従させる。別ワールド由来の取込（NPC インポート）や同一セーブ内の
+        // 複製（NPC 複製・プレイヤーの NPC 化）は元の ID をそのまま持ち込むため、採番し直さないと
+        // index.item やほかのキャラの持ち物と衝突する余地が残る。
+        public static void ReassignItemIds(JsonObject root, JsonObject character)
+        {
+            if (root == null || character == null || J.Obj(character, "inventory") is not JsonObject inv || inv.Count == 0) return;
+            var entries = inv.ToList();
+            inv.Clear();   // Clear で子ノードは親から外れるため、そのまま新キーで入れ直せる
+            var map = new Dictionary<string, string>();
+            foreach (var kv in entries)
+            {
+                string newId = IssueItemId(root, inv);
+                map[kv.Key] = newId;
+                inv[newId] = kv.Value;
+            }
+            if (J.Obj(character, "equipments") is JsonObject eq)
+                foreach (var slot in eq.ToList())
+                    if (slot.Value is JsonValue v && v.TryGetValue<string>(out string sid) && map.TryGetValue(sid, out string nid))
+                        eq[slot.Key] = nid;
+        }
+
+        // セーブ全体（プレイヤー・全 NPC の inventory / equipments）で使用中の item 番号を集める。
+        // inv は採番先のインベントリ。ルート未接続（取込・採番し直しの途中）でも数えるため明示的に渡す。
+        private static HashSet<long> TakenItemNumbers(JsonObject root, JsonObject inv)
+        {
+            var taken = new HashSet<long>();
+            AddItemNumbers(taken, inv);
+            var pd = J.Obj(root, "player_data");
+            AddItemNumbers(taken, J.Obj(pd, "inventory"));
+            AddEquipNumbers(taken, J.Obj(pd, "equipments"));
+            if (J.Obj(root, "npcs") is JsonObject npcs)
+                foreach (var kv in npcs)
+                {
+                    if (kv.Value is not JsonObject npc) continue;
+                    AddItemNumbers(taken, J.Obj(npc, "inventory"));
+                    AddEquipNumbers(taken, J.Obj(npc, "equipments"));
+                }
+            return taken;
+        }
+
+        // インベントリのキー（"item_N" または素の数字。実データに素の "146" が混ざる例あり）から番号を集める。
+        private static void AddItemNumbers(HashSet<long> taken, JsonObject dict)
+        {
+            if (dict == null) return;
+            foreach (var kv in dict)
+            {
+                string s = kv.Key.StartsWith("item_") ? kv.Key.Substring(5) : kv.Key;
+                if (long.TryParse(s, out long n)) taken.Add(n);
+            }
+        }
+
+        // equipments の値（"item_N" のアイテム ID 参照）から番号を集める。
+        private static void AddEquipNumbers(HashSet<long> taken, JsonObject eq)
+        {
+            if (eq == null) return;
+            foreach (var kv in eq)
+                if (kv.Value is JsonValue v && v.TryGetValue<string>(out string s)
+                    && s.StartsWith("item_") && long.TryParse(s.Substring(5), out long n))
+                    taken.Add(n);
+        }
+
+        // 指定インベントリ内だけを見る従来採番（item_N の N=既存最大+1）。セーブの index.item とは
+        // 同期しないため、セーブへの追加には IssueItemId を使うこと。倉庫 zip 内の管理 ID など、
+        // セーブと無関係な辞書の採番はこちら。
         public static string NextItemId(JsonObject inv)
         {
             int max = -1;

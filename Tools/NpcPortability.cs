@@ -655,6 +655,9 @@ namespace InstantaleSaveEditor
             try { NpcPortability.PlaceImages(npc, charDir, _pkg.Images); }
             catch (Exception ex) { MessageBox.Show(this, I18n.T("npcimport.errImageExtract") + "\n" + ex.Message); return; }
 
+            // インベントリの item ID を取込先セーブの index.item で採番し直す（元ワールドの ID の
+            // ままだと、ゲームが index.item から配り直す ID と衝突して上書き消滅する）。
+            InventoryPanel.ReassignItemIds(_root, npc);
             _npcs[newId] = npc;
 
             // 冒険者として登録する場合のみ adventurer_npcs へ id を追加
