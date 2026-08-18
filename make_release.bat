@@ -7,7 +7,7 @@ rem NOTE: keep this file ASCII only. cmd reads batch files by byte offset,
 rem       so non-ASCII characters break execution under a different code page.
 
 set "VER=%~1"
-if "%VER%"=="" set "VER=10.3"
+if "%VER%"=="" set "VER=10.4"
 
 set "ROOT=%~dp0"
 set "PUB=%ROOT%bin\Release\net8.0-windows\win-x64\publish"

@@ -111,7 +111,7 @@
 <div class="wrap">
 
 <header class="title">
-  <h1>Instantale Save Editor 説明書 <span class="badge">v10.3</span></h1>
+  <h1>Instantale Save Editor 説明書 <span class="badge">v10.4</span></h1>
   <div class="sub">ゲーム Instantale のセーブデータ／ワールドデータ編集ツール（非公式）</div>
 </header>
 
@@ -256,6 +256,7 @@
 <div class="note">
   <strong>複製・削除の整合性</strong> <span class="badge">v10.3</span><br>
   施設・エリア・クエストを複製すると ID を採番し直し、接続やクエストの掲示先も新しい ID へ張り替えます（free 施設のプログラムも一緒に複製されます）。
+  NPC の複製では、持ち物のアイテム ID も採番し直します（装備の参照も追従）。<span class="badge">v10.4</span>
   削除では、その項目を指していた NPC・施設・クエスト・エリア側の参照も整理します。
 </div>
 <div class="note">
@@ -336,7 +337,7 @@
   <tr><th>操作</th><th>説明</th></tr>
   <tr><td>ドラッグ＆ドロップ</td><td>アイテムを掴んで別の位置へ移動します。置き先に別アイテムがあると入れ替えになります。</td></tr>
   <tr><td>ダブルクリック／編集</td><td>選んだアイテムを編集ダイアログで開きます（名前・種別・属性・説明・価値・レアリティなど）。</td></tr>
-  <tr><td>追加</td><td>新しいアイテム（1×1）を作成します。種別（<code>item_type</code>）を変えると、それに合わせて <code>item_detail</code>・属性・アイテム画像が自動で初期化されます。</td></tr>
+  <tr><td>追加</td><td>新しいアイテム（1×1）を作成します。種別（<code>item_type</code>）を変えると、それに合わせて <code>item_detail</code>・属性・アイテム画像が自動で初期化されます。ID はセーブ全体で重複しないよう自動採番されます。<span class="badge">v10.4</span></td></tr>
   <tr><td>削除</td><td>選択中のアイテムを削除します。</td></tr>
 </table>
 <div class="note">
@@ -344,6 +345,12 @@
 </div>
 <div class="note">
   グリッド画面の「エクスポート」「インポート」でアイテムを zip として持ち出し／取り込みできます。プレイヤーのインベントリではツール内の倉庫にも一時保管できます（<a href="#itemio">詳細</a>）。<span class="badge">v9</span>
+</div>
+<div class="note">
+  <strong>アイテム ID の採番について</strong> <span class="badge">v10.4</span><br>
+  アイテムの追加・インポート・倉庫からの取り出しでは、ゲームと同じカウンタ（<code>index</code> の <code>item</code>）から ID を払い出し、カウンタを次の値へ進めます。
+  インベントリ内の最大＋1 で決めるとカウンタが進まないため、ゲーム側があとから同じ ID を配り直し、追加したアイテムが上書きで消えたり、アイテムの合成・移動でゲームが落ちたりします。
+  すでに使われている番号は、カウンタがデータとずれていても飛ばして採番します。
 </div>
 
 <h2 id="itemio">10. アイテムの倉庫・エクスポート／インポート <span class="badge">v9</span></h2>
@@ -360,6 +367,7 @@
 <div class="note">
   取り込んだアイテムの ID は自動採番され、格子の空き位置に自動配置されます。
   画像は<a href="#settings">ゲーム導入先</a>を基準に元の場所へ復元されます（同じファイルが既にあればそのまま使います）。
+  <span class="badge">v10.4</span> ID はセーブ全体で重複しないよう、ゲームと同じカウンタから採番します（<a href="#inventory">詳細</a>）。
 </div>
 
 <h3>倉庫（個別倉庫・共有倉庫） <span class="badge">v9</span></h3>
@@ -479,6 +487,7 @@
   取り込み時に <code>id</code> は自動採番され、配置先に合わせて <code>current_area</code> / <code>current_location</code> / <code>initial_location</code> が設定されます。
   画像は <code>characters/{名前}/</code> へ展開されます。
   <span class="badge">v10.3</span> ゲーム側の採番と衝突しない <code>id</code> を割り当て、プロフィール等が空のときは既定値で補います（空のままだとゲームが無限ロードになることがあるため）。
+  <span class="badge">v10.4</span> 持ち物のアイテム ID も取り込み先のセーブで採番し直します（装備の参照も追従。元ワールドの ID のままだと既存キャラの持ち物と衝突するため）。
 </div>
 <div class="note">
   <strong>zip の取り込みについて</strong> <span class="badge">v10.3</span><br>
@@ -518,6 +527,7 @@
   <li>職業・現在地（area／拠点）・HP・口調・弱点などを指定できます。</li>
   <li>好感度（relationship）と config は既定値が入り、必要なら「JSON編集」で調整します。</li>
   <li>「NPCとして追加」で現在のワールドの <code>npcs</code> に加える／「NPCパッケージとして書き出す」で zip エクスポートできます（インポートと同じ形式）。</li>
+  <li>「NPCとして追加」で加えるときは、持ち物のアイテム ID を採番し直します（装備の参照も追従。プレイヤーと同じ ID がセーブ内に二重に残らないようにするため）。<span class="badge">v10.4</span></li>
 </ul>
 <div class="warn">
   リバースエンジニアリングに基づく変換のため、完全な互換は保証されません。
