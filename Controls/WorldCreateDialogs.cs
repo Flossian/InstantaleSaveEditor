@@ -33,12 +33,16 @@ namespace InstantaleSaveEditor
         // 新しい area（拠点 or ダンジョン）を index で採番して組み立てる。挿入は呼び出し側で行う。
         // 拠点は入口＋出口の2施設、ダンジョンは dungeon_location 1施設の最小構成
         // （施設は右クリックの「施設を新規作成」で足せる）。
-        internal static (string id, JsonObject area) BuildArea(JsonObject areas, JsonObject index, string name, string size)
+        // ungenerated（拠点のみ）はノード・施設を持たない「未生成」の形にする。ゲームは到着時に中身を生成して
+        // savedata / world_data の両方へ書くため、ゲームに中身を作らせたいときはこの形が要る。
+        // index の node / facility は進めない（何も採番していない）。
+        internal static (string id, JsonObject area) BuildArea(JsonObject areas, JsonObject index, string name, string size, bool ungenerated = false)
         {
             string areaId = QuestCreator.NextId(index, "area", areas.ContainsKey);
+            bool dungeon = size == "dungeon";
+            if (ungenerated && !dungeon) return (areaId, BuildUngeneratedArea(areaId, name, size));
             var (nodeIds, facIds) = CollectNodeFacilityIds(areas);
             string nodeId = QuestCreator.NextId(index, "node", nodeIds.Contains);
-            bool dungeon = size == "dungeon";
 
             var facilities = new JsonObject();
             string entranceFid = QuestCreator.NextId(index, "facility", facIds.Contains);
@@ -91,6 +95,25 @@ namespace InstantaleSaveEditor
             };
             return (areaId, area);
         }
+
+        // 未生成エリアの骨格。実データでゲームがまだ生成していないエリアと同形（項目の並びも同じ）:
+        // nodes は空、entrance_node は null、config.level_of_detail は 0。
+        private static JsonObject BuildUngeneratedArea(string areaId, string name, string size) => new()
+        {
+            ["name"] = name,
+            ["id"] = areaId,
+            ["descriptions"] = new JsonObject { ["overview"] = "", ["facilities"] = "", ["area_description"] = "" },
+            ["size"] = size,
+            ["resident_npcs"] = new JsonArray(),
+            ["adventurer_npcs"] = new JsonArray(),
+            ["connections"] = new JsonArray(),
+            ["nodes"] = new JsonObject(),
+            ["quests"] = new JsonArray(),
+            ["labors"] = new JsonObject { ["created_date"] = 0, ["posts"] = new JsonArray() },
+            ["entrance_node"] = null,
+            ["bgm"] = "",
+            ["config"] = new JsonObject { ["level_of_detail"] = 0 },
+        };
 
         // 施設の骨格（WorldGenerator.Facility と同じフィールド構成。tier / owner は未設定）。
         internal static JsonObject BuildFacility(string id, string name, string type) => new()
@@ -291,14 +314,21 @@ namespace InstantaleSaveEditor
     {
         private readonly TextBox _tbName = new();
         private readonly ComboBox _cbSize;
+        private readonly CheckBox _chkUngenerated;
 
         public string AreaName => _tbName.Text.Trim();
         public string AreaSize => _cbSize.Text.Trim();
+        // 中身（ノード・施設）を作らず、到着時にゲームへ生成させる形で作るか。ダンジョンでは選べない。
+        public bool Ungenerated => _chkUngenerated.Enabled && _chkUngenerated.Checked;
 
-        public AreaCreateDialog() : base(I18n.T("createArea.title"), 180)
+        public AreaCreateDialog() : base(I18n.T("createArea.title"), 215)
         {
             AddRow(I18n.T("createArea.name"), _tbName);
             _cbSize = AddRow(I18n.T("createArea.size"), OptionsCombo(new[] { "village", "town", "city", "dungeon" }, "town"));
+            _chkUngenerated = AddRow("", new CheckBox { Text = I18n.T("createArea.ungenerated"), AutoSize = true });
+            void Sync() => _chkUngenerated.Enabled = AreaSize != "dungeon";
+            _cbSize.SelectedIndexChanged += (_, _) => Sync();
+            _cbSize.TextChanged += (_, _) => Sync();
         }
 
         protected override bool Confirm() => RequireName(_tbName);

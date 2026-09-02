@@ -774,7 +774,7 @@ namespace InstantaleSaveEditor
             if (!_form.Apply()) return;
             using var d = new AreaCreateDialog();
             if (d.ShowDialog(FindForm()) != DialogResult.OK) return;
-            var (id, area) = WorldRecordFactory.BuildArea(areas, index, d.AreaName, d.AreaSize);
+            var (id, area) = WorldRecordFactory.BuildArea(areas, index, d.AreaName, d.AreaSize, d.Ungenerated);
             areas[id] = area;
             Populate();
             SelectByTag("item", "areas", id);

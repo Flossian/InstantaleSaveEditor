@@ -111,7 +111,7 @@
 <div class="wrap">
 
 <header class="title">
-  <h1>Instantale Save Editor 説明書 <span class="badge">v10.4</span></h1>
+  <h1>Instantale Save Editor 説明書 <span class="badge">v10.5</span></h1>
   <div class="sub">ゲーム Instantale のセーブデータ／ワールドデータ編集ツール（非公式）</div>
 </header>
 
@@ -144,6 +144,7 @@
     <li><a href="#player2npc">プレイヤーを NPC 化 <span class="badge">v7</span></a></li>
     <li><a href="#player2preset">プレイヤーをプリセット化 <span class="badge">v10</span></a></li>
     <li><a href="#cleanup">ワールドデータのクリーンアップ <span class="badge">v9</span></a></li>
+    <li><a href="#worldsync">ワールドデータとの同期 <span class="badge">v10.5</span></a></li>
     <li><a href="#questlog">quest_event_log の圧縮 <span class="badge">v10.1</span></a></li>
     <li><a href="#settings">設定（言語・バックアップ・ウィンドウ） <span class="badge">v7</span></a></li>
     <li><a href="#files">データの保存場所</a></li>
@@ -194,6 +195,7 @@
   <tr><td>プレイヤーをNPCに... <span class="badge">v7</span></td><td>プレイヤーを NPC に変換して <code>npcs</code> へ追加、または zip として書き出します。<a href="#player2npc">詳細</a>。</td></tr>
   <tr><td>プレイヤーをプリセット化... <span class="badge">v10</span></td><td>プレイヤーをゲームのキャラ作成画面で選べるキャラクタープリセットとして出力します。<a href="#player2preset">詳細</a>。</td></tr>
   <tr><td>ワールドデータをクリーンアップ... <span class="badge">v9</span></td><td>ストーリークエストの進行を未完了に戻し、全 NPC のログ消去・関係を初期化します。<a href="#cleanup">詳細</a>。</td></tr>
+  <tr><td>ワールドデータと突き合わせ... <span class="badge">v10.5</span></td><td>savedata.json にあって <code>world_data.json</code> に無いエリア・施設・NPC を一覧から選んで写します。<a href="#worldsync">詳細</a>。</td></tr>
   <tr><td>quest_event_logを圧縮... <span class="badge">v10.1</span></td><td>肥大化した <code>quest_event_log</code> を最新数ターン分だけ残して切り詰めます。<a href="#questlog">詳細</a>。</td></tr>
   <tr><td>全体をJSONで編集...</td><td>データ全体を JSON テキストとして直接編集します（上級者向け）。</td></tr>
 </table>
@@ -247,7 +249,12 @@
   ツリー上で右クリックすると、その項目に対する操作がまとまって表示されます:
   新規作成（エリア・NPC・施設・クエスト）／インポート（NPC・施設）／エクスポート（NPC・施設）／JSON直接編集／複製／削除。
   右クリックした位置から、新規作成やインポートの配置先（所属エリア・接続先施設）が初期値として引き継がれます。
-  ボタン列やツールメニューにある同じ機能とまったく同じ動作です。
+  ボタン列やツールメニューにある同じ機能とまったく同じ動作です。<br>
+  エリアの新規作成で「中身はゲームに生成させる」にチェックすると、ノード・施設を持たない未生成の形で作ります（到着時にゲームが中身を生成します。ダンジョンでは選べません）。<span class="badge">v10.5</span>
+</div>
+<div class="note">
+  <strong>ワールドデータ（world_data.json）への反映</strong> <span class="badge">v10.5</span><br>
+  savedata.json を開いて足した／消したエリア・ノード・施設・NPC は、上書き保存のときに <code>worlds\{ワールド名}\world_data.json</code> にも反映されます（<a href="#worldsync">詳細</a>）。
 </div>
 <div class="warn">
   エリア・施設の削除では、<strong>そのツリー上の下位ノード（配下の施設など）もまとめて削除</strong>されます。<span class="badge">v10.1</span>
@@ -571,7 +578,33 @@
   この操作は<strong>元に戻せません</strong>（保存するまではファイルには反映されません）。実行前に必ずバックアップを取ってください。
 </div>
 
-<h2 id="questlog">20. quest_event_log の圧縮 <span class="badge">v10.1</span></h2>
+<h2 id="worldsync">20. ワールドデータとの同期 <span class="badge">v10.5</span></h2>
+<p>
+  ゲームは同じ世界のデータを <code>saves\{ワールド名}\savedata.json</code> と <code>worlds\{ワールド名}\world_data.json</code> の 2 つに持ち、
+  店で「売買する」を押したときや未生成エリアへ到着したときは <code>world_data.json</code> 側を参照します。
+  このエディタで savedata.json にだけ足したエリア・施設・NPC が world_data.json に無いと、その場面でゲームが静かに止まります
+  （画面が変わらないまま固まり、エラーも表示されません）。
+</p>
+<h3>保存時の自動同期</h3>
+<ul>
+  <li>savedata.json を開いて上書き保存すると、開いてから足したエリア・ノード・施設・NPC を <code>world_data.json</code> にも写します。写した施設の主（<code>owner</code>）と free 施設のプログラム、隣接エリアの <code>connections</code>・入口施設・住民一覧などの参照も一緒に写します。</li>
+  <li>開いてから消したエリア・ノード・施設・NPC は world_data.json からも消し、参照を整理します。</li>
+  <li><code>index</code>（採番カウンタ）は両ファイルで大きい方に揃えます（片方だけ遅れると、ゲームが別のものへ同じ ID を振ることがあります）。</li>
+  <li>2 つのファイルを同じ内容にはしません。ゲームが依頼で作ったダンジョンなど、savedata.json にだけあるのが正常なレコードもあるためです。<code>player_data</code>・<code>game_variables</code>・クエスト・<code>world_data</code>（名前や経過日数）は触りません。</li>
+  <li>world_data.json は保存のたびにディスクから読み直し、savedata.json と同じ手順（自動バックアップ → 一時ファイル経由の置き換え）で書き戻します。world_data.json が見つからないときは警告を出し、同期しません。</li>
+</ul>
+<h3>ワールドデータと突き合わせ（ツールメニュー）</h3>
+<p>
+  <strong>ツール → ワールドデータと突き合わせ</strong> で、savedata.json にあって world_data.json に無いレコードを一覧にし、チェックしたものを写します
+  （v10.4 以前に足したものなど、既に片方にしか無くなっているセーブの手当て用）。
+  ゲームが依頼で作ったダンジョン（<code>size</code> が <code>dungeon</code> で <code>dungeon_location</code> 施設を持つもの）は既定でチェックを外しています。
+  書き込みは即時です。<code>index</code> がセーブ側でも変わった場合は、続けてセーブデータを保存してください。
+</p>
+<div class="warn">
+  ゲームを起動したまま保存すると、ゲームが後から書く内容で上書きされることがあります。ゲームを終了してから編集・保存してください。
+</div>
+
+<h2 id="questlog">21. quest_event_log の圧縮 <span class="badge">v10.1</span></h2>
 <p>
   <strong>ツール → quest_event_logを圧縮</strong> から、<code>game_variables</code> の <code>quest_event_log</code> を切り詰めます。
   これはゲーム側の既知のバグで、このログが際限なく肥大化しセーブが重くなる問題への緩和策です（ゲーム本体の修正までの一時対応）。
@@ -584,7 +617,7 @@
   この操作は<strong>元に戻せません</strong>（保存するまではファイルには反映されません）。実行前に必ずバックアップを取ってください。
 </div>
 
-<h2 id="settings">21. 設定（言語・バックアップ・ウィンドウ・ゲーム導入先） <span class="badge">v7</span></h2>
+<h2 id="settings">22. 設定（言語・バックアップ・ウィンドウ・ゲーム導入先） <span class="badge">v7</span></h2>
 <p><strong>設定</strong>メニューから、UI 言語・自動バックアップ・ウィンドウの挙動を変更できます。設定は exe と同じ場所の <code>setting\settings.json</code> に保存されます（v9.2 以前の exe 直下の <code>settings.json</code> は初回起動時に自動で移動します <span class="badge">v10</span>）。</p>
 
 <h3>言語</h3>
@@ -629,7 +662,7 @@
   ウィンドウサイズを前回のサイズで起動するか固定サイズで起動するかを選べます。起動位置の記憶も指定できます。
 </p>
 
-<h2 id="files">22. データの保存場所</h2>
+<h2 id="files">23. データの保存場所</h2>
 <table>
   <tr><th>種類</th><th>場所</th></tr>
   <tr><td>セーブデータ</td><td><code>%LocalAppData%\Darmabeko\Instantale\saves\{ワールド名}\savedata.json</code></td></tr>
@@ -644,8 +677,9 @@
   ※ <code>%AppData%</code> はエクスプローラーのアドレス欄にそのまま入力すると開けます。
 </p>
 
-<h2 id="faq">23. 困ったときは</h2>
+<h2 id="faq">24. 困ったときは</h2>
 <ul>
+  <li><strong>エディタで足した店で「売買する」を押すと固まる／作ったエリアへ到着できない</strong> … そのレコードが <code>world_data.json</code> に無い状態です。<a href="#worldsync">ワールドデータと突き合わせ</a>で写してください。</li>
   <li><strong>編集が反映されない</strong> … 入力欄からフォーカスを外す（別の場所をクリック）と反映されます。最後に「上書き保存」を忘れずに。</li>
   <li><strong>ゲームがセーブを読み込めなくなった</strong> … 自動バックアップ（<code>backups\</code> 内の zip）または手動コピーから戻してください。</li>
   <li><strong>タブに「ありません」と出る</strong> … そのデータ（プレイヤー／ゲーム変数）を含まないファイルを開いています。異常ではありません。</li>

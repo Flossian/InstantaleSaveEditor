@@ -213,8 +213,17 @@ namespace InstantaleSaveEditor
         public static string Str(JsonObject o, string k, string def = "")
             => o != null && o.TryGetPropertyValue(k, out var n) && n is JsonValue v && v.TryGetValue<string>(out var s) ? s : def;
         // 整数を取得（無ければ def）。
+        // ファイル由来の値（JsonElement）は TryGetValue<long> で読めるが、コード側で int を代入して作った
+        // JsonValue（index[key] = cur + 1 等）は型が一致しないと読めないため、int / 整数値の double も拾う。
+        // これを落とすと、採番直後にカウンタが 0 に見えて、空き番からの再採番でカウンタが巻き戻る。
         public static long Int(JsonObject o, string k, long def = 0)
-            => o != null && o.TryGetPropertyValue(k, out var n) && n is JsonValue v && v.TryGetValue<long>(out var l) ? l : def;
+        {
+            if (o == null || !o.TryGetPropertyValue(k, out var n) || n is not JsonValue v) return def;
+            if (v.TryGetValue<long>(out var l)) return l;
+            if (v.TryGetValue<int>(out var i)) return i;
+            if (v.TryGetValue<double>(out var d) && d == Math.Floor(d) && Math.Abs(d) < 9e18) return (long)d;
+            return def;
+        }
         // 真偽値を取得（無ければ def）。
         public static bool Bool(JsonObject o, string k, bool def = false)
             => o != null && o.TryGetPropertyValue(k, out var n) && n is JsonValue v && v.TryGetValue<bool>(out var b) ? b : def;
@@ -224,7 +233,11 @@ namespace InstantaleSaveEditor
         public static double Dbl(JsonObject o, string k, double def = 0)
         {
             if (o != null && o.TryGetPropertyValue(k, out var n) && n is JsonValue v)
-            { if (v.TryGetValue<double>(out var d)) return d; if (v.TryGetValue<long>(out var l)) return l; }
+            {
+                if (v.TryGetValue<double>(out var d)) return d;
+                if (v.TryGetValue<long>(out var l)) return l;
+                if (v.TryGetValue<int>(out var i)) return i;
+            }
             return def;
         }
         // 子オブジェクト/子配列を取得（型違いや null は null を返す）。

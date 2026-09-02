@@ -20,6 +20,14 @@ namespace InstantaleSaveEditor
         private bool _srcPlain;                                             // 開いたファイルが平文 JSON だったか
         private readonly Settings _settings;                                // ツール設定（バックアップ・表示）
 
+        // ワールド素データ（worlds\{スロット}\world_data.json）との同期用。savedata.json を開いたときだけ相方を持つ。
+        // ゲームは同じ世界のレコードを両ファイルに持ち、店の売買や未生成エリアへの到着では world 側を引く。
+        // このエディタで足したレコードが world 側に無いとそこで止まるため、保存時に足した分／消した分を写す（WorldSync）。
+        private string _worldPath;             // 相方の world_data.json（無ければ null）
+        private bool _worldPlain;              // 相方が平文 JSON で置かれていたか（開いた形式のまま書き戻す）
+        private IdSet _saveBase;               // 読み込み／保存時点の save 側 id 集合（保存時の追加・削除差分の基準）
+        private bool _worldMissingWarned;      // 相方が無い旨の警告を出したか（開いたファイルごとに1回）
+
         private const int MaxRecentFiles = 10;   // 「最近開いたファイル」の保持件数
 
         private readonly TabControl _tabs = new() { Dock = DockStyle.Fill };
@@ -32,7 +40,7 @@ namespace InstantaleSaveEditor
         // Localize() で文言を再適用するため、可視文言を持つ要素を保持する。
         private TabPage _tpPlayer, _tpWorld, _tpVars;
         private ToolStripMenuItem _miFile, _miFileOpen, _miFileRecent, _miFileSave, _miFileSaveAs, _miFileExport, _miFileExit;
-        private ToolStripMenuItem _miTools, _miToolGenerateWorld, _miToolCreateQuest, _miToolExtract, _miToolImportNpc, _miToolImportFacility, _miToolPlayerToNpc, _miToolPlayerToPreset, _miToolCleanup, _miToolCompactQuestLog, _miToolEditRaw;
+        private ToolStripMenuItem _miTools, _miToolGenerateWorld, _miToolCreateQuest, _miToolExtract, _miToolImportNpc, _miToolImportFacility, _miToolPlayerToNpc, _miToolPlayerToPreset, _miToolCleanup, _miToolSyncWorld, _miToolCompactQuestLog, _miToolEditRaw;
         private ToolStripMenuItem _miSettings, _miSettingsBackup, _miSettingsLang, _miSettingsMisc;
         private ToolStripMenuItem _miAutoBackup;   // メニュー右端の自動バックアップ ON/OFF トグル表示
         private string _statusKey = "status.initial";   // 現在のステータス文言キー（言語切替時に再解決する）
@@ -89,6 +97,7 @@ namespace InstantaleSaveEditor
             _miToolPlayerToNpc.Text = I18n.T("menu.tools.playerToNpc");
             _miToolPlayerToPreset.Text = I18n.T("menu.tools.playerToPreset");
             _miToolCleanup.Text = I18n.T("menu.tools.cleanup");
+            _miToolSyncWorld.Text = I18n.T("menu.tools.syncWorld");
             _miToolCompactQuestLog.Text = I18n.T("menu.tools.compactQuestLog");
             _miToolEditRaw.Text = I18n.T("menu.tools.editRaw");
 
@@ -140,6 +149,7 @@ namespace InstantaleSaveEditor
             _miToolPlayerToNpc = new ToolStripMenuItem(null, null, (_, _) => PlayerToNpc());
             _miToolPlayerToPreset = new ToolStripMenuItem(null, null, (_, _) => PlayerToPreset());
             _miToolCleanup = new ToolStripMenuItem(null, null, (_, _) => CleanupWorld());
+            _miToolSyncWorld = new ToolStripMenuItem(null, null, (_, _) => SyncWorld());
             _miToolCompactQuestLog = new ToolStripMenuItem(null, null, (_, _) => CompactQuestEventLog());
             _miToolEditRaw = new ToolStripMenuItem(null, null, (_, _) => EditRaw());
             _miTools.DropDownItems.Add(_miToolGenerateWorld);
@@ -153,6 +163,7 @@ namespace InstantaleSaveEditor
             _miTools.DropDownItems.Add(_miToolPlayerToPreset);
             _miTools.DropDownItems.Add(new ToolStripSeparator());
             _miTools.DropDownItems.Add(_miToolCleanup);
+            _miTools.DropDownItems.Add(_miToolSyncWorld);
             _miTools.DropDownItems.Add(_miToolCompactQuestLog);
             _miTools.DropDownItems.Add(_miToolEditRaw);
 
@@ -186,7 +197,7 @@ namespace InstantaleSaveEditor
             bool loaded = _root != null;
             _miFileSave.Enabled = _miFileSaveAs.Enabled = _miFileExport.Enabled = loaded;
             _miToolCreateQuest.Enabled = _miToolImportNpc.Enabled = _miToolImportFacility.Enabled = _miToolPlayerToNpc.Enabled
-                = _miToolPlayerToPreset.Enabled = _miToolCleanup.Enabled = _miToolCompactQuestLog.Enabled = _miToolEditRaw.Enabled = loaded;
+                = _miToolPlayerToPreset.Enabled = _miToolCleanup.Enabled = _miToolSyncWorld.Enabled = _miToolCompactQuestLog.Enabled = _miToolEditRaw.Enabled = loaded;
         }
 
         // 「最近開いたファイル」のドロップダウンを設定の履歴から作り直す。履歴が空なら無効化する。
@@ -456,6 +467,12 @@ namespace InstantaleSaveEditor
             // 一度反映させた後の内容で取る（開いただけで「変更あり」になる誤検知の防止）。
             ApplyAll();
             _baseline = Codec.Encode(_root);
+            // 相方の world_data.json（savedata を開いたときだけ）。保存時の同期と突き合わせツールで使う。
+            // 以後の追加・削除を拾うため、読み込み時点の id 集合を控える。
+            _worldPath = J.Obj(_root, "player_data") != null ? WorldSync.PartnerPath(_path) : null;
+            _worldPlain = _worldPath != null && Codec.IsPlainJsonFile(_worldPath);
+            _worldMissingWarned = false;
+            _saveBase = IdSet.Capture(_root);
             UpdateMenuState();
             UpdateTitle();
             Status("status.loaded");
@@ -515,6 +532,32 @@ namespace InstantaleSaveEditor
                 if (ans == DialogResult.Cancel) return false;
                 if (ans == DialogResult.Yes) { plain = false; _srcPlain = false; }   // 以後は難読化で保存する
             }
+            // ワールド素データとの同期。読み込み後に足した／消したレコードを相方の world_data.json へ写す。
+            // 相方はここでディスクから読み直す（ゲームが書いた最新を土台にし、古い内容で潰さない）。
+            // 相方が読めない・書けないときは基準（_saveBase）を進めず、次の保存でもう一度写す。
+            JsonObject world = null;
+            WorldSync.Result sync = default;
+            bool worldOk = true;
+            if (_worldPath != null && WorldSync.PartnerPath(_path) == _worldPath)
+            {
+                try { world = Codec.Load(_worldPath); }
+                catch (Exception ex)
+                {
+                    worldOk = false;
+                    MessageBox.Show(this, I18n.T("msg.worldSync.loadFailed", ex.Message), I18n.T("title.worldSync"),
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
+                if (world != null)
+                    sync = WorldSync.Apply(_root, world,
+                        WorldSync.Added(_root, _saveBase, world), WorldSync.Removed(_root, _saveBase, world));
+            }
+            else if (_worldPath == null && WorldSync.IsSlotSavePath(_path) && !_worldMissingWarned)
+            {
+                // 黙って抜けると、直したつもりのまま壊れたセーブが増える。スロット内の savedata のときだけ知らせる。
+                _worldMissingWarned = true;
+                MessageBox.Show(this, I18n.T("msg.worldSync.missing"), I18n.T("title.worldSync"),
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
             byte[] bytes;
             try
             {
@@ -526,10 +569,34 @@ namespace InstantaleSaveEditor
                 Codec.WriteAtomic(_path, bytes);
             }
             catch (Exception ex) { MessageBox.Show(this, ex.Message, I18n.T("title.saveFailed"), MessageBoxButtons.OK, MessageBoxIcon.Error); return false; }
+            // savedata の書き込みが成った後で相方を書く（savedata が失敗したら world 側も書かない）。
+            if (world != null && sync.WorldChanged && !WriteWorld(world)) worldOk = false;
             // 未保存判定は保存形式によらず難読化後のバイトで統一する。
             _baseline = Codec.Encode(_root);
-            Status("status.saved");
+            if (worldOk) _saveBase = IdSet.Capture(_root);
+            if (sync.WorldChanged) Status("status.savedSynced", sync.Copied + sync.Programs, sync.Removed);
+            else Status("status.saved");
             return true;
+        }
+
+        // world_data.json を savedata と同じ手順（バックアップ → 一時ファイル経由の置換）で書き戻す。
+        private bool WriteWorld(JsonObject world)
+        {
+            try
+            {
+                byte[] bytes = _worldPlain
+                    ? new UTF8Encoding(false).GetBytes(world.ToJsonString(Codec.Pretty))
+                    : Codec.Encode(world);
+                BackupManager.BackupBeforeOverwrite(_worldPath, bytes, _settings);
+                Codec.WriteAtomic(_worldPath, bytes);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, I18n.T("msg.worldSync.writeFailed", _worldPath, ex.Message), I18n.T("title.saveFailed"),
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return false;
+            }
         }
 
         // 別名保存（パスを決めてから上書き保存処理へ）。成功したら true。
@@ -585,6 +652,7 @@ namespace InstantaleSaveEditor
         {
             _root = root;
             _path = null;
+            _worldPath = null; _saveBase = null; _worldMissingWarned = false;   // 生成データに相方は無い
             // 数値の表記を UI の書き戻しと同じ形へ揃えておく（未保存変更の誤検知防止）。
             CanonicalizeNumbers(_root);
             _player.Bind(_root, null);
@@ -748,6 +816,47 @@ namespace InstantaleSaveEditor
             Status("status.cleaned", res.Quests, res.Npcs);
             MessageBox.Show(this, I18n.T("msg.cleanup.done", res.Quests, res.Npcs),
                 I18n.T("title.cleanupDone"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        // セーブデータにだけあるエリア・ノード・施設・NPC を一覧から選んで world_data.json へ写す。
+        // 保存時の同期（SaveFile）は読み込み後の追加分しか扱わないため、既に片方にしか無い状態に
+        // なっているセーブはこちらで手当てする。書き込みは即時（savedata 側は index が揃った場合のみ変わる）。
+        private void SyncWorld()
+        {
+            if (_root == null) { MessageBox.Show(this, I18n.T("msg.openFileFirst")); return; }
+            if (_worldPath == null || WorldSync.PartnerPath(_path) != _worldPath)
+            {
+                MessageBox.Show(this, I18n.T("msg.worldSync.noPartner"), I18n.T("title.worldSync"),
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            if (!ApplyAll()) return;
+            JsonObject world;
+            try { world = Codec.Load(_worldPath); }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, I18n.T("msg.worldSync.loadFailed", ex.Message), I18n.T("title.worldSync"),
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+            var cand = WorldSync.SaveOnly(_root, world);
+            var sel = new IdSet();   // 候補が無くても index の食い違いだけは揃える
+            if (!cand.IsEmpty)
+            {
+                using var dlg = new WorldSyncDialog(_root, cand, _worldPath);
+                if (dlg.ShowDialog(this) != DialogResult.OK) return;
+                sel = dlg.Selected;
+            }
+            var res = WorldSync.Apply(_root, world, sel, new IdSet());
+            if (res.WorldChanged && !WriteWorld(world)) return;
+            if (res.SaveIndexChanged) _world.Bind(_root, _path);   // index の表示を更新
+            string msg = res.Copied + res.Programs == 0 && cand.IsEmpty
+                ? I18n.T("msg.worldSync.nothing")
+                : I18n.T("msg.worldSync.done", res.Areas, res.Nodes, res.Facilities, res.Npcs, res.Programs);
+            if (res.Skipped > 0) msg += I18n.T("msg.worldSync.skipped", res.Skipped);
+            if (res.SaveIndexChanged) msg += I18n.T("msg.worldSync.indexNote");
+            Status("status.worldSynced", res.Copied + res.Programs);
+            MessageBox.Show(this, msg, I18n.T("title.worldSync"), MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         // quest_event_log を圧縮する（ゲーム側の既知バグ対策）。確認後、最新3件以外を切り捨てる。
