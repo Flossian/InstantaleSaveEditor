@@ -626,7 +626,7 @@
   "createArea.title": "Create New Area",
   "createArea.name": "Name",
   "createArea.size": "Size",
-  "createArea.ungenerated": "Let the game generate the contents (no nodes/facilities; left ungenerated)",
+  "createArea.connections": "Connected areas",
   "createNpc.title": "Create New NPC",
   "createNpc.name": "Name",
   "createNpc.category": "Category",

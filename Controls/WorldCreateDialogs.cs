@@ -1,9 +1,10 @@
 // ワールドタブのツリー右クリック「新規作成」で使う入力ダイアログと、レコード骨格の生成。
-// - AreaCreateDialog: 名前＋規模（village/town/city/dungeon）で新エリアを作る
+// - AreaCreateDialog: 名前＋規模（village/town/city/dungeon）＋接続先エリアで新エリアを作る（拠点は未生成の形。ゲームが到着時に中身を作る）
 // - NpcCreateDialog: 名前・カテゴリ・職業・配置（エリア/施設）・冒険者登録で新NPCを作る
 // - FacilityCreateDialog: 名前＋施設種別で新施設を作る
 // 骨格は WorldGenerator / QuestCreator が生成する実データと同じフィールド構成に揃える。
 // ID 採番はワールドの index カウンタ（area/node/facility）を使い、既存 ID との衝突を避ける。
+using System.Linq;
 using System.Text.Json.Nodes;
 
 namespace InstantaleSaveEditor
@@ -33,54 +34,34 @@ namespace InstantaleSaveEditor
         // 新しい area（拠点 or ダンジョン）を index で採番して組み立てる。挿入は呼び出し側で行う。
         // 拠点は入口＋出口の2施設、ダンジョンは dungeon_location 1施設の最小構成
         // （施設は右クリックの「施設を新規作成」で足せる）。
-        // ungenerated（拠点のみ）はノード・施設を持たない「未生成」の形にする。ゲームは到着時に中身を生成して
-        // savedata / world_data の両方へ書くため、ゲームに中身を作らせたいときはこの形が要る。
-        // index の node / facility は進めない（何も採番していない）。
-        internal static (string id, JsonObject area) BuildArea(JsonObject areas, JsonObject index, string name, string size, bool ungenerated = false)
+        // 拠点（village/town/city）はノード・施設を持たない「未生成」の形で作る。実データでゲームがまだ生成していない
+        // エリアと同形で、ゲームが到着時に中身（入口・出口・各施設）を生成して savedata / world_data の両方へ書く。
+        // ツール側で入口・出口を付けると、ゲーム生成の施設と二重になる。index の node / facility は進めない。
+        // ダンジョンは実データに未生成の形が無い（常に dungeon_location 施設 1 つのノードを持つ）ため従来どおり作る。
+        internal static (string id, JsonObject area) BuildArea(JsonObject areas, JsonObject index, string name, string size)
         {
             string areaId = QuestCreator.NextId(index, "area", areas.ContainsKey);
-            bool dungeon = size == "dungeon";
-            if (ungenerated && !dungeon) return (areaId, BuildUngeneratedArea(areaId, name, size));
+            if (size != "dungeon") return (areaId, BuildUngeneratedArea(areaId, name, size));
             var (nodeIds, facIds) = CollectNodeFacilityIds(areas);
             string nodeId = QuestCreator.NextId(index, "node", nodeIds.Contains);
-
-            var facilities = new JsonObject();
-            string entranceFid = QuestCreator.NextId(index, "facility", facIds.Contains);
-            if (dungeon)
-            {
-                facilities[entranceFid] = BuildFacility(entranceFid, name, "dungeon_location");
-            }
-            else
-            {
-                facIds.Add(entranceFid);
-                string exitFid = QuestCreator.NextId(index, "facility", facIds.Contains);
-                var entrance = BuildFacility(entranceFid, $"{name} - 入口", "entrance");
-                var exit = BuildFacility(exitFid, $"{name} - 出口", "exit");
-                exit["description"] = "エリアの出口。";
-                ((JsonArray)entrance["connections"]).Add(exitFid);
-                ((JsonArray)exit["connections"]).Add(entranceFid);
-                facilities[entranceFid] = entrance;
-                facilities[exitFid] = exit;
-            }
+            string fid = QuestCreator.NextId(index, "facility", facIds.Contains);
 
             var node = new JsonObject
             {
                 ["name"] = "",
                 ["id"] = nodeId,
                 ["overview"] = "",
-                ["facilities"] = facilities,
+                ["facilities"] = new JsonObject { [fid] = BuildFacility(fid, name, "dungeon_location") },
                 ["connections"] = new JsonArray(),
-                ["entrance_facility"] = entranceFid,
+                ["entrance_facility"] = fid,
                 ["config"] = new JsonObject { ["level_of_detail"] = 0 },
             };
             var area = new JsonObject
             {
                 ["name"] = name,
                 ["id"] = areaId,
-                // 実データ準拠: ダンジョンは overview / facilities が null、拠点は文字列を持つ。
-                ["descriptions"] = dungeon
-                    ? new JsonObject { ["overview"] = null, ["facilities"] = null, ["area_description"] = "" }
-                    : new JsonObject { ["overview"] = "", ["facilities"] = "", ["area_description"] = "" },
+                // 実データ準拠: ダンジョンは overview / facilities が null。
+                ["descriptions"] = new JsonObject { ["overview"] = null, ["facilities"] = null, ["area_description"] = "" },
                 ["size"] = size,
                 ["resident_npcs"] = new JsonArray(),
                 ["adventurer_npcs"] = new JsonArray(),
@@ -90,8 +71,8 @@ namespace InstantaleSaveEditor
                 ["labors"] = new JsonObject { ["created_date"] = 0, ["posts"] = new JsonArray() },
                 ["entrance_node"] = nodeId,
                 ["bgm"] = "",
-                // 実データ準拠: ダンジョンの level_of_detail は文字列 "1"、拠点は数値 1。
-                ["config"] = new JsonObject { ["level_of_detail"] = dungeon ? "1" : (JsonNode)1 },
+                // 実データ準拠: ダンジョンの level_of_detail は文字列 "1"。
+                ["config"] = new JsonObject { ["level_of_detail"] = "1" },
             };
             return (areaId, area);
         }
@@ -314,19 +295,30 @@ namespace InstantaleSaveEditor
     {
         private readonly TextBox _tbName = new();
         private readonly ComboBox _cbSize;
-        private readonly CheckBox _chkUngenerated;
+        private readonly CheckedListBox _lbConn;
+        private readonly List<string> _connIds = new();
 
         public string AreaName => _tbName.Text.Trim();
         public string AreaSize => _cbSize.Text.Trim();
-        // 中身（ノード・施設）を作らず、到着時にゲームへ生成させる形で作るか。ダンジョンでは選べない。
-        public bool Ungenerated => _chkUngenerated.Enabled && _chkUngenerated.Checked;
+        // 接続先に選んだ既存エリアの id（ダンジョンは実データで connections が常に空のため、選択不可＝空）。
+        public IReadOnlyList<string> ConnectAreaIds =>
+            !_lbConn.Enabled ? Array.Empty<string>()
+            : _lbConn.CheckedIndices.Cast<int>().Select(i => _connIds[i]).ToList();
 
-        public AreaCreateDialog() : base(I18n.T("createArea.title"), 215)
+        // areas: 接続先候補（拠点のみ列挙）。presetAreaId: 右クリック位置のエリアを接続先の初期値にする。
+        public AreaCreateDialog(JsonObject areas, string presetAreaId) : base(I18n.T("createArea.title"), 330)
         {
             AddRow(I18n.T("createArea.name"), _tbName);
             _cbSize = AddRow(I18n.T("createArea.size"), OptionsCombo(new[] { "village", "town", "city", "dungeon" }, "town"));
-            _chkUngenerated = AddRow("", new CheckBox { Text = I18n.T("createArea.ungenerated"), AutoSize = true });
-            void Sync() => _chkUngenerated.Enabled = AreaSize != "dungeon";
+            _lbConn = AddRow(I18n.T("createArea.connections"), new CheckedListBox { CheckOnClick = true, Height = 140, IntegralHeight = false });
+            if (areas != null)
+                foreach (var kv in areas.OrderBy(p => p.Key.Length).ThenBy(p => p.Key))
+                {
+                    if (kv.Value is not JsonObject o || J.Str(o, "size", "") == "dungeon") continue;
+                    _connIds.Add(kv.Key);
+                    _lbConn.Items.Add($"{kv.Key}: {J.Str(o, "name", kv.Key)}", kv.Key == presetAreaId);
+                }
+            void Sync() => _lbConn.Enabled = AreaSize != "dungeon";
             _cbSize.SelectedIndexChanged += (_, _) => Sync();
             _cbSize.TextChanged += (_, _) => Sync();
         }

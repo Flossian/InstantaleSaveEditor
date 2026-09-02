@@ -712,18 +712,19 @@ namespace InstantaleSaveEditor
             string kind = NewKindOf(tag);
             switch (kind)
             {
-                case "areas": CreateArea(); break;
+                case "areas": CreateArea(PresetAreaOf(tag, kind)); break;
                 case "npcs": CreateNpc(PresetAreaOf(tag, kind)); break;
                 case "quests": CreateQuestFromTree(PresetAreaOf(tag, kind)); break;
             }
         }
 
         // 右クリック位置（グループ見出し・項目）から所属エリア id を推測する（不明なら null）。
-        // 新規作成・インポートの配置先の初期値に使う。
+        // 新規作成・インポートの配置先（エリア作成では接続先）の初期値に使う。
         private string PresetAreaOf(string[] tag, string kind)
         {
             if (tag == null) return null;
             if (tag[0] == "grp") return tag[2] != DeadKey && tag[2].Length > 0 ? tag[2] : null;
+            if (tag[0] == "item" && kind == "areas") return tag[1] == "areas" ? tag[2] : null;
             if (tag[0] == "item" && _curContainer?[_curKey] is JsonObject cur)
                 return kind == "npcs" ? IdStr(cur["current_area"])
                      : kind == "quests" ? IdStr(cur["neighboring_settlement_id"]) : null;
@@ -766,15 +767,23 @@ namespace InstantaleSaveEditor
         }
 
         // 新しいエリア（拠点/ダンジョン）を作成して areas へ挿入する。
-        private void CreateArea()
+        // 接続先に選んだ既存エリアとは connections を双方向に張る（実データのエリア間接続は常に対称）。
+        private void CreateArea(string presetArea)
         {
             var areas = J.Obj(_root, "areas");
             var index = J.Obj(_root, "index");
             if (areas == null || index == null) { MessageBox.Show(I18n.T("msg.noAreasIndex")); return; }
             if (!_form.Apply()) return;
-            using var d = new AreaCreateDialog();
+            using var d = new AreaCreateDialog(areas, presetArea);
             if (d.ShowDialog(FindForm()) != DialogResult.OK) return;
-            var (id, area) = WorldRecordFactory.BuildArea(areas, index, d.AreaName, d.AreaSize, d.Ungenerated);
+            var (id, area) = WorldRecordFactory.BuildArea(areas, index, d.AreaName, d.AreaSize);
+            foreach (var other in d.ConnectAreaIds)
+            {
+                if (areas[other] is not JsonObject o) continue;
+                ((JsonArray)area["connections"]).Add(other);
+                if (o["connections"] is not JsonArray oc) o["connections"] = oc = new JsonArray();
+                if (!oc.Any(x => IdStr(x) == id)) oc.Add(id);
+            }
             areas[id] = area;
             Populate();
             SelectByTag("item", "areas", id);

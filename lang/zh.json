@@ -626,7 +626,7 @@
   "createArea.title": "新建区域",
   "createArea.name": "名称",
   "createArea.size": "规模(size)",
-  "createArea.ungenerated": "由游戏生成内容（不创建节点·设施，保持未生成状态）",
+  "createArea.connections": "连接区域",
   "createNpc.title": "新建NPC",
   "createNpc.name": "名称",
   "createNpc.category": "类别(category)",

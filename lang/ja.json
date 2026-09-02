@@ -626,7 +626,7 @@
   "createArea.title": "エリアの新規作成",
   "createArea.name": "名前",
   "createArea.size": "規模(size)",
-  "createArea.ungenerated": "中身はゲームに生成させる（ノード・施設を作らず未生成のまま）",
+  "createArea.connections": "接続先エリア",
   "createNpc.title": "NPCの新規作成",
   "createNpc.name": "名前",
   "createNpc.category": "カテゴリ(category)",
