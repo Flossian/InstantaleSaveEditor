@@ -96,6 +96,11 @@ namespace InstantaleSaveEditor
             ["config"] = new JsonObject { ["level_of_detail"] = 0 },
         };
 
+        // 主（owner）を持つ施設の種類か。通路（ward / location / entrance / exit）とダンジョンの場所以外は、
+        // 実セーブで全件が主を持ち、主の job は facility_type と一致している。
+        internal static bool IsOwnedType(string type)
+            => !string.IsNullOrEmpty(type) && type is not ("ward" or "location" or "entrance" or "exit" or "dungeon_location");
+
         // 施設の骨格（WorldGenerator.Facility と同じフィールド構成。tier / owner は未設定）。
         internal static JsonObject BuildFacility(string id, string name, string type) => new()
         {
@@ -110,7 +115,8 @@ namespace InstantaleSaveEditor
         };
 
         // NPC の骨格（WorldGenerator.BuildNpc と同じフィールド構成。文章類は空でフォームから編集する）。
-        internal static JsonObject BuildNpc(string id, string name, string category, string job, string areaId, string facilityId)
+        // lang: ワールドの言語（GameText.LanguageOf）。ゲームが訳して書く初期値（好感度・関係・記憶の要約）をこの言語で入れる。
+        internal static JsonObject BuildNpc(string id, string name, string category, string job, string areaId, string facilityId, string lang = "ja")
         {
             string area = string.IsNullOrEmpty(areaId) ? null : areaId;
             string fac = string.IsNullOrEmpty(facilityId) ? null : facilityId;
@@ -124,8 +130,8 @@ namespace InstantaleSaveEditor
                 // profile / personality / look_description が空だと、ゲームが立ち絵生成などを
                 // 完了できず読込が無限ロードになる（実データは全NPCがこの3項目を非空で持つ）。
                 // そのため作成時に必ず非空の既定文で埋める。作成後にフォームで書き換え可能。
-                ["profile"] = DefaultProfile(),
-                ["personality"] = DefaultPersonality(),
+                ["profile"] = GameText.DefaultProfile(lang),
+                ["personality"] = GameText.DefaultPersonality(lang),
                 ["look_description"] = DefaultLookDescription(category, look),
                 ["speech_style"] = null,
                 ["job"] = job,
@@ -165,24 +171,13 @@ namespace InstantaleSaveEditor
                     ["memory_archive"] = new JsonArray(),
                     ["session_log"] = new JsonArray(),
                     ["prior_area_summary"] = "",
-                    ["brief_summary"] = "ゲーム開始",
+                    ["brief_summary"] = GameText.GameStart(lang),
                 },
                 ["life_log"] = new JsonArray(),
                 ["current_log"] = new JsonArray(),
                 // 実データのプレイ済みNPCと同形。null や欠落だとゲーム側の読込で弾かれるため
                 // player 向けの初期 relationship を明示的に持たせる。
-                ["relationship"] = new JsonObject
-                {
-                    ["player"] = new JsonObject
-                    {
-                        ["affinity"] = 0,
-                        ["affinity_text"] = "警戒心がある",
-                        ["relationship"] = new JsonArray { "初対面" },
-                        ["conversation_count"] = 0,
-                    },
-                },
-                ["current_area"] = area,
-                ["current_location"] = fac,
+                ["relationship"] = GameText.InitialRelationship(lang, affinityAsArray: false),
                 ["initial_location"] = new JsonObject { ["area"] = area, ["node"] = null, ["facility"] = fac },
                 ["config"] = new JsonObject
                 {
@@ -191,16 +186,16 @@ namespace InstantaleSaveEditor
                     ["is_dead"] = false,
                     ["difficulty_level"] = 1,
                 },
+                // ゲームのセーブと同じ並び（initial_location → config → current_area → current_location → knowledge …）。
+                ["current_area"] = area,
+                ["current_location"] = fac,
                 ["knowledge"] = new JsonArray(),
                 ["display_position_in_battle"] = null,
             };
         }
 
-        // 記述フィールドの既定文（空だとゲームの読込が無限ロードになるため必ず非空にする）。
-        // profile / personality はゲーム内容用の汎用文（作成後に上書き前提）。
-        // プレイヤーの NPC 化（PlayerToNpc）でも同じ既定文を使うため internal。
-        internal static string DefaultProfile() => "この地で暮らす人物。詳しい経歴はまだ語られていない。";
-        internal static string DefaultPersonality() => "落ち着いた物腰で、接する相手に応じて態度を変える。";
+        // 記述フィールドの既定文（空だとゲームの読込が無限ロードになるため必ず非空にする）は
+        // GameText.DefaultProfile / DefaultPersonality（ワールドの言語ごと）。作成後に上書き前提。
 
         // look_description は立ち絵生成のプロンプトに使われるため、外見タグ（look）があればそれを
         // 列挙して充てる。タグが無ければ category を使い、それも無ければ最低限の非空文字にする。
@@ -306,11 +301,14 @@ namespace InstantaleSaveEditor
             : _lbConn.CheckedIndices.Cast<int>().Select(i => _connIds[i]).ToList();
 
         // areas: 接続先候補（拠点のみ列挙）。presetAreaId: 右クリック位置のエリアを接続先の初期値にする。
-        public AreaCreateDialog(JsonObject areas, string presetAreaId) : base(I18n.T("createArea.title"), 330)
+        public AreaCreateDialog(JsonObject areas, string presetAreaId) : base(I18n.T("createArea.title"), 400)
         {
             AddRow(I18n.T("createArea.name"), _tbName);
             _cbSize = AddRow(I18n.T("createArea.size"), OptionsCombo(new[] { "village", "town", "city", "dungeon" }, "town"));
             _lbConn = AddRow(I18n.T("createArea.connections"), new CheckedListBox { CheckOnClick = true, Height = 140, IntegralHeight = false });
+            // ゲームは初訪問で街の中身と初期依頼3件を作る。依頼の難易度の帯は元からある9街（id 0〜8）にしか無く、
+            // それ以外の id の街は 1〜76 の全域から選ばれる（序盤の近くに足しても高難度の依頼が出うる）。
+            var note = AddRow("", new Label { Text = I18n.T("createArea.difficultyNote"), AutoSize = false, Height = 48, ForeColor = SystemColors.GrayText });
             if (areas != null)
                 foreach (var kv in areas.OrderBy(p => p.Key.Length).ThenBy(p => p.Key))
                 {
@@ -318,7 +316,7 @@ namespace InstantaleSaveEditor
                     _connIds.Add(kv.Key);
                     _lbConn.Items.Add($"{kv.Key}: {J.Str(o, "name", kv.Key)}", kv.Key == presetAreaId);
                 }
-            void Sync() => _lbConn.Enabled = AreaSize != "dungeon";
+            void Sync() => _lbConn.Enabled = note.Visible = AreaSize != "dungeon";
             _cbSize.SelectedIndexChanged += (_, _) => Sync();
             _cbSize.TextChanged += (_, _) => Sync();
         }
@@ -368,16 +366,39 @@ namespace InstantaleSaveEditor
     {
         private readonly TextBox _tbName = new();
         private readonly ComboBox _cbType;
+        private readonly CheckBox _chkOwner;
+        private readonly TextBox _tbOwner = new();
+        private readonly ComboBox _cbOwnerCategory;
 
         public string FacilityName => _tbName.Text.Trim();
         public string FacilityType => _cbType.Text.Trim();
+        // 主の NPC も一緒に作るか（主を持つ種類のときだけ有効）。
+        public bool CreateOwner => _chkOwner.Enabled && _chkOwner.Checked;
+        public string OwnerName => _tbOwner.Text.Trim();
+        public string OwnerCategory => _cbOwnerCategory.Text.Trim();
 
-        public FacilityCreateDialog() : base(I18n.T("createFac.title"), 180)
+        public FacilityCreateDialog() : base(I18n.T("createFac.title"), 270)
         {
             AddRow(I18n.T("createFac.name"), _tbName);
             _cbType = AddRow(I18n.T("createFac.type"), OptionsCombo(FieldOptions.Get("facility_type")));
+            _chkOwner = AddRow("", new CheckBox { Text = I18n.T("createFac.withOwner"), AutoSize = true, Checked = true });
+            AddRow(I18n.T("createFac.ownerName"), _tbOwner);
+            _cbOwnerCategory = AddRow(I18n.T("createNpc.category"), OptionsCombo(FieldOptions.Get("category")));
+            void Sync()
+            {
+                _chkOwner.Enabled = WorldRecordFactory.IsOwnedType(FacilityType);
+                _tbOwner.Enabled = _cbOwnerCategory.Enabled = CreateOwner;
+            }
+            _cbType.SelectedIndexChanged += (_, _) => Sync();
+            _cbType.TextChanged += (_, _) => Sync();
+            _chkOwner.CheckedChanged += (_, _) => Sync();
+            Sync();
         }
 
-        protected override bool Confirm() => RequireName(_tbName);
+        protected override bool Confirm()
+        {
+            if (!RequireName(_tbName)) return false;
+            return !CreateOwner || RequireName(_tbOwner);
+        }
     }
 }

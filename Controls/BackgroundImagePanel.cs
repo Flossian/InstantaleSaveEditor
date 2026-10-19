@@ -36,7 +36,7 @@ namespace InstantaleSaveEditor
             string path = null;
             if (!string.IsNullOrEmpty(worldDir) && !string.IsNullOrEmpty(facilityName))
             {
-                string p = Path.Combine(worldDir, "backgrounds", facilityName, "image.png");
+                string p = Path.Combine(SafePath.GameDir(Path.Combine(worldDir, "backgrounds"), facilityName), "image.png");
                 if (File.Exists(p)) path = p;
             }
             _pb.Image?.Dispose();

@@ -112,6 +112,8 @@ namespace InstantaleSaveEditor
             form.PartyNpcNamer = ResolveNpcName;
             form.PartyNpcIsDead = ResolveNpcIsDead;
             form.PartyNpcCandidates = NpcCandidates;
+            form.PartyNpcResolver = id => J.Obj(_root, "npcs")?[id] as JsonObject;
+            form.GameLanguage = GameText.LanguageOf(_root);
             form.Bind(gv, keyOrder: keyList);
             group.Content.Controls.Add(form);
             _scroll.Controls.Add(group);

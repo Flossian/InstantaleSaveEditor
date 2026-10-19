@@ -123,9 +123,9 @@ namespace InstantaleSaveEditor
         public static void Export(JsonObject npc, string worldDir, string sourceWorld, string originalId, string destZip)
         {
             string name = J.Str(npc, "name");
-            // 名前は開いたワールド JSON 由来。取り込み時と同じサニタイズを掛けて同じ場所を指すようにする。
+            // 名前は開いたワールド JSON 由来。ゲームがフォルダ名を作るのと同じ規則で引く。
             string charDir = (worldDir != null && name.Length > 0)
-                ? Path.Combine(worldDir, "characters", SafeFileName(name)) : null;
+                ? SafePath.GameDir(Path.Combine(worldDir, "characters"), name) : null;
 
             var clone = (JsonObject)npc.DeepClone();
             SanitizeForExport(clone);
@@ -160,16 +160,8 @@ namespace InstantaleSaveEditor
         }
 
         // relationship を引き継がない場合に使う既定値（player のみ・好感度0）。
-        public static JsonObject DefaultRelationship() => new JsonObject
-        {
-            ["player"] = new JsonObject
-            {
-                ["affinity"] = 0,
-                ["affinity_text"] = new JsonArray { "警戒している" },
-                ["relationship"] = new JsonArray(),
-                ["conversation_count"] = 0,
-            },
-        };
+        // lang は取り込み先ワールドの言語（ゲームは初期値を訳して書く）。
+        public static JsonObject DefaultRelationship(string lang) => GameText.InitialRelationship(lang, affinityAsArray: true);
 
         // ---------------- インポート(読込) ----------------
         // zip を解析して NpcPackage を返す。形式が不正なら例外。
@@ -245,8 +237,9 @@ namespace InstantaleSaveEditor
             npc["name"] = newName;
             if (worldDir == null) return;
             string baseDir = Path.Combine(worldDir, "characters");
-            string oldDir = Path.Combine(baseDir, oldName);
-            string newDir = Path.Combine(baseDir, newName);
+            // フォルダ名はゲームと同じ規則で名前から作る（名前に < > : " 等が入ってもゲームと同じ場所を指す）。
+            string oldDir = SafePath.GameDir(baseDir, oldName);
+            string newDir = Path.Combine(baseDir, SafePath.GameName(newName));
             try
             {
                 if (Directory.Exists(oldDir) && !Directory.Exists(newDir))
@@ -641,16 +634,18 @@ namespace InstantaleSaveEditor
             npc["location"] = new JsonObject { ["area"] = null, ["node"] = null, ["facility"] = null };
 
             // relationship / life_log は取込データの値を保持（引き継ぐ）。チェックを外したものは既定値に戻す。
-            if (!_chkRelationship.Checked) npc["relationship"] = NpcPortability.DefaultRelationship();
+            if (!_chkRelationship.Checked) npc["relationship"] = NpcPortability.DefaultRelationship(GameText.LanguageOf(_root));
             if (!_chkLifeLog.Checked) npc["life_log"] = new JsonArray();
+            // 元の世界で仲間だった NPC も、取込先ではパーティにいない。"同行中" の印だけ外す（会話の分岐が食い違うため）。
+            PartyMembers.MarkLeft(npc);
 
             // 上書き時は旧配置の登録から外す（id を再利用するため）。
             if (overwrite) RemoveFromAreaLists(overwriteId);
 
             // incomingName は zip の original_name 由来のことがある（衝突が無いと入力欄は非表示のまま）。
-            // フォルダ名として使う前に必ずサニタイズする。
+            // フォルダ名として使う前に必ずサニタイズする（ゲームがその名前から作るフォルダと同じ規則）。
             string charDir = _worldDir != null
-                ? Path.Combine(_worldDir, "characters", NpcPortability.SafeFileName(incomingName))
+                ? Path.Combine(_worldDir, "characters", SafePath.GameName(incomingName))
                 : null;
             try { NpcPortability.PlaceImages(npc, charDir, _pkg.Images); }
             catch (Exception ex) { MessageBox.Show(this, I18n.T("npcimport.errImageExtract") + "\n" + ex.Message); return; }

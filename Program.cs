@@ -40,7 +40,7 @@ namespace InstantaleSaveEditor
         // Localize() で文言を再適用するため、可視文言を持つ要素を保持する。
         private TabPage _tpPlayer, _tpWorld, _tpVars;
         private ToolStripMenuItem _miFile, _miFileOpen, _miFileRecent, _miFileSave, _miFileSaveAs, _miFileExport, _miFileExit;
-        private ToolStripMenuItem _miTools, _miToolGenerateWorld, _miToolCreateQuest, _miToolExtract, _miToolImportNpc, _miToolImportFacility, _miToolPlayerToNpc, _miToolPlayerToPreset, _miToolCleanup, _miToolSyncWorld, _miToolCompactQuestLog, _miToolEditRaw;
+        private ToolStripMenuItem _miTools, _miToolGenerateWorld, _miToolCreateQuest, _miToolExtract, _miToolImportNpc, _miToolImportFacility, _miToolPlayerToNpc, _miToolPlayerToPreset, _miToolCleanup, _miToolSyncWorld, _miToolRepairImages, _miToolCompactQuestLog, _miToolEditRaw;
         private ToolStripMenuItem _miSettings, _miSettingsBackup, _miSettingsLang, _miSettingsMisc;
         private ToolStripMenuItem _miAutoBackup;   // メニュー右端の自動バックアップ ON/OFF トグル表示
         private string _statusKey = "status.initial";   // 現在のステータス文言キー（言語切替時に再解決する）
@@ -98,6 +98,7 @@ namespace InstantaleSaveEditor
             _miToolPlayerToPreset.Text = I18n.T("menu.tools.playerToPreset");
             _miToolCleanup.Text = I18n.T("menu.tools.cleanup");
             _miToolSyncWorld.Text = I18n.T("menu.tools.syncWorld");
+            _miToolRepairImages.Text = I18n.T("menu.tools.repairImages");
             _miToolCompactQuestLog.Text = I18n.T("menu.tools.compactQuestLog");
             _miToolEditRaw.Text = I18n.T("menu.tools.editRaw");
 
@@ -150,6 +151,7 @@ namespace InstantaleSaveEditor
             _miToolPlayerToPreset = new ToolStripMenuItem(null, null, (_, _) => PlayerToPreset());
             _miToolCleanup = new ToolStripMenuItem(null, null, (_, _) => CleanupWorld());
             _miToolSyncWorld = new ToolStripMenuItem(null, null, (_, _) => SyncWorld());
+            _miToolRepairImages = new ToolStripMenuItem(null, null, (_, _) => RepairImagePaths());
             _miToolCompactQuestLog = new ToolStripMenuItem(null, null, (_, _) => CompactQuestEventLog());
             _miToolEditRaw = new ToolStripMenuItem(null, null, (_, _) => EditRaw());
             _miTools.DropDownItems.Add(_miToolGenerateWorld);
@@ -164,6 +166,7 @@ namespace InstantaleSaveEditor
             _miTools.DropDownItems.Add(new ToolStripSeparator());
             _miTools.DropDownItems.Add(_miToolCleanup);
             _miTools.DropDownItems.Add(_miToolSyncWorld);
+            _miTools.DropDownItems.Add(_miToolRepairImages);
             _miTools.DropDownItems.Add(_miToolCompactQuestLog);
             _miTools.DropDownItems.Add(_miToolEditRaw);
 
@@ -197,7 +200,7 @@ namespace InstantaleSaveEditor
             bool loaded = _root != null;
             _miFileSave.Enabled = _miFileSaveAs.Enabled = _miFileExport.Enabled = loaded;
             _miToolCreateQuest.Enabled = _miToolImportNpc.Enabled = _miToolImportFacility.Enabled = _miToolPlayerToNpc.Enabled
-                = _miToolPlayerToPreset.Enabled = _miToolCleanup.Enabled = _miToolSyncWorld.Enabled = _miToolCompactQuestLog.Enabled = _miToolEditRaw.Enabled = loaded;
+                = _miToolPlayerToPreset.Enabled = _miToolCleanup.Enabled = _miToolSyncWorld.Enabled = _miToolRepairImages.Enabled = _miToolCompactQuestLog.Enabled = _miToolEditRaw.Enabled = loaded;
         }
 
         // 「最近開いたファイル」のドロップダウンを設定の履歴から作り直す。履歴が空なら無効化する。
@@ -476,6 +479,21 @@ namespace InstantaleSaveEditor
             UpdateMenuState();
             UpdateTitle();
             Status("status.loaded");
+            CheckIndexLag();
+        }
+
+        // index（採番カウンタ）が実在の id に追いついていなければ知らせ、了承されたら進める。
+        // 直した分は未保存の変更になる（保存時に WorldSync が world 側の index も揃える）。
+        private void CheckIndexLag()
+        {
+            var lags = IndexAudit.Find(_root);
+            if (lags.Count == 0) return;
+            string lines = string.Join("\n", lags.Select(l => I18n.T("msg.indexLag.line", l.Key, l.Index, l.Max)));
+            if (MessageBox.Show(this, I18n.T("msg.indexLag", lines), I18n.T("title.indexLag"),
+                    MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+            IndexAudit.Repair(_root, lags);
+            _world.Bind(_root, _path);   // index を表示中なら新しい値で出し直す
+            Status("status.indexRepaired", lags.Count);
         }
 
         // 保存/エクスポート前に、全タブの未確定入力をモデルへ反映する。型エラーがあれば false。
@@ -795,13 +813,12 @@ namespace InstantaleSaveEditor
             { MessageBox.Show(this, I18n.T("msg.noPlayerData")); return; }
             if (!_player.Apply()) return;   // プレイヤータブの未確定入力を反映してから変換する
 
-            using var dlg = new PlayerToPresetDialog(J.Obj(_root, "player_data"), _path, WorldTab.ResolveWorldDir(_path));
+            using var dlg = new PlayerToPresetDialog(J.Obj(_root, "player_data"), _path, WorldTab.ResolveWorldDir(_path), language: GameText.LanguageOf(_root));
             if (dlg.ShowDialog(this) == DialogResult.OK)
                 Status("status.presetExported");
         }
 
-        // ワールドデータをクリーンアップする。確認後、ストーリークエストの status を incomplete に戻し、
-        // 全 NPC の life_log / current_log を空に、relationship を初期値に戻す。実行後は world タブを再構築する。
+        // ワールドデータをクリーンアップする（内容は WorldCleanup）。実行後は world / 変数タブを再構築する。
         private void CleanupWorld()
         {
             if (_root == null) { MessageBox.Show(this, I18n.T("msg.openFileFirst")); return; }
@@ -813,9 +830,29 @@ namespace InstantaleSaveEditor
 
             var res = WorldCleanup.Run(_root);
             _world.Bind(_root, _path);   // life_log / relationship 等の表示を更新
+            _vars.Bind(_root);           // パーティの解散を反映
             Status("status.cleaned", res.Quests, res.Npcs);
-            MessageBox.Show(this, I18n.T("msg.cleanup.done", res.Quests, res.Npcs),
+            MessageBox.Show(this, I18n.T("msg.cleanup.done", res.Quests, res.Npcs, res.Party),
                 I18n.T("title.cleanupDone"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        // 全 NPC とプレイヤーの立ち絵のパス（image_src）を、手元の worlds フォルダへ張り替える（内容は ImagePathRepair）。
+        // 別の PC で作られた世界は他人のユーザーフォルダを指したままで、ゲームは話しかけたときにしか直さない。
+        private void RepairImagePaths()
+        {
+            if (_root == null) { MessageBox.Show(this, I18n.T("msg.openFileFirst")); return; }
+            string worldDir = WorldTab.ResolveWorldDir(_path);
+            if (worldDir == null || !Directory.Exists(worldDir))
+            { MessageBox.Show(this, I18n.T("msg.repairImages.noWorldDir")); return; }
+            if (!ApplyAll()) return;
+            var res = ImagePathRepair.Run(_root, worldDir);
+            if (res.Fixed > 0)
+            {
+                _player.Bind(_root, _path);
+                _world.Bind(_root, _path);
+            }
+            MessageBox.Show(this, I18n.T("msg.repairImages.done", res.Fixed, res.Characters, res.Unresolved),
+                I18n.T("menu.tools.repairImages"), MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         // セーブデータにだけあるエリア・ノード・施設・NPC を一覧から選んで world_data.json へ写す。

@@ -160,7 +160,7 @@ namespace InstantaleSaveEditor
                 w.Write(wrapper.ToJsonString(Codec.Pretty));
 
             string bg = (worldDir != null && name.Length > 0)
-                ? Path.Combine(worldDir, "backgrounds", NpcPortability.SafeFileName(name), "image.png") : null;
+                ? Path.Combine(SafePath.GameDir(Path.Combine(worldDir, "backgrounds"), name), "image.png") : null;
             if (bg != null && File.Exists(bg))
                 zip.CreateEntryFromFile(bg, "images/image.png");
         }
@@ -495,7 +495,7 @@ namespace InstantaleSaveEditor
                 try
                 {
                     // name は zip の original_name 由来のことがあるためサニタイズしてから使う。
-                    string dir = Path.Combine(_worldDir, "backgrounds", NpcPortability.SafeFileName(name));
+                    string dir = Path.Combine(_worldDir, "backgrounds", SafePath.GameName(name));
                     string path = Path.Combine(dir, "image.png");
                     if (!File.Exists(path))
                     {

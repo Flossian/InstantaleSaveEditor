@@ -34,6 +34,7 @@
     <EmbeddedResource Include="lang\ja.json" LogicalName="lang.ja.json" />
     <EmbeddedResource Include="lang\en.json" LogicalName="lang.en.json" />
     <EmbeddedResource Include="lang\zh.json" LogicalName="lang.zh.json" />
+    <EmbeddedResource Include="lang\ru.json" LogicalName="lang.ru.json" />
   </ItemGroup>
 
   <!-- 列挙的フィールド(category/job 等)の候補テンプレート。外部 field_options.json が無くても動く基底。 -->

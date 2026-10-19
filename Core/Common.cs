@@ -189,6 +189,47 @@ namespace InstantaleSaveEditor
             if (Reserved.Contains(stem, StringComparer.OrdinalIgnoreCase)) s = "_" + s;
             return s;
         }
+
+        // ゲームがキャラクタ名・施設名からフォルダ名を作る規則（main_024 以降の sanitize_path_name）。
+        // パスに使えない < > : " / \ | ? * を見た目の近い全角へ写し、制御文字を落とし、
+        // Windows が黙って切る末尾の空白・ピリオドを先に落とす。'_' へ置き換える FileName とは結果が違うため、
+        // worlds\{スロット}\characters\{名前}\ や backgrounds\{施設名}\ を指すときは必ずこちらを使う。
+        // 写した結果が空・予約名になるとき（ゲームでも作れない名前）だけ FileName に倒す。
+        private const string GameInvalid = "<>:\"/\\|?*";
+        private const string GameFullWidth = "＜＞：”／＼｜？＊";
+
+        public static string GameName(string name)
+        {
+            var sb = new System.Text.StringBuilder();
+            foreach (char c in name ?? "")
+            {
+                int i = GameInvalid.IndexOf(c);
+                if (i >= 0) sb.Append(GameFullWidth[i]);
+                else if (c >= 0x20 && c != 0x7f) sb.Append(c);
+            }
+            string s = sb.ToString().TrimEnd(' ', '.');
+            if (s.Length == 0 || s == "." || s == ".." || Reserved.Contains(s.Split('.')[0], StringComparer.OrdinalIgnoreCase))
+                return FileName(name, "_");
+            return s;
+        }
+
+        // parent 配下の、名前に対応するフォルダ。ゲームの規則で写した名前を先に見て、無ければ
+        // 写す前の名前（規則ができる前にゲームが作ったフォルダ）、どちらも無ければ写した名前のパスを返す。
+        public static string GameDir(string parent, string name)
+        {
+            string dir = Path.Combine(parent, GameName(name));
+            if (Directory.Exists(dir)) return dir;
+            try
+            {
+                if (!string.IsNullOrEmpty(name) && name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0)
+                {
+                    string raw = Path.Combine(parent, name);
+                    if (Directory.Exists(raw)) return raw;
+                }
+            }
+            catch { }
+            return dir;
+        }
     }
 
     // ---------------- 複数行テキストの改行変換 ----------------
@@ -591,6 +632,10 @@ namespace InstantaleSaveEditor
         public Func<string, string> PartyNpcNamer { get; set; }
         public Func<string, bool> PartyNpcIsDead { get; set; }
         public Func<IEnumerable<(string id, string name, bool dead)>> PartyNpcCandidates { get; set; }
+        // PartyNpcResolver: NPC ID → NPC 本体（無ければ null）。出し入れに合わせた "同行中" の付け外しと追加前の確認に使う。
+        public Func<string, JsonObject> PartyNpcResolver { get; set; }
+        // ワールドの言語（GameText.LanguageOf）。relationship の無い NPC をパーティへ入れるときの初期値に使う。
+        public string GameLanguage { get; set; } = "ja";
 
         // connections（接続先ID配列）専用 GUI のためのフック。ConnectionCandidates が設定されている時のみ有効。
         // ConnectionNamer: ID → 表示名（未解決なら null）。ConnectionCandidates: 追加候補の (ID, 名前) 一覧
@@ -1560,6 +1605,8 @@ namespace InstantaleSaveEditor
                         {
                             int idx = FindIndex(Party(), cid);
                             if (idx >= 0) Party().RemoveAt(idx);
+                            // ゲームの会話・移動の分岐は名簿ではなく relationship の "同行中" を見るため、一緒に外す。
+                            PartyMembers.MarkLeft(PartyNpcResolver?.Invoke(cid));
                             // Fill() はこのボタン自身を破棄するため、クリック処理が終わってから作り直す。
                             Ui.Defer(outer, Fill);
                         };
@@ -1590,7 +1637,18 @@ namespace InstantaleSaveEditor
                             I18n.T("msg.addDeadConfirm", cname),
                             I18n.T("title.addDead"), MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
                         return;
+                    // 詳細未生成・立ち絵のパス切れは、会話を経ずに加えた仲間でだけ起きる不具合のため確認する。
+                    var npc = PartyNpcResolver?.Invoke(id);
+                    var warns = PartyMembers.JoinWarnings(npc);
+                    if (warns.Count > 0 && MessageBox.Show(this,
+                            I18n.T("party.warn.header", cname) + "\n\n" + string.Join("\n\n", warns.Select(k => I18n.T(k))) + "\n\n" + I18n.T("party.warn.confirm"),
+                            I18n.T("title.confirm"), MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+                        return;
                     if (FindIndex(Party(), id) < 0) Party().Add(id);
+                    PartyMembers.MarkJoined(npc, GameLanguage);
+                    // 画面のパーティ欄は枠が3つしかなく、超えた分は表示されない（会話・戦闘には加わる）。
+                    if (Party().Count(n => (n?.ToString() ?? "") != "player") == PartyMembers.HudSlots + 1)
+                        MessageBox.Show(this, I18n.T("party.info.hudLimit"), I18n.T("title.confirm"), MessageBoxButtons.OK, MessageBoxIcon.Information);
                     // 追加ボタン・プルダウンごと作り直すため、クリック処理が終わってから行う。
                     Ui.Defer(outer, Fill);
                 };

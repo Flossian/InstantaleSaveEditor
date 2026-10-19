@@ -445,8 +445,8 @@ namespace InstantaleSaveEditor
                         // NPC: look_description 直後に画像パネルを差し込む。
                         // エリア/ノードのフィールドをプルダウンで表示する。
                         string npcName = J.Str(itemObj, "name");
-                        string charDir = _worldDir != null
-                            ? Path.Combine(_worldDir, "characters", npcName)
+                        string charDir = _worldDir != null && npcName.Length > 0
+                            ? SafePath.GameDir(Path.Combine(_worldDir, "characters"), npcName)
                             : null;
                         _npcPanel.LoadImages(Directory.Exists(charDir) ? charDir : null);
                         RegisterNpcCombos(itemObj);
@@ -616,7 +616,8 @@ namespace InstantaleSaveEditor
                 foreach (var kv in npcs.OrderBy(p => p.Key.Length).ThenBy(p => p.Key))
                 {
                     string name = kv.Value is JsonObject o ? J.Str(o, "name", kv.Key) : kv.Key;
-                    cb.Items.Add($"{kv.Key}: {name}");
+                    bool dead = kv.Value is JsonObject d && J.NpcIsDead(d);
+                    cb.Items.Add($"{kv.Key}: {name}" + (dead ? I18n.T("suffix.dead") : ""));
                 }
             void AutoFill(string val)
             {
@@ -626,8 +627,36 @@ namespace InstantaleSaveEditor
                 cb.Text = string.IsNullOrEmpty(val) ? "" : (match ?? val);
             }
             AutoFill(currentVal);
-            cb.Leave += (_, _) => AutoFill(cb.Text);
+            // 主を選び直したら、店の主として成り立つかを確かめる（同じ相手で何度も聞かない）。
+            string checkedId = AreaComboHelper.ExtractId(currentVal ?? "");
+            void CheckChanged()
+            {
+                string id = AreaComboHelper.ExtractId(cb.Text);
+                if (id == checkedId) return;
+                checkedId = id;
+                CheckOwner(_curContainer?[_curKey] as JsonObject, id);
+            }
+            cb.SelectionChangeCommitted += (_, _) => Ui.Defer(cb, CheckChanged);
+            cb.Leave += (_, _) => { AutoFill(cb.Text); CheckChanged(); };
             return cb;
+        }
+
+        // 施設の主に選んだ NPC を確かめる。
+        // ・死亡扱いの NPC は会話・呼び出しに出てこないため、その施設に話せる相手がいなくなる。
+        // ・ゲームが作る施設の主は job が facility_type と一致している（実セーブの主 371 人で例外なし）。
+        //   食い違っていれば job を合わせるか聞く。
+        private void CheckOwner(JsonObject fac, string npcId)
+        {
+            if (fac == null || string.IsNullOrEmpty(npcId) || J.Obj(_root, "npcs")?[npcId] is not JsonObject npc) return;
+            string name = J.Str(npc, "name", npcId);
+            if (J.NpcIsDead(npc))
+                MessageBox.Show(FindForm(), I18n.T("msg.owner.dead", name), I18n.T("title.confirm"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            string type = J.Str(fac, "facility_type");
+            string job = J.Str(npc, "job");
+            if (!WorldRecordFactory.IsOwnedType(type) || job == type) return;
+            if (MessageBox.Show(FindForm(), I18n.T("msg.owner.jobMismatch", name, job, type), I18n.T("title.confirm"),
+                    MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
+                npc["job"] = type;
         }
 
         // current_area の選択変更に追従して current_location のノード一覧を作り直す。
@@ -800,7 +829,7 @@ namespace InstantaleSaveEditor
             using var d = new NpcCreateDialog(areas, presetArea);
             if (d.ShowDialog(FindForm()) != DialogResult.OK) return;
             string id = NpcPortability.NextNpcId(index, npcs);
-            npcs[id] = WorldRecordFactory.BuildNpc(id, d.NpcName, d.Category, d.Job, d.AreaId, d.FacilityId);
+            npcs[id] = WorldRecordFactory.BuildNpc(id, d.NpcName, d.Category, d.Job, d.AreaId, d.FacilityId, GameText.LanguageOf(_root));
             if (d.AsAdventurer && areas[d.AreaId] is JsonObject area)
             {
                 var arr = J.Arr(area, "adventurer_npcs");
@@ -863,6 +892,14 @@ namespace InstantaleSaveEditor
                 AddConnection(baseFac, fid);
             }
             facs[fid] = fac;
+            // 主も作る: 店の品揃えは主の持ち物で、主のいない施設には話せる相手がいない。
+            // ゲームが作る主と同じく job は施設の種類、現在地・初期配置はこの施設（住民一覧には載せない）。
+            if (d.CreateOwner && J.Obj(_root, "npcs") is JsonObject npcs)
+            {
+                string nid = NpcPortability.NextNpcId(index, npcs);
+                npcs[nid] = WorldRecordFactory.BuildNpc(nid, d.OwnerName, d.OwnerCategory, d.FacilityType, areaId, fid, GameText.LanguageOf(_root));
+                fac["owner"] = nid;
+            }
             Populate();
             SelectByTag("facility", areaId, nodeId, fid);
         }
@@ -941,7 +978,8 @@ namespace InstantaleSaveEditor
             var index = _root?["index"] as JsonObject;
             var areas = J.Obj(_root, "areas");
 
-            // facility は ID がエリアを跨いで一意のため新規作成と同じグローバル採番を使い、
+            // facility は新規作成と同じ全エリア通しの採番を使い（ゲームのダンジョンには土地をまたいで
+            // 同じ施設 id があるが、エディタが振る id はどの土地とも重ならないようにする）、
             // connections は相手側にも張って双方向に保つ（実データは非対称ゼロ）。
             if (tag != null && tag[0] == "facility")
             {
@@ -966,7 +1004,10 @@ namespace InstantaleSaveEditor
             // NPC はインベントリごと複製されるため、item ID を index.item で採番し直して
             // 複製元と同じ ID がセーブ内に二重に存在しないようにする（equipments も追従）。
             if (tag != null && tag[0] == "item" && tag[1] == "npcs" && clone is JsonObject npcClone)
+            {
                 InventoryPanel.ReassignItemIds(_root, npcClone);
+                PartyMembers.MarkLeft(npcClone);   // 複製はパーティにいないので "同行中" を外す
+            }
             _curContainer[nk] = clone;
             // 通常クエストは必ずどこかのエリアの quests に載る（実データ 78/78）。複製元と同じエリアへ登録する。
             if (tag != null && tag[0] == "item" && tag[1] == "quests") RegisterQuestLikeOriginal(_curKey, nk);
@@ -1149,7 +1190,7 @@ namespace InstantaleSaveEditor
         {
             if (_curContainer == null || _curKey == null || _curContainer[_curKey] is not JsonObject npc) return;
             if (!_form.Apply()) return;   // 表示中の編集を反映してから書き出す
-            using var dlg = new PlayerToPresetDialog(npc, _filePath, _worldDir, isNpc: true);
+            using var dlg = new PlayerToPresetDialog(npc, _filePath, _worldDir, isNpc: true, language: GameText.LanguageOf(_root));
             dlg.ShowDialog(FindForm());
         }
 

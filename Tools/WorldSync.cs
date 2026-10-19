@@ -24,14 +24,21 @@ namespace InstantaleSaveEditor
     {
         public enum Kind { Area, Node, Facility, Npc }
 
+        // ノード・施設はエリアと組にした鍵（Key）で持つ。施設 id は土地の中でしか一意でなく、
+        // 依頼で作られるダンジョンどうしで同じ施設 id が使い回されるため（実セーブで確認）、
+        // id 単独で持つと所在が上書きされ、別の土地の同じ id を「ある」と取り違える。
         public readonly HashSet<string> Areas = new();
-        public readonly Dictionary<string, string> Nodes = new();                       // node id → area id
-        public readonly Dictionary<string, (string area, string node)> Facilities = new(); // facility id → 所在
+        public readonly Dictionary<string, (string area, string id)> Nodes = new();                      // Key(area, node) → 所在
+        public readonly Dictionary<string, (string area, string node, string id)> Facilities = new();    // Key(area, facility) → 所在
         public readonly HashSet<string> Npcs = new();
+
+        // ノード・施設の鍵（エリア id と組にする）。
+        public static string Key(string area, string id) => area + "/" + id;
 
         public bool IsEmpty => Count == 0;
         public int Count => Areas.Count + Nodes.Count + Facilities.Count + Npcs.Count;
 
+        // Node / Facility の id は Key(area, id) の形で渡す。
         public bool Has(Kind k, string id) => k switch
         {
             Kind.Area => Areas.Contains(id),
@@ -52,9 +59,9 @@ namespace InstantaleSaveEditor
                     if (J.Obj(akv.Value as JsonObject, "nodes") is not JsonObject nodes) continue;
                     foreach (var nkv in nodes)
                     {
-                        s.Nodes[nkv.Key] = akv.Key;
+                        s.Nodes[Key(akv.Key, nkv.Key)] = (akv.Key, nkv.Key);
                         if (J.Obj(nkv.Value as JsonObject, "facilities") is not JsonObject facs) continue;
-                        foreach (var fkv in facs) s.Facilities[fkv.Key] = (akv.Key, nkv.Key);
+                        foreach (var fkv in facs) s.Facilities[Key(akv.Key, fkv.Key)] = (akv.Key, nkv.Key, fkv.Key);
                     }
                 }
             if (J.Obj(root, "npcs") is JsonObject npcs)
@@ -171,7 +178,7 @@ namespace InstantaleSaveEditor
                     }
 
             // 2) ノード（既存エリアの下に足したもの）
-            foreach (var (nid, aid) in add.Nodes)
+            foreach (var (aid, nid) in add.Nodes.Values)
             {
                 if (add.Areas.Contains(aid)) continue;   // エリアごと写し済み
                 var sn = J.Obj(J.Obj(sAreas?[aid] as JsonObject, "nodes"), nid);
@@ -185,9 +192,9 @@ namespace InstantaleSaveEditor
             }
 
             // 3) 施設（既存ノードの下に足したもの）
-            foreach (var (fid, (aid, nid)) in add.Facilities)
+            foreach (var (aid, nid, fid) in add.Facilities.Values)
             {
-                if (add.Areas.Contains(aid) || add.Nodes.ContainsKey(nid)) continue;
+                if (add.Areas.Contains(aid) || add.Nodes.ContainsKey(IdSet.Key(aid, nid))) continue;
                 var sf = J.Obj(J.Obj(J.Obj(J.Obj(sAreas?[aid] as JsonObject, "nodes"), nid), "facilities"), fid);
                 var wnode = J.Obj(J.Obj(wAreas?[aid] as JsonObject, "nodes"), nid);
                 if (sf == null || wnode == null) { nSkipped++; continue; }
@@ -243,7 +250,7 @@ namespace InstantaleSaveEditor
                 foreach (var kv in wAreas) if (kv.Value is JsonObject o) RemoveFromArray(J.Arr(o, "connections"), id);
                 DetachAreaRefs(wNpcs, id);
             }
-            foreach (var (nid, aid) in remove.Nodes)
+            foreach (var (aid, nid) in remove.Nodes.Values)
             {
                 if (remove.Areas.Contains(aid)) continue;
                 var wa = wAreas?[aid] as JsonObject;
@@ -255,9 +262,9 @@ namespace InstantaleSaveEditor
                 if (J.Str(wa, "entrance_node") == nid) wa["entrance_node"] = null;
                 DetachFacilityRefs(wa, wNpcs, aid, facIds);
             }
-            foreach (var (fid, (aid, nid)) in remove.Facilities)
+            foreach (var (aid, nid, fid) in remove.Facilities.Values)
             {
-                if (remove.Areas.Contains(aid) || remove.Nodes.ContainsKey(nid)) continue;
+                if (remove.Areas.Contains(aid) || remove.Nodes.ContainsKey(IdSet.Key(aid, nid))) continue;
                 var wa = wAreas?[aid] as JsonObject;
                 if (J.Obj(J.Obj(J.Obj(wa, "nodes"), nid), "facilities") is not JsonObject wf || wf[fid] is not JsonObject fo) continue;
                 orphanPrograms.Add(FreeFacilityProgram.ProgramIdOf(fo));
@@ -489,21 +496,21 @@ namespace InstantaleSaveEditor
                 string label = $"[{I18n.T("worldsync.kind.area")}] {id}: {Name(a, id)} ({J.Str(a, "size")})";
                 Add(IdSet.Kind.Area, id, label, !WorldSync.LooksLikeGameDungeon(a));
             }
-            foreach (var id in Order(_cand.Nodes.Keys))
+            foreach (var kv in _cand.Nodes.OrderBy(kv => OrderKey(kv.Value.id)).ThenBy(kv => kv.Key, StringComparer.Ordinal))
             {
-                string aid = _cand.Nodes[id];
+                var (aid, id) = kv.Value;
                 if (_cand.Areas.Contains(aid)) continue;
                 var a = areas?[aid] as JsonObject;
                 var n = J.Obj(J.Obj(a, "nodes"), id);
-                Add(IdSet.Kind.Node, id, $"[{I18n.T("worldsync.kind.node")}] {id}: {Name(n, id)}  ← {Name(a, aid)}", true);
+                Add(IdSet.Kind.Node, kv.Key, $"[{I18n.T("worldsync.kind.node")}] {id}: {Name(n, id)}  ← {Name(a, aid)}", true);
             }
-            foreach (var id in Order(_cand.Facilities.Keys))
+            foreach (var kv in _cand.Facilities.OrderBy(kv => OrderKey(kv.Value.id)).ThenBy(kv => kv.Key, StringComparer.Ordinal))
             {
-                var (aid, nid) = _cand.Facilities[id];
-                if (_cand.Areas.Contains(aid) || _cand.Nodes.ContainsKey(nid)) continue;
+                var (aid, nid, id) = kv.Value;
+                if (_cand.Areas.Contains(aid) || _cand.Nodes.ContainsKey(IdSet.Key(aid, nid))) continue;
                 var a = areas?[aid] as JsonObject;
                 var f = J.Obj(J.Obj(J.Obj(J.Obj(a, "nodes"), nid), "facilities"), id);
-                Add(IdSet.Kind.Facility, id, $"[{I18n.T("worldsync.kind.facility")}] {id}: {Name(f, id)} ({J.Str(f, "facility_type")})  ← {Name(a, aid)}", true);
+                Add(IdSet.Kind.Facility, kv.Key, $"[{I18n.T("worldsync.kind.facility")}] {id}: {Name(f, id)} ({J.Str(f, "facility_type")})  ← {Name(a, aid)}", true);
             }
             foreach (var id in Order(_cand.Npcs))
             {
@@ -512,6 +519,7 @@ namespace InstantaleSaveEditor
             }
         }
 
+        // kind が Node / Facility のとき id は IdSet.Key(area, id) の鍵。
         private void Add(IdSet.Kind kind, string id, string label, bool check)
         {
             _items.Add((kind, id));
@@ -520,7 +528,9 @@ namespace InstantaleSaveEditor
 
         // 数値 id は数値順、それ以外は文字列順。
         private static IEnumerable<string> Order(IEnumerable<string> ids)
-            => ids.OrderBy(s => long.TryParse(s, out var v) ? v : long.MaxValue).ThenBy(s => s, StringComparer.Ordinal);
+            => ids.OrderBy(OrderKey).ThenBy(s => s, StringComparer.Ordinal);
+
+        private static long OrderKey(string id) => long.TryParse(id, out var v) ? v : long.MaxValue;
 
         private IdSet Collect()
         {

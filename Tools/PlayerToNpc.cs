@@ -68,7 +68,7 @@ namespace InstantaleSaveEditor
             MinimizeBox = false; MaximizeBox = false;
 
             // 既定値を先に用意してから UI を組む。
-            _relationship = NpcPortability.DefaultRelationship();   // 既存実装の妥当な既定（player・好感度0）
+            _relationship = NpcPortability.DefaultRelationship(GameText.LanguageOf(root));   // 既存実装の妥当な既定（player・好感度0）
             _config = DefaultConfig();                              // 既存 NPC の config を参照した既定
 
             var scroll = new Panel { Dock = DockStyle.Fill, AutoScroll = true, Padding = new Padding(10) };
@@ -169,8 +169,8 @@ namespace InstantaleSaveEditor
                 // profile / personality / look_description が空だとゲームの読込が無限ロードになる
                 // （実データは全 NPC が非空。player_data の personality は空のことが多い）。
                 // WorldRecordFactory の新規作成と同じ既定文で必ず埋める。
-                ["profile"] = NonEmpty(_pd["profile"], WorldRecordFactory.DefaultProfile()),
-                ["personality"] = NonEmpty(_pd["personality"], WorldRecordFactory.DefaultPersonality()),
+                ["profile"] = NonEmpty(_pd["profile"], GameText.DefaultProfile(GameText.LanguageOf(_root))),
+                ["personality"] = NonEmpty(_pd["personality"], GameText.DefaultPersonality(GameText.LanguageOf(_root))),
                 ["look_description"] = NonEmpty(_pd["look_description"],
                                                 WorldRecordFactory.DefaultLookDescription(category, look)),
                 ["speech_style"] = EmptyToNull(_tbSpeech.Text),

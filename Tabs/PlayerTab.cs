@@ -295,8 +295,43 @@ namespace InstantaleSaveEditor
                 }
                 row++;
             }
+            // 体力（physical_integrity）の目安。上限はレベルで決まり（100 は既定値で、遊んで到達する値ではない）、
+            // 依頼は体力が上限の半分より多いときしか受けられない。
+            var hint = new Label { AutoSize = true, ForeColor = SystemColors.GrayText, Padding = new Padding(2, 4, 2, 4), MaximumSize = new Size(420, 0) };
+            t.Controls.Add(hint, 0, row); t.SetColumnSpan(hint, 2);
+            void UpdateHint()
+            {
+                long Read(string k) => _basic.TryGetValue(k, out var tb) && long.TryParse(tb.Text.Trim(), out long v) ? v : -1;
+                long lv = Read("experience_level"), max = Read("max_physical_integrity"), cur = Read("physical_integrity");
+                if (lv < 1) { hint.Text = ""; return; }
+                int est = EstimateMaxStamina(lv);
+                var lines = new List<string> { I18n.T("player.staminaHint", lv, est) };
+                bool off = max >= 0 && Math.Abs(max - est) > Math.Max(3, est / 4);
+                if (off) lines.Add(I18n.T("player.staminaHint.off", max));
+                if (max > 0 && cur >= 0 && cur * 2 <= max) lines.Add(I18n.T("player.staminaHint.tired", cur, max));
+                hint.Text = string.Join("\n", lines);
+                hint.ForeColor = off || lines.Count > 1 ? Color.DarkGoldenrod : SystemColors.GrayText;
+            }
+            foreach (var k in new[] { "experience_level", "max_physical_integrity", "physical_integrity" })
+                if (_basic.TryGetValue(k, out var tb)) tb.TextChanged += (_, _) => UpdateHint();
+            UpdateHint();
             g.Controls.Add(t);
             return g;
+        }
+
+        // レベルに対する体力上限の目安。ゲームの get_max_physical_integrity の実測値（ModLoader GAME.md §2.19）を
+        // 線形に補間し、範囲外は端の傾きで延ばす。式そのものは分かっていないため目安として出す。
+        private static readonly (int lv, int max)[] StaminaSamples =
+        { (1, 10), (5, 11), (8, 12), (15, 15), (22, 19), (25, 22), (30, 26), (41, 34), (49, 39), (50, 40), (55, 42), (58, 43), (73, 50) };
+
+        internal static int EstimateMaxStamina(long level)
+        {
+            var s = StaminaSamples;
+            if (level <= s[0].lv) return s[0].max;
+            int i = 1;
+            while (i < s.Length - 1 && level > s[i].lv) i++;
+            var (l0, m0) = s[i - 1]; var (l1, m1) = s[i];
+            return (int)Math.Round(m0 + (double)(m1 - m0) * (level - l0) / (l1 - l0));
         }
 
         // 説明3項目（プロフィール/性格/外見）の複数行リサイズ欄。
@@ -325,7 +360,7 @@ namespace InstantaleSaveEditor
             g.Controls.Add(_imagePanel);
             string name = J.Str(_pd, "name");
             string charDir = _worldDir != null && !string.IsNullOrEmpty(name)
-                ? Path.Combine(_worldDir, "characters", name)
+                ? SafePath.GameDir(Path.Combine(_worldDir, "characters"), name)
                 : null;
             _imagePanel.LoadImages(charDir != null && Directory.Exists(charDir) ? charDir : null);
             return g;

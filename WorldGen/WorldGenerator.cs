@@ -661,8 +661,6 @@ namespace InstantaleSaveEditor
                         ["conversation_count"] = 0,
                     },
                 },
-                ["current_area"] = initArea,
-                ["current_location"] = initFacility,
                 ["initial_location"] = new JsonObject
                 {
                     ["area"] = initArea,
@@ -676,6 +674,9 @@ namespace InstantaleSaveEditor
                     ["is_dead"] = false,
                     ["difficulty_level"] = difficultyLevel,
                 },
+                // ゲームのセーブと同じ並び（initial_location → config → current_area → current_location → knowledge …）。
+                ["current_area"] = initArea,
+                ["current_location"] = initFacility,
                 ["knowledge"] = new JsonArray(),
                 ["display_position_in_battle"] = null,
             };

@@ -57,20 +57,53 @@ namespace InstantaleSaveEditor
             cfg["program_id"] = programId;
         }
 
-        // steps に置ける命令型（実データから確認できたもの）。追加時の骨格生成と一覧表示に使う。
+        // steps に置ける命令型（ゲームの scripts.free_facility.STEP_TYPES の 18 種）。追加時の骨格生成と一覧表示に使う。
+        // call_phase はゲームの生成仕様（_DSL_SPEC）に載っておらず、形が確かめられていない。
         public static readonly string[] StepTypes =
-        { "label", "text", "goto", "choice", "if", "flag_set", "random", "effect", "llm", "memory", "history_clear", "end" };
+        {
+            "label", "text", "choice", "input", "goto", "if", "var_set", "random", "calc", "flag_set", "flag_get",
+            "effect", "llm", "memory", "history_clear", "elapse", "call_phase", "end",
+        };
 
-        // effect の name（実データから確認できたもの）。args の形が name ごとに違うため骨格ごと切り替える。
+        // effect の name（ゲームの効果 9 種）。args の形が name ごとに違うため骨格ごと切り替える。
+        // 追加の一覧では "effect:<name>" として個別に並べる。
         public static readonly string[] EffectNames =
-        { "gold_add", "wait", "heal", "status_add", "item_add" };
+        {
+            "gold_add", "wait", "heal", "exp_add", "status_add", "item_add",
+            "show_character_image", "remove_character_image", "play_sound",
+        };
+
+        // 追加の一覧に並べる項目（effect は name ごとに展開）。Skeleton にそのまま渡せる。
+        public static IEnumerable<string> PickerTypes()
+        {
+            foreach (var t in StepTypes)
+            {
+                if (t != "effect") { yield return t; continue; }
+                foreach (var e in EffectNames) yield return "effect:" + e;
+            }
+        }
 
         // 指定型の 1 命令の骨格。値は空/既定のみで、詳細は JSON 編集で詰める前提。
+        // type は StepTypes の型か、PickerTypes の "effect:<name>"。
         public static JsonObject Skeleton(string type) => type switch
         {
+            _ when type != null && type.StartsWith("effect:") => EffectSkeleton(type.Substring(7)),
             "label" => new JsonObject { ["type"] = "label", ["name"] = "" },
             "text" => new JsonObject { ["type"] = "text", ["value"] = "" },
             "goto" => new JsonObject { ["type"] = "goto", ["target"] = "" },
+            // 自由入力。入力を store へ入れて goto へ進む。options は入力欄と並べる抜け道のボタン。
+            "input" => new JsonObject
+            {
+                ["type"] = "input", ["store"] = "", ["goto"] = "", ["append_history"] = false,
+                ["options"] = new JsonArray(),
+            },
+            "var_set" => new JsonObject { ["type"] = "var_set", ["key"] = "", ["value"] = 0 },
+            // op は + - * // %。left / right は整数か var 名。
+            "calc" => new JsonObject { ["type"] = "calc", ["op"] = "+", ["left"] = "", ["right"] = 0, ["store"] = "" },
+            "flag_get" => new JsonObject { ["type"] = "flag_get", ["key"] = "", ["store"] = "" },
+            // 訓練・長逗留の概念にだけ使う（1経路1回、units は 1 か 2）。
+            "elapse" => new JsonObject { ["type"] = "elapse", ["units"] = 1 },
+            "call_phase" => new JsonObject { ["type"] = "call_phase" },
             "choice" => new JsonObject
             {
                 ["type"] = "choice",
@@ -85,11 +118,7 @@ namespace InstantaleSaveEditor
             },
             "flag_set" => new JsonObject { ["type"] = "flag_set", ["key"] = "", ["value"] = 1 },
             "random" => new JsonObject { ["type"] = "random", ["min"] = 1, ["max"] = 2, ["store"] = "" },
-            "effect" => new JsonObject
-            {
-                ["type"] = "effect", ["name"] = "gold_add",
-                ["args"] = new JsonObject { ["amount"] = 0 },
-            },
+            "effect" => EffectSkeleton("gold_add"),
             "llm" => new JsonObject
             {
                 ["type"] = "llm",
@@ -104,6 +133,29 @@ namespace InstantaleSaveEditor
             "end" => new JsonObject { ["type"] = "end", ["farewell"] = "" },
             _ => new JsonObject { ["type"] = type ?? "" },
         };
+
+        // effect 1 命令の骨格。args の形は実セーブとゲームの生成仕様に合わせる。
+        // show_character_image / remove_character_image / play_sound は args の形が確かめられていないため空にする。
+        public static JsonObject EffectSkeleton(string name)
+        {
+            JsonObject args = name switch
+            {
+                "gold_add" => new JsonObject { ["amount"] = 0 },   // 通常は "-{price.X}"（支払い）/ "{payout.X}"（受け取り）
+                "wait" => new JsonObject { ["seconds"] = 0.5 },     // 0〜3 秒
+                "heal" => new JsonObject { ["scale"] = 0.3 },       // 0.3 / 0.6 / 1.0
+                "exp_add" => new JsonObject { ["scale"] = 0.25 },   // 0.25 / 0.5 / 1.0（1.0 で訓練およそ1年分）
+                "status_add" => new JsonObject { ["name"] = "", ["description"] = "", ["duration"] = 3 },   // duration は戦闘のターン数 3 / 5 / 10
+                "item_add" => new JsonObject
+                {
+                    ["item_name"] = "", ["item_description"] = "",
+                    ["item_appearance"] = "",   // 絵の選択に使う英語の一文
+                    ["value"] = "standard", ["rarity"] = "common",
+                    ["item_type"] = "", ["sub_type"] = "",
+                },
+                _ => new JsonObject(),
+            };
+            return new JsonObject { ["type"] = "effect", ["name"] = name ?? "", ["args"] = args };
+        }
 
         // プログラム 1 件の骨格（メニュー 1 つで入退室できる最小構成）。
         public static JsonObject NewProgram(string name) => new()
@@ -139,7 +191,11 @@ namespace InstantaleSaveEditor
                 "label" => J.Str(o, "name"),
                 "goto" => "→ " + J.Str(o, "target"),
                 "text" => Cut(J.Str(o, "value"), 48),
-                "flag_set" => $"{J.Str(o, "key")} = {o["value"]}",
+                "flag_set" or "var_set" => $"{J.Str(o, "key")} = {o["value"]}",
+                "flag_get" => $"{J.Str(o, "key")} → {J.Str(o, "store")}",
+                "calc" => $"{o["left"]} {J.Str(o, "op")} {o["right"]} → {J.Str(o, "store")}",
+                "input" => $"→ {J.Str(o, "store")} / {J.Str(o, "goto")}",
+                "elapse" => $"{o["units"]}",
                 "random" => $"{o["min"]}-{o["max"]} → {J.Str(o, "store")}",
                 "effect" => J.Str(o, "name") + ArgsHint(J.Obj(o, "args")),
                 "llm" => (J.Str(o, "store") is string s && s.Length > 0 ? s + ": " : "") + Cut(J.Str(o, "prompt"), 40),

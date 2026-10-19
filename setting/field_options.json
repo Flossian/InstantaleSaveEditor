@@ -24,6 +24,7 @@
     "colosseum",
     "training_facility",
     "slave_market",
+    "free",
     "other"
   ],
   "facility_type": [
@@ -76,6 +77,7 @@
     "headgear",
     "body_armor",
     "legwear",
+    "leg_armor",
     "gauntlets",
     "shield",
     "accessory",

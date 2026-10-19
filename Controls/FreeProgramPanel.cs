@@ -49,7 +49,7 @@ namespace InstantaleSaveEditor
         private void Add()
         {
             if (_model == null) return;
-            var types = FreeFacilityProgram.StepTypes;
+            var types = FreeFacilityProgram.PickerTypes().ToList();
             var previews = types.Select(t => FreeFacilityProgram.Skeleton(t).ToJsonString(Codec.Pretty)).ToList();
             int t2 = ListPicker.PickOne(FindForm(), I18n.T("freeprog.pickType"), types.ToList(), previews);
             if (t2 < 0) return;

@@ -49,7 +49,8 @@ namespace InstantaleSaveEditor
 
         public string ResultSummary { get; private set; }
 
-        public PlayerToPresetDialog(JsonObject character, string filePath, string worldDir, bool isNpc = false)
+        // language: プリセットの "language" の初期値（開いているワールドの言語）。
+        public PlayerToPresetDialog(JsonObject character, string filePath, string worldDir, bool isNpc = false, string language = "ja")
         {
             _pd = character;
             _abilities = J.Obj(_pd, "original_ability_scores") ?? J.Obj(_pd, "ability_scores");
@@ -84,7 +85,7 @@ namespace InstantaleSaveEditor
             Header(t, ref r, I18n.T("p2p.header.edit"));
             RoText(t, ref r, I18n.T("p2p.gender"), GuessGender());
             Note(t, ref r, I18n.T("p2p.note.gender"));
-            _cbLanguage = Combo(t, ref r, I18n.T("p2p.language"), new[] { "ja", "en" }, "ja");
+            _cbLanguage = Combo(t, ref r, I18n.T("p2p.language"), GameText.Languages, GameText.Languages.Contains(language) ? language : "ja");
             _tbGold = Edit(t, ref r, I18n.T("p2p.gold"), J.Int(_pd, "gold").ToString());
             // point_use はゲーム内で再計算されるため編集不可（確認用の表示のみ）。
             _tbPointUse = RoText(t, ref r, I18n.T("p2p.pointUse"), EstimatePointUse(J.Int(_pd, "gold")).ToString());
@@ -303,8 +304,9 @@ namespace InstantaleSaveEditor
             catch { }
             if (_worldDir != null)
             {
-                string d = Path.Combine(_worldDir, "characters", J.Str(_pd, "name"));
-                if (Directory.Exists(d)) return d;
+                string name = J.Str(_pd, "name");
+                string d = name.Length > 0 ? SafePath.GameDir(Path.Combine(_worldDir, "characters"), name) : null;
+                if (d != null && Directory.Exists(d)) return d;
             }
             return null;
         }

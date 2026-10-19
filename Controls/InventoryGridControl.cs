@@ -1038,8 +1038,9 @@ namespace InstantaleSaveEditor
         }
 
         // セーブ全体（プレイヤー・全 NPC の inventory / equipments）で使用中の item 番号を集める。
-        // inv は採番先のインベントリ。ルート未接続（取込・採番し直しの途中）でも数えるため明示的に渡す。
-        private static HashSet<long> TakenItemNumbers(JsonObject root, JsonObject inv)
+        // inv は採番先のインベントリ。ルート未接続（取込・採番し直しの途中）でも数えるため明示的に渡す（無ければ null）。
+        // IndexAudit も index.item の遅れの検査に使う。
+        internal static HashSet<long> TakenItemNumbers(JsonObject root, JsonObject inv)
         {
             var taken = new HashSet<long>();
             AddItemNumbers(taken, inv);
@@ -1179,6 +1180,15 @@ namespace InstantaleSaveEditor
             // ・入力途中（TextChanged）は item_detail 候補だけ追従（非破壊）。
             // ・種別が確定（一覧選択 / フォーカスアウト）かつ実際に変化したときだけ attributes を作り替える。
             //   入力途中に attributes を消さないため、確定タイミングに限定する。
+            // consumable の品にはゲームの右クリック「消費」が出ない（出るのは healing_item だけ）。飲食物・薬を作るときに知らせる。
+            var consumableNote = new Label
+            {
+                Text = I18n.T("item.consumableNote"), Dock = DockStyle.Top, AutoSize = false, Height = 36,
+                ForeColor = Color.DarkGoldenrod, Padding = new Padding(4, 4, 4, 0),
+            };
+            void SyncNote() => consumableNote.Visible = J.Str(_work, "item_type") == "consumable";
+            SyncNote();
+
             var typeCombo = _form.GetCombo("item_type");
             if (typeCombo != null)
             {
@@ -1191,7 +1201,7 @@ namespace InstantaleSaveEditor
                     lastType = t;
                     _form.ApplyAttributeSchema();
                 }
-                typeCombo.TextChanged += (_, _) => { _work["item_type"] = typeCombo.Text.Trim(); _form.RefreshAttributeDetailOptions(); };
+                typeCombo.TextChanged += (_, _) => { _work["item_type"] = typeCombo.Text.Trim(); _form.RefreshAttributeDetailOptions(); SyncNote(); };
                 typeCombo.SelectedIndexChanged += (_, _) => ApplySchema();
                 typeCombo.Leave += (_, _) => ApplySchema();
             }
@@ -1209,6 +1219,7 @@ namespace InstantaleSaveEditor
             bar.Controls.Add(ok); bar.Controls.Add(cancel);
 
             Controls.Add(_form);
+            Controls.Add(consumableNote);
             Controls.Add(bar);
             AcceptButton = ok; CancelButton = cancel;
         }
