@@ -111,7 +111,7 @@
 <div class="wrap">
 
 <header class="title">
-  <h1>Instantale Save Editor 説明書 <span class="badge">v10.5</span></h1>
+  <h1>Instantale Save Editor 説明書 <span class="badge">v10.6</span></h1>
   <div class="sub">ゲーム Instantale のセーブデータ／ワールドデータ編集ツール（非公式）</div>
 </header>
 
@@ -196,7 +196,7 @@
   <tr><td>プレイヤーをプリセット化... <span class="badge">v10</span></td><td>プレイヤーをゲームのキャラ作成画面で選べるキャラクタープリセットとして出力します。<a href="#player2preset">詳細</a>。</td></tr>
   <tr><td>ワールドデータをクリーンアップ... <span class="badge">v9</span></td><td>ストーリークエストの進行を未完了に戻し、全 NPC のログ・記憶を消して関係を初期化し、パーティを解散します。<a href="#cleanup">詳細</a>。</td></tr>
   <tr><td>ワールドデータと突き合わせ... <span class="badge">v10.5</span></td><td>savedata.json にあって <code>world_data.json</code> に無いエリア・施設・NPC を一覧から選んで写します。<a href="#worldsync">詳細</a>。</td></tr>
-  <tr><td>立ち絵のパスを張り替え</td><td>別の PC で作られた世界で、NPC・プレイヤーの <code>image_src</code> が他人のユーザーフォルダを指したままのものを、手元の画像へ張り替えます。<a href="#image">詳細</a>。</td></tr>
+  <tr><td>立ち絵のパスを張り替え <span class="badge">v10.6</span></td><td>別の PC で作られた世界で、NPC・プレイヤーの <code>image_src</code> が他人のユーザーフォルダを指したままのものを、手元の画像へ張り替えます。<a href="#image">詳細</a>。</td></tr>
   <tr><td>quest_event_logを圧縮... <span class="badge">v10.1</span></td><td>肥大化した <code>quest_event_log</code> を最新数ターン分だけ残して切り詰めます。<a href="#questlog">詳細</a>。</td></tr>
   <tr><td>全体をJSONで編集...</td><td>データ全体を JSON テキストとして直接編集します（上級者向け）。</td></tr>
 </table>
@@ -215,7 +215,7 @@
 <p>プレイヤー（<code>player_data</code>）を項目ごとに編集します。主なセクションは次のとおりです。</p>
 <table>
   <tr><th>セクション</th><th>内容</th></tr>
-  <tr><td>基本値</td><td>名前・所持金・現在地など。数値欄には数値を入力します。欄の下に、レベルに対する体力上限の目安を表示します（上限が目安から大きく離れているとき、体力が上限の半分以下で依頼を受けられないときは色を変えて知らせます）。</td></tr>
+  <tr><td>基本値</td><td>名前・所持金・現在地など。数値欄には数値を入力します。欄の下に、レベルに対する体力上限の目安を表示します（上限が目安から大きく離れているとき、体力が上限の半分以下で依頼を受けられないときは色を変えて知らせます）。 <span class="badge">v10.6</span></td></tr>
   <tr><td>説明文(descriptions)</td><td>外見・背景などの長文。枠の下端をドラッグして高さを変えられます。</td></tr>
   <tr><td>キャラクター画像</td><td>プレイヤーの顔画像と立ち絵。NPC と同じ操作で表示・差し替えができます。<a href="#image">詳細</a>。</td></tr>
   <tr><td>能力値</td><td>6 つの能力値。<code>0</code> を含む入力値はそのまま保持されます（空欄は数値エラーになります）。</td></tr>
@@ -252,9 +252,9 @@
   右クリックした位置から、新規作成やインポートの配置先（所属エリア・接続先施設）が初期値として引き継がれます。
   ボタン列やツールメニューにある同じ機能とまったく同じ動作です。<br>
   エリアの新規作成では、拠点（village / town / city）はノード・施設を持たない未生成の形で作ります（到着時にゲームが中身と初期依頼3件を作ります）。<span class="badge">v10.5</span>
-  元からある 9 つの拠点以外では、初期依頼の難易度が 1〜76 の全域から選ばれます（序盤のエリアの隣に足しても高難度の依頼が出ることがあります）。<br>
-  施設の新規作成では、主（<code>owner</code>）を持つ種類（宿・店・ギルドなど。通路・ダンジョンの場所以外）のとき、主の NPC も一緒に作れます。主の <code>job</code> は施設の種類と同じにします（ゲームが作る主は全員そうなっており、店の品揃えは主の持ち物から作られます）。<br>
-  施設の主を選び直したときは、死亡扱いの NPC なら警告し、<code>job</code> が施設の種類と違えば合わせるか確認します。
+  元からある 9 つの拠点以外では、初期依頼の難易度が 1〜76 の全域から選ばれます（序盤のエリアの隣に足しても高難度の依頼が出ることがあります）。 <span class="badge">v10.6</span><br>
+  施設の新規作成では、主（<code>owner</code>）を持つ種類（宿・店・ギルドなど。通路・ダンジョンの場所以外）のとき、主の NPC も一緒に作れます。主の <code>job</code> は施設の種類と同じにします（ゲームが作る主は全員そうなっており、店の品揃えは主の持ち物から作られます）。 <span class="badge">v10.6</span><br>
+  施設の主を選び直したときは、死亡扱いの NPC なら警告し、<code>job</code> が施設の種類と違えば合わせるか確認します。 <span class="badge">v10.6</span>
 </div>
 <div class="note">
   <strong>ワールドデータ（world_data.json）への反映</strong> <span class="badge">v10.5</span><br>
@@ -286,9 +286,9 @@
   party（パーティ編成）はメンバーを「ID: 名前」で 1 行ずつ表示し、「削除」で外す／末尾プルダウンと「追加」で加えられます（<code>player</code> は削除不可）。死亡キャラには「（死亡）」が付き、追加時に不整合の警告が出ます。
 </p>
 <ul>
-  <li>追加・削除に合わせて、その NPC の関係（<code>relationship.player.relationship</code>）の「同行中」を付け外しします。ゲームは会話や移動の分岐で、名簿ではなくこの印を見ます（「家族」の印には触りません）。</li>
-  <li>詳細（スキル・HP・立ち絵）がまだ作られていない NPC や、立ち絵のパスがこの PC に無い NPC を加えるときは確認が出ます。ゲームは会話の直前にだけ詳細を作るため、会話を経ずに加えると戦闘でゲームが止まることがあります。先にゲーム内で一度話しかけてから加えるのが安全です。</li>
-  <li>画面のパーティ欄は 3 枠のため、仲間が 4 人以上いると 4 人目以降は表示されません（会話と戦闘には加わります）。</li>
+  <li>追加・削除に合わせて、その NPC の関係（<code>relationship.player.relationship</code>）の「同行中」を付け外しします。ゲームは会話や移動の分岐で、名簿ではなくこの印を見ます（「家族」の印には触りません）。 <span class="badge">v10.6</span></li>
+  <li>詳細（スキル・HP・立ち絵）がまだ作られていない NPC や、立ち絵のパスがこの PC に無い NPC を加えるときは確認が出ます。ゲームは会話の直前にだけ詳細を作るため、会話を経ずに加えると戦闘でゲームが止まることがあります。先にゲーム内で一度話しかけてから加えるのが安全です。 <span class="badge">v10.6</span></li>
+  <li>画面のパーティ欄は 3 枠のため、仲間が 4 人以上いると 4 人目以降は表示されません（会話と戦闘には加わります）。 <span class="badge">v10.6</span></li>
 </ul>
 
 <h2 id="lifelog">6. 生涯ログの編集</h2>
@@ -436,9 +436,9 @@
   元の縮小色画像はバックアップに退避されるので、「立ち絵（縮小色）」の「使用する」を押せば元に戻せます。
 </div>
 <div class="note">
-  画像フォルダ（<code>characters\{名前}\</code>）は、ゲームと同じ規則で名前から決めます。名前にパスで使えない文字（<code>&lt; &gt; : " / \ | ? *</code>）が入っているときは全角に置き換えたフォルダを指します。
+  画像フォルダ（<code>characters\{名前}\</code>）は、ゲームと同じ規則で名前から決めます。名前にパスで使えない文字（<code>&lt; &gt; : " / \ | ? *</code>）が入っているときは全角に置き換えたフォルダを指します。 <span class="badge">v10.6</span>
 </div>
-<h3>立ち絵のパスを張り替え</h3>
+<h3>立ち絵のパスを張り替え <span class="badge">v10.6</span></h3>
 <p>
   <code>image_src</code> には画像を作った PC の絶対パスが入っています。別の PC で作られた世界を持ってくると、他人のユーザーフォルダを指したまま画像が見つからず、パーティ欄の顔が白い枠になるなどします。
   ゲーム自身は、その人物に話しかけたときにしか直しません。
@@ -589,9 +589,9 @@
 </p>
 <ul>
   <li>ストーリークエストの進行状況（<code>config.status</code>）を未完了（incomplete）に戻します。</li>
-  <li>全 NPC の生涯ログ／現在ログ、記憶の要約（<code>memory</code>）、<code>knowledge</code> を空にします。</li>
-  <li>全 NPC の関係（<code>relationship</code>）を初期状態（プレイヤーとの初対面のみ）に戻し、雇用の記録（<code>config.employed_price</code> など）を外します。</li>
-  <li>パーティ（<code>game_variables.party</code>）を解散し、仲間を雇われた場所（<code>initial_location</code>）へ戻します。</li>
+  <li>全 NPC の生涯ログ／現在ログ、記憶の要約（<code>memory</code>）、<code>knowledge</code> を空にします。 <span class="badge">v10.6</span></li>
+  <li>全 NPC の関係（<code>relationship</code>）を初期状態（プレイヤーとの初対面のみ）に戻し、雇用の記録（<code>config.employed_price</code> など）を外します。 <span class="badge">v10.6</span></li>
+  <li>パーティ（<code>game_variables.party</code>）を解散し、仲間を雇われた場所（<code>initial_location</code>）へ戻します。 <span class="badge">v10.6</span></li>
 </ul>
 <p>実行前に確認ダイアログが表示され、処理後は変更件数（ストーリークエスト数・NPC 数・パーティから外した仲間の数）が表示されます。</p>
 <div class="note">
@@ -616,7 +616,7 @@
   <li>2 つのファイルを同じ内容にはしません。ゲームが依頼で作ったダンジョンなど、savedata.json にだけあるのが正常なレコードもあるためです。<code>player_data</code>・<code>game_variables</code>・クエスト・<code>world_data</code>（名前や経過日数）は触りません。</li>
   <li>world_data.json は保存のたびにディスクから読み直し、savedata.json と同じ手順（自動バックアップ → 一時ファイル経由の置き換え）で書き戻します。world_data.json が見つからないときは警告を出し、同期しません。</li>
 </ul>
-<h3>採番カウンタ（index）の点検</h3>
+<h3>採番カウンタ（index）の点検 <span class="badge">v10.6</span></h3>
 <p>
   ファイルを開いたとき、<code>index</code>（area / node / facility / npc / quest / item の採番カウンタ）がデータ内に実在する ID に追いついているかを点検します。
   遅れていると、ゲームは次に作るエリア・施設・NPC などに既存と同じ ID を振り、既存のレコードを上書きします（新しい町の店主が既存の NPC を潰すなど）。
@@ -652,11 +652,11 @@
 
 <h3>言語</h3>
 <p>
-  UI の表示言語を切り替えます（標準で日本語／英語／簡体字中国語 <span class="badge">v10</span>／ロシア語）。選んだ瞬間に画面へ反映されます。
+  UI の表示言語を切り替えます（標準で日本語／英語／簡体字中国語 <span class="badge">v10</span>／ロシア語 <span class="badge">v10.6</span>）。選んだ瞬間に画面へ反映されます。
   exe 隣の <code>lang</code> フォルダに言語ファイル（<code>&lt;コード&gt;.json</code>）を追加すれば、独自の言語を増やせます。
 </p>
 <div class="note">
-  UI の表示言語とは別に、ワールドにはゲームの言語（ルート直下の <code>language</code>。<code>ja</code> / <code>en</code> / <code>zh-Hant</code> / <code>ru</code>）があります。
+  UI の表示言語とは別に、ワールドにはゲームの言語（ルート直下の <code>language</code>。<code>ja</code> / <code>en</code> / <code>zh-Hant</code> / <code>ru</code>）があります。 <span class="badge">v10.6</span>
   ゲームは新しい NPC の初期値（好感度の文「警戒心がある」・関係「初対面」・記憶の要約「ゲーム開始」）をこの言語に訳して保存するため、
   エディタも NPC の新規作成・施設の主の作成・NPC のインポート・クリーンアップでは、開いているワールドの言語で初期値を書きます。
   プレイヤーのプリセット化の「言語」欄も、開いているワールドの言語が初期値になります。
