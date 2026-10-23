@@ -39,6 +39,9 @@ namespace InstantaleSaveEditor
         public int InventoryGridColumns { get; set; } = 4;          // グリッド列数（固定値。セーブからは読まない）
         public int InventoryGridRows { get; set; } = 6;             // グリッド行数（実容量に合わせユーザーが変更）
 
+        // --- ModLoader 連携 ---
+        public string ModLoaderRoot { get; set; } = "";             // InstantaleModLoader のフォルダ（runtime\mods と state を持つ）。空なら連携しない
+
         // --- NPC エクスポート ---
         public bool NpcExportPerWorld { get; set; } = true;         // true: npc\{ワールド名}\ へ / false: npc\ALL\ へ
 
@@ -204,7 +207,7 @@ namespace InstantaleSaveEditor
     }
 
     // 設定ダイアログで開くセクション。メニューから対象を指定して開く。
-    internal enum SettingsSection { Backup, Language, Misc }
+    internal enum SettingsSection { Backup, Language, Misc, ModLoader }
 
     // 言語コンボの項目。表示名を見せ、値はコードを保持する。
     internal sealed class LangItem
@@ -227,6 +230,7 @@ namespace InstantaleSaveEditor
 
         // インベントリ（グリッド編集）。
         private readonly TextBox _assetRoot = new() { Width = 320 };
+        private readonly TextBox _modLoaderRoot = new() { Width = 320 };
         private readonly NumericUpDown _invCols = new() { Minimum = 1, Maximum = 64, Width = 80 };
         private readonly NumericUpDown _invRows = new() { Minimum = 1, Maximum = 64, Width = 80 };
 
@@ -241,7 +245,9 @@ namespace InstantaleSaveEditor
         private readonly CheckBox _skipNpcImages = new() { AutoSize = true };
 
         // Localize() で文言を再適用するため、可視文言を持つ要素を保持する。
-        private GroupBox _grpBackup, _grpLanguage, _grpMisc, _grpAssetRoot, _grpInventory, _grpNpc;
+        private GroupBox _grpBackup, _grpLanguage, _grpMisc, _grpAssetRoot, _grpInventory, _grpNpc, _grpModLoader;
+        private Label _lblModLoaderRoot, _lblModLoaderHint, _lblModLoaderStatus;
+        private Button _btnBrowseModLoader;
         private Label _lblBaseFolder, _lblBaseHint, _lblRetention, _lblLang, _lblSizeMode, _lblFixedSize, _lblTimes;
         private Label _lblAssetRoot, _lblAssetNote, _lblAssetHint, _lblInvCols, _lblInvRows, _lblNpcHint, _lblSkipNpcHint;
         private Button _btnBrowse, _btnBrowseAsset, _btnOk, _btnCancel;
@@ -270,8 +276,10 @@ namespace InstantaleSaveEditor
             BuildAssetRootGroup();
             BuildInventoryGroup();
             BuildNpcGroup();
+            BuildModLoaderGroup();
             switch (_section)
             {
+                case SettingsSection.ModLoader: root.Controls.Add(_grpModLoader); Width = 460; Height = 250; break;
                 case SettingsSection.Backup: root.Controls.Add(_grpBackup); Width = 460; Height = 286; break;
                 case SettingsSection.Language: root.Controls.Add(_grpLanguage); Width = 360; Height = 166; break;
                 default: root.Controls.Add(_grpMisc); root.Controls.Add(_grpAssetRoot); root.Controls.Add(_grpInventory); root.Controls.Add(_grpNpc); Width = 460; Height = 650; break;
@@ -296,8 +304,14 @@ namespace InstantaleSaveEditor
             {
                 SettingsSection.Backup => I18n.T("settings.group.backup"),
                 SettingsSection.Language => I18n.T("settings.group.language"),
+                SettingsSection.ModLoader => I18n.T("settings.group.modLoader"),
                 _ => I18n.T("settings.group.misc"),
             };
+            _grpModLoader.Text = I18n.T("settings.group.modLoader");
+            _lblModLoaderRoot.Text = I18n.T("settings.modLoaderRoot");
+            _btnBrowseModLoader.Text = I18n.T("btn.browse");
+            _lblModLoaderHint.Text = I18n.T("settings.modLoaderHint");
+            UpdateModLoaderStatus();
             _grpBackup.Text = I18n.T("settings.group.backup");
             _autoBackup.Text = I18n.T("settings.autoBackup");
             _lblBaseFolder.Text = I18n.T("settings.baseFolder");
@@ -460,6 +474,52 @@ namespace InstantaleSaveEditor
             return _grpAssetRoot;
         }
 
+        // 「ModLoader 連携」グループ（ローダのフォルダ。装備欄 MOD の装備と、装備画像 MOD の絵を表示に使う）。
+        private GroupBox BuildModLoaderGroup()
+        {
+            _grpModLoader = new GroupBox { Width = 410, Height = 170, Margin = new Padding(3) };
+            var t = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, Dock = DockStyle.Fill, Padding = new Padding(8, 20, 8, 8) };
+
+            int r = 0;
+            _lblModLoaderRoot = new Label { AutoSize = true, Padding = new Padding(0, 6, 4, 0) };
+            t.Controls.Add(_lblModLoaderRoot, 0, r);
+            var folderRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
+            _btnBrowseModLoader = new Button { AutoSize = true };
+            _btnBrowseModLoader.Click += (_, _) =>
+            {
+                using var d = new FolderBrowserDialog { Description = I18n.T("settings.browseModLoaderDesc") };
+                if (Directory.Exists(_modLoaderRoot.Text)) d.SelectedPath = _modLoaderRoot.Text;
+                if (d.ShowDialog(this) == DialogResult.OK) _modLoaderRoot.Text = d.SelectedPath;
+            };
+            folderRow.Controls.Add(_modLoaderRoot); folderRow.Controls.Add(_btnBrowseModLoader);
+            t.Controls.Add(folderRow, 1, r); r++;
+
+            _lblModLoaderStatus = new Label { AutoSize = true, MaximumSize = new Size(300, 0) };
+            t.Controls.Add(_lblModLoaderStatus, 1, r); r++;
+            _lblModLoaderHint = new Label { AutoSize = true, ForeColor = SystemColors.GrayText, MaximumSize = new Size(300, 0) };
+            t.Controls.Add(_lblModLoaderHint, 1, r); r++;
+            _modLoaderRoot.TextChanged += (_, _) => UpdateModLoaderStatus();
+
+            _grpModLoader.Controls.Add(t);
+            return _grpModLoader;
+        }
+
+        // 入力中のフォルダで、ローダと連携する MOD が見つかるかを表示する。
+        private void UpdateModLoaderStatus()
+        {
+            if (_lblModLoaderStatus == null) return;
+            string text = _modLoaderRoot.Text.Trim();
+            if (text.Length == 0) { _lblModLoaderStatus.Text = I18n.T("settings.modLoader.off"); _lblModLoaderStatus.ForeColor = SystemColors.GrayText; return; }
+            string root = ModLoaderLink.Normalize(text);
+            if (root == null) { _lblModLoaderStatus.Text = I18n.T("settings.modLoader.notFound"); _lblModLoaderStatus.ForeColor = Color.Firebrick; return; }
+            bool eq = ModLoaderLink.FindMod(ModLoaderLink.EquipmentSlotsMod, root) != null;
+            bool img = ModLoaderLink.FindMod(ModLoaderLink.ItemImageMod, root) != null;
+            _lblModLoaderStatus.Text = I18n.T("settings.modLoader.found",
+                I18n.T(eq ? "settings.modLoader.yes" : "settings.modLoader.no"),
+                I18n.T(img ? "settings.modLoader.yes" : "settings.modLoader.no"));
+            _lblModLoaderStatus.ForeColor = eq || img ? Color.ForestGreen : Color.DarkGoldenrod;
+        }
+
         // 「インベントリ」グループ（グリッド列数/行数）。
         private GroupBox BuildInventoryGroup()
         {
@@ -554,6 +614,7 @@ namespace InstantaleSaveEditor
             _skipNpcImages.Checked = _s.SkipNpcImageLoading;
 
             _assetRoot.Text = _s.GameAssetRoot;
+            _modLoaderRoot.Text = _s.ModLoaderRoot;
             _invCols.Value = Math.Clamp(_s.InventoryGridColumns, (int)_invCols.Minimum, (int)_invCols.Maximum);
             _invRows.Value = Math.Clamp(_s.InventoryGridRows, (int)_invRows.Minimum, (int)_invRows.Maximum);
 
@@ -576,6 +637,7 @@ namespace InstantaleSaveEditor
             _s.SkipNpcImageLoading = _skipNpcImages.Checked;
 
             _s.GameAssetRoot = _assetRoot.Text.Trim();
+            _s.ModLoaderRoot = _modLoaderRoot.Text.Trim();
             _s.InventoryGridColumns = (int)_invCols.Value;
             _s.InventoryGridRows = (int)_invRows.Value;
 

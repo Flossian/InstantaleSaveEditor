@@ -456,10 +456,15 @@ namespace InstantaleSaveEditor
             _invPanel = new InventoryPanel(warehouseEnabled: true) { Dock = DockStyle.Top };
             // item の採番をセーブの index.item と同期させる（インベントリ内 最大+1 ではゲームの採番と衝突する）。
             _invPanel.SaveRootProvider = () => _root;
+            _invPanel.EquipOwner = ModLoaderLink.PlayerOwner(_root);   // 装備欄 MOD の控えでの持ち主（主人公は名前）
+            _invPanel.EquipAlways = true;   // 装備が無くても装備欄を出す（所持品から装備できるように）
             // インベントリを操作すると装備コンボを作り直すが、その復元元はモデル（_pd["equipments"]）。
             // 先に現在の選択をモデルへ書いておかないと、まだ Apply() していない装備変更が
             // 無言で元の値へ巻き戻る。
             _invPanel.InventoryChanged += () => { CommitEquipments(); RefreshEquipCombos(); };
+            // 装備欄（MOD）の操作で本体の装備を選び直したら、武器・防具の欄をモデルから作り直す
+            //（InventoryChanged の書き戻しより先に走るので、古い選択で上書きされない）。
+            _invPanel.EquipmentsChanged += RefreshEquipCombos;
             // 個別倉庫(item\{world}\{char})の場所決定にワールド名（_worldDir 末尾）とキャラ名（player_data.name）を渡す。
             string worldName = string.IsNullOrEmpty(_worldDir) ? null : Path.GetFileName(_worldDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
             _invPanel.Bind(EnsureObj("inventory"), worldName, J.Str(_pd, "name"));   // 無ければ作る（追加操作の受け皿）

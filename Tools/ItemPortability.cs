@@ -76,8 +76,9 @@ namespace InstantaleSaveEditor
 
             if (!string.IsNullOrEmpty(imageRel) && !string.IsNullOrEmpty(assetRoot))
             {
-                string full = Path.Combine(assetRoot, imageRel.Replace('/', Path.DirectorySeparatorChar));
-                if (File.Exists(full))
+                // ModLoader（装備画像 MOD）の絵もゲームと同じ順で探して同梱する。
+                string full = ModLoaderLink.ResolveAsset(imageRel);
+                if (full != null)
                     zip.CreateEntryFromFile(full, "image/" + Path.GetFileName(full));
             }
         }
@@ -121,6 +122,8 @@ namespace InstantaleSaveEditor
             string full = SafePath.ResolveUnder(assetRoot, imageRel);
             if (full == null) return;   // assetRoot の外を指す細工されたパスは無視する
             if (File.Exists(full)) return;
+            // ModLoader の絵の置き場に同じ絵があれば、ゲームはそちらを見つけるのでゲームのフォルダへは書かない。
+            if (ModLoaderLink.ResolveAsset(imageRel) != null) return;
             string dir = Path.GetDirectoryName(full);
             if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
             File.WriteAllBytes(full, bytes);
@@ -161,6 +164,13 @@ namespace InstantaleSaveEditor
         // モデル座標へ戻して返す。占有判定は InventoryGridControl.CellRect と同じクランプで合わせる。
         public static JsonArray FindFreeGridPosTopLeft(JsonObject inv, int w, int h, int cols, int rows)
         {
+            rows = Math.Max(1, rows);
+            return TryFindFreeGridPosTopLeft(inv, w, h, cols, rows) ?? new JsonArray(0, rows - Math.Clamp(h, 1, rows));   // 空き無し時は画面左上（モデル座標）へ
+        }
+
+        // FindFreeGridPosTopLeft と同じ探し方で、空きが無ければ null を返す。
+        public static JsonArray TryFindFreeGridPosTopLeft(JsonObject inv, int w, int h, int cols, int rows)
+        {
             cols = Math.Max(1, cols); rows = Math.Max(1, rows);
             w = Math.Clamp(w, 1, cols); h = Math.Clamp(h, 1, rows);
 
@@ -187,7 +197,7 @@ namespace InstantaleSaveEditor
             for (int sy = 0; sy <= rows - h; sy++)
                 for (int sx = 0; sx <= cols - w; sx++)
                     if (IsFree(occ, sx, sy, w, h)) return new JsonArray(sx, rows - h - sy);
-            return new JsonArray(0, rows - h);   // 空き無し時は画面左上（モデル座標）へ
+            return null;
         }
 
         // 画面座標 (x,y) から w×h の範囲がすべて空きセルか。

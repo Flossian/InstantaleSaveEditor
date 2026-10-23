@@ -14,12 +14,12 @@ namespace InstantaleSaveEditor
     internal sealed class InventoryGridControl : Panel
     {
         // 1セルの一辺(px)。コントロール全体は Columns*CellSize × Rows*CellSize になる。
-        private const int CellSize = 56;
+        private int CellSize => CellSizeOverride ?? 56;
         private const int Pad = 3;                 // アイテム描画時のセル内側パディング
 
         private JsonObject _inv;                   // inventory 辞書（モデル本体。直接書き換える）
         private int _cols = 4, _rows = 6;          // 設定から取り込むグリッド寸法
-        private string _assetRoot = "";            // 設定の GameAssetRoot（image_src の解決基準）
+        private string _assetKey = "";             // 画像の探し先（ゲーム導入先＋ModLoader）の組。変わったらキャッシュを捨てる
 
         // 画像キャッシュ（image_src → Image。解決不能は null を格納して再試行を避ける）。
         private readonly Dictionary<string, Image> _imgCache = new(StringComparer.Ordinal);
@@ -50,6 +50,28 @@ namespace InstantaleSaveEditor
 
         // 設定の寸法ではなく明示寸法でグリッドを構成する場合に指定する（倉庫グリッド用）。null なら設定値。
         public Size? GridSizeOverride { get; set; }
+        // セルの一辺(px)を変える（装備欄は小さく描く）。null なら既定の 56。
+        public int? CellSizeOverride { get; set; }
+        // 表示する品の絞り込み（false の品は描かず、マスも占めない）。null なら全件。
+        // 装備欄 MOD の装備中の品を所持品のグリッドから外し、装備欄のグリッドにだけ出すのに使う。
+        public Func<string, bool> ItemFilter { get; set; }
+        // 品の位置（左上のマス。y は上から）を grid_pos の代わりに使う。null を返す品は grid_pos のまま。
+        public Func<string, Point?> PositionOverride { get; set; }
+        // ドラッグで動かせないようにする（選択・ツールチップ・ダブルクリック編集はできる）。
+        public bool ReadOnlyLayout { get; set; }
+        // ReadOnlyLayout でも、グリッドの外へドラッグして出すこと（ItemDraggedOut）だけは許す。中で離すと元へ戻る。
+        public bool AllowDragOut { get; set; }
+        // グリッドの上に描く枠（名前・マスの矩形。y は上から）。枠の外のマスは暗く塗る。
+        // 枠の中の品は、縦横比を保った整数倍で枠いっぱいに広げて描く（装備欄 MOD の SCALE_TO_FIT と同じ）。
+        public IReadOnlyList<(string label, Rectangle cells)> Regions { get; set; }
+
+        // 絞り込みを通る品の鍵。
+        private IEnumerable<string> VisibleIds()
+        {
+            if (_inv == null) yield break;
+            foreach (var kv in _inv)
+                if (kv.Value is JsonObject && (ItemFilter == null || ItemFilter(kv.Key))) yield return kv.Key;
+        }
 
         public InventoryGridControl()
         {
@@ -59,7 +81,8 @@ namespace InstantaleSaveEditor
         }
 
         // 現在選択中のアイテムID（無ければ null）。
-        public string SelectedId => _inv != null && _selectedId != null && _inv.ContainsKey(_selectedId) ? _selectedId : null;
+        public string SelectedId => _inv != null && _selectedId != null && _inv.ContainsKey(_selectedId)
+            && (ItemFilter == null || ItemFilter(_selectedId)) ? _selectedId : null;
 
         // 画像が表示できない状態か（アセット先未設定、または image_src があるのに解決できない）。
         // InventoryPanel が警告ラベルの表示可否に使う。Bind のたびに更新する。
@@ -77,8 +100,8 @@ namespace InstantaleSaveEditor
             // 画像キャッシュの整理。アセット先が変わったら全部捨てる（旧ルート基準の画像を残さない）。
             // 同じルートなら解決失敗(null)だけ捨てて再試行させる（インポートや倉庫取出で
             // 画像が後から復元された場合に、プレースホルダ表示と警告が残らないように）。
-            string newRoot = s.GameAssetRoot ?? "";
-            if (!string.Equals(newRoot, _assetRoot, StringComparison.OrdinalIgnoreCase))
+            string newRoot = string.Join("|", ModLoaderLink.AssetRoots());
+            if (!string.Equals(newRoot, _assetKey, StringComparison.OrdinalIgnoreCase))
             {
                 foreach (var img in _imgCache.Values) img?.Dispose();
                 _imgCache.Clear();
@@ -88,7 +111,7 @@ namespace InstantaleSaveEditor
                 foreach (var k in _imgCache.Where(kv => kv.Value == null).Select(kv => kv.Key).ToList())
                     _imgCache.Remove(k);
             }
-            _assetRoot = newRoot;
+            _assetKey = newRoot;
 
             // 選択が消えていればクリア。
             if (_selectedId != null && (_inv == null || !_inv.ContainsKey(_selectedId))) _selectedId = null;
@@ -104,12 +127,10 @@ namespace InstantaleSaveEditor
         private void ComputeImagesUnavailable()
         {
             ImagesUnavailable = false;
-            if (_inv == null) return;
-            foreach (var kv in _inv)
+            foreach (var id in VisibleIds())
             {
-                if (kv.Value is not JsonObject o) continue;
-                if (string.IsNullOrEmpty(J.Str(o, "image_src"))) continue;
-                if (ResolveImage(kv.Key) == null) { ImagesUnavailable = true; return; }
+                if (string.IsNullOrEmpty(J.Str(_inv[id] as JsonObject, "image_src"))) continue;
+                if (ResolveImage(id) == null) { ImagesUnavailable = true; return; }
             }
         }
 
@@ -117,14 +138,12 @@ namespace InstantaleSaveEditor
         private void RebuildOccupancy()
         {
             _occ = new string[_cols, _rows];
-            if (_inv == null) return;
-            foreach (var kv in _inv)
+            foreach (var id in VisibleIds())
             {
-                if (kv.Value is not JsonObject) continue;
-                var (x, y, w, h) = CellRect(kv.Key);
+                var (x, y, w, h) = CellRect(id);
                 for (int cx = x; cx < x + w && cx < _cols; cx++)
                     for (int cy = y; cy < y + h && cy < _rows; cy++)
-                        if (cx >= 0 && cy >= 0) _occ[cx, cy] = kv.Key;
+                        if (cx >= 0 && cy >= 0) _occ[cx, cy] = id;
             }
         }
 
@@ -134,6 +153,18 @@ namespace InstantaleSaveEditor
             var o = _inv?[id] as JsonObject;
             int w = Math.Max(1, (int)J.Int(o, "width_slots", 1));
             int h = Math.Max(1, (int)J.Int(o, "height_slots", 1));
+            if (PositionOverride?.Invoke(id) is Point at)
+            {
+                // 上端起点の位置。枠の中なら枠いっぱいへ整数倍で広げる（縦横比は保つ）。
+                var reg = Regions?.FirstOrDefault(r => r.cells.Contains(at)).cells ?? Rectangle.Empty;
+                if (!reg.IsEmpty)
+                {
+                    int f = Math.Max(1, Math.Min((reg.Right - at.X) / w, (reg.Bottom - at.Y) / h));
+                    w *= f; h *= f;
+                }
+                w = Math.Min(w, _cols); h = Math.Min(h, _rows);
+                return (Math.Clamp(at.X, 0, Math.Max(0, _cols - w)), Math.Clamp(at.Y, 0, Math.Max(0, _rows - h)), w, h);
+            }
             var gp = J.Arr(o, "grid_pos");
             int x = 0, y = 0;
             if (gp != null && gp.Count >= 2)
@@ -190,12 +221,31 @@ namespace InstantaleSaveEditor
                 for (int r = 0; r <= _rows; r++) g.DrawLine(pen, 0, r * CellSize, _cols * CellSize, r * CellSize);
             }
 
-            // 各アイテム（ドラッグ中の本体はゴーストで描くのでここでは省く）。
-            foreach (var kv in _inv)
+            // 枠（装備欄の部位）。枠の外のマスは暗く塗り、枠線と名前を描く。
+            if (Regions != null)
             {
-                if (kv.Value is not JsonObject) continue;
-                if (_dragging && kv.Key == _dragId) continue;
-                DrawItem(g, kv.Key, false);
+                using (var dim = new SolidBrush(Color.FromArgb(30, 30, 30)))
+                    for (int c = 0; c < _cols; c++)
+                        for (int r = 0; r < _rows; r++)
+                            if (!Regions.Any(x => x.cells.Contains(c, r)))
+                                g.FillRectangle(dim, c * CellSize + 1, r * CellSize + 1, CellSize - 1, CellSize - 1);
+                using var pen = new Pen(Color.Silver, 1.5f);
+                using var f = new Font(Font.FontFamily, 7.5f);
+                using var br = new SolidBrush(Color.FromArgb(150, Color.Gainsboro));
+                using var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Far };
+                foreach (var (label, cells) in Regions)
+                {
+                    var rc = new Rectangle(cells.X * CellSize + 1, cells.Y * CellSize + 1, cells.Width * CellSize - 2, cells.Height * CellSize - 2);
+                    g.DrawRectangle(pen, rc);
+                    g.DrawString(label, f, br, rc, sf);
+                }
+            }
+
+            // 各アイテム（ドラッグ中の本体はゴーストで描くのでここでは省く）。
+            foreach (var id in VisibleIds())
+            {
+                if (_dragging && id == _dragId) continue;
+                DrawItem(g, id, false);
             }
 
             // 選択枠。
@@ -297,20 +347,19 @@ namespace InstantaleSaveEditor
         };
 
         // ---------------- 画像解決・キャッシュ ----------------
-        // image_src を GameAssetRoot 基準で解決して読み込む。File.ReadAllBytes→MemoryStream 経由で
-        // 元PNGをロックしない。解決不能・未設定・例外時は null（プレースホルダ表示）。
+        // image_src をゲーム導入先（と ModLoader の絵の置き場）から解決して読み込む（ModLoaderLink.ResolveAsset）。
+        // File.ReadAllBytes→MemoryStream 経由で元PNGをロックしない。解決不能・未設定・例外時は null（プレースホルダ表示）。
         private Image ResolveImage(string id)
         {
             string src = J.Str(_inv[id] as JsonObject, "image_src");
-            if (string.IsNullOrEmpty(src) || string.IsNullOrEmpty(_assetRoot)) return null;
+            if (string.IsNullOrEmpty(src) || string.IsNullOrEmpty(_assetKey)) return null;
             if (_imgCache.TryGetValue(src, out var cached)) return cached;
 
             Image img = null;
             try
             {
-                string rel = src.Replace('/', Path.DirectorySeparatorChar);
-                string full = Path.Combine(_assetRoot, rel);
-                if (File.Exists(full))
+                string full = ModLoaderLink.ResolveAsset(src);
+                if (full != null)
                 {
                     byte[] bytes = File.ReadAllBytes(full);
                     using var ms = new MemoryStream(bytes);
@@ -331,6 +380,9 @@ namespace InstantaleSaveEditor
             if (c < 0 || c >= _cols || r < 0 || r >= _rows) return new Point(-1, -1);
             return new Point(c, r);
         }
+
+        // スクリーン座標→セル。範囲外は (-1,-1)。他のグリッドから落とされた位置を調べるのに使う。
+        public Point CellAtScreen(Point screen) => CellAt(PointToClient(screen));
 
         // クライアント座標→アイテムID（無ければ null）。
         private string ItemAt(Point p)
@@ -365,8 +417,8 @@ namespace InstantaleSaveEditor
             base.OnMouseMove(e);
             _mousePos = e.Location;
 
-            // ドラッグ開始判定（しきい値4px）。
-            if (!_dragging && e.Button == MouseButtons.Left && _pressId != null)
+            // ドラッグ開始判定（しきい値4px）。並びを動かせないグリッドでは始めない。
+            if (!_dragging && (!ReadOnlyLayout || AllowDragOut) && e.Button == MouseButtons.Left && _pressId != null)
             {
                 if (Math.Abs(e.X - _pressPos.X) > 4 || Math.Abs(e.Y - _pressPos.Y) > 4)
                 {
@@ -411,7 +463,7 @@ namespace InstantaleSaveEditor
                 }
                 else
                 {
-                    try { PerformDrop(); }
+                    try { if (!ReadOnlyLayout) PerformDrop(); }
                     catch { /* 何があってもクラッシュさせない（スナップバック扱い） */ }
                     _dragging = false; _dragId = null;
                 }
@@ -666,7 +718,18 @@ namespace InstantaleSaveEditor
         private readonly InventoryGridControl _grid = new() { Location = new Point(0, 0) };
         private readonly InventoryGridControl _whChar = new() { Location = new Point(0, 0) };   // 個別倉庫グリッド（キャラ毎）
         private readonly InventoryGridControl _whShared = new() { Location = new Point(0, 0) }; // 共有倉庫グリッド（全キャラ共通）
-        private readonly Button _btnEdit, _btnDelete, _btnExport;
+        // 装備欄（ModLoader の 333_equipment_slots）。装備中の品をその部位に表示する（並べ替えはゲーム内で行う）。
+        private readonly InventoryGridControl _equip = new()
+        {
+            Location = new Point(0, 0), CellSizeOverride = 34, ReadOnlyLayout = true,
+            GridSizeOverride = new Size(ModLoaderLink.SlotCols, ModLoaderLink.SlotRows),
+        };
+        private readonly Panel _equipHost = new() { Width = 214, Height = 360, Margin = new Padding(0, 0, 6, 0), Visible = false };
+        private readonly Label _lblEquip = new() { Dock = DockStyle.Top, Height = 18 };
+        private Dictionary<string, Point> _equipped = new();
+        private Panel _invHost, _charHost, _sharedHost, _midChar, _midShared;
+        private Label _lblInv, _lblChar, _lblShared;
+        private readonly Button _btnEdit, _btnDelete, _btnExport, _btnEquip, _btnUnequip;
         private readonly Button _btnToChar, _btnFromChar;     // 個別倉庫へ保存 / から取出
         private readonly Button _btnToShared, _btnFromShared; // 共有倉庫へ保存 / から取出
         private ItemWarehouse _charWh;   // キャラ個別倉庫（Bind 時に world/char から生成）
@@ -686,6 +749,17 @@ namespace InstantaleSaveEditor
 
         // 追加/削除/編集でインベントリが変化したときに発火（装備コンボの再構築などに使う）。
         public event Action InventoryChanged;
+        // 装備欄の品を外したとき（InventoryChanged より先）。PlayerTab が武器・防具の選択をこの品から外すのに使う
+        //（選択を残したまま InventoryChanged で書き戻すと、外した品がまた本体の装備になる）。
+        public event Action<string> ItemUnequipped;
+
+        // 装備欄 MOD の控えでの持ち主（主人公は名前、仲間は "npc:<id>"。ModLoaderLink.PlayerOwner / NpcOwner）。
+        // 未設定なら装備欄は出さない。
+        public string EquipOwner { get; set; }
+        // 装備が1つも無くても装備欄を出す（主人公・パーティにいる仲間。装備欄 MOD が使えるときだけ）。
+        public bool EquipAlways { get; set; }
+        // 装備欄の操作で本体の装備（player_data.equipments）を選び直したとき。PlayerTab が武器・防具の欄を作り直す。
+        public event Action EquipmentsChanged;
 
         // warehouseEnabled=true で右側にアイテム倉庫グリッドと移動ボタンを表示する（プレイヤー専用）。
         // false（既定）では従来どおりインベントリグリッドのみ。NPC 編集ではこちらを使う。
@@ -697,11 +771,30 @@ namespace InstantaleSaveEditor
             _grid.ItemActivated += id => EditItem(id);
             _grid.SelectionChanged += UpdateButtons;
 
+            // 装備欄: 装備中の品は所持品のグリッドから外し、装備欄にだけ出す
+            //（装備中の品の grid_pos は装備欄の座標で書かれるため、所持品に並べると重なる）。
+            _grid.ItemFilter = id => !_equipped.ContainsKey(id);
+            _equip.ItemFilter = id => _equipped.ContainsKey(id);
+            _equip.PositionOverride = id => _equipped.TryGetValue(id, out var p) ? p : null;
+            _equip.Regions = ModLoaderLink.SlotRegions.Select(r => (ModLoaderLink.SlotLabel(r.name), r.cells)).ToList();
+            _equip.ItemActivated += id => EditItem(id);
+            _equip.SelectionChanged += UpdateButtons;
+            // 装備欄から所持品へドラッグすると外す（装備欄の中での付け替えはゲーム内で行う）。
+            _equip.AllowDragOut = true;
+            _equip.ItemDraggedOut += (id, pt) => { if (Over(_grid, pt)) Unequip(id); };
+            // 所持品から装備欄へドラッグすると、落とした部位へ装備する（部位の外なら空いている合う部位へ）。
+            _grid.ItemDraggedOut += (id, pt) => { if (_equipHost.Visible && Over(_equip, pt)) Equip(id, RegionAt(pt)); };
+            _lblEquip.Text = I18n.T("inv.equipLabel");
+            var equipGridHost = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
+            equipGridHost.Controls.Add(_equip);
+            _equipHost.Controls.Add(equipGridHost);
+            _equipHost.Controls.Add(_lblEquip);
+
             // 本体（グリッド領域）。倉庫有効時は [インベントリ][個別倉庫ボタン][個別倉庫][共有倉庫ボタン][共有倉庫] を横に並べる。
             Control body;
             if (_warehouse)
             {
-                var invHost = new Panel { Width = 250, Height = 354, AutoScroll = true, Margin = new Padding(0) };
+                var invHost = _invHost = new Panel { Width = 250, Height = 354, AutoScroll = true, Margin = new Padding(0) };
                 invHost.Controls.Add(_grid);
                 // Ctrl+クリック: インベントリ→個別倉庫（既定）。ドラッグ: 重なった倉庫へ振り分け。
                 _grid.ItemCtrlClicked += id => SaveToWarehouse(id, _charWh);
@@ -712,21 +805,21 @@ namespace InstantaleSaveEditor
                 };
 
                 _whChar.GridSizeOverride = new Size(ItemWarehouse.Cols, ItemWarehouse.Rows);
-                var charHost = new Panel { Width = 356, Height = 354, AutoScroll = true, Margin = new Padding(0) };
+                var charHost = _charHost = new Panel { Width = 356, Height = 354, AutoScroll = true, Margin = new Padding(0) };
                 charHost.Controls.Add(_whChar);
                 _whChar.SelectionChanged += UpdateButtons;
                 _whChar.ItemCtrlClicked += id => RetrieveFromWarehouse(id, _charWh);
                 _whChar.ItemDraggedOut += (id, pt) => { if (Over(_grid, pt)) RetrieveFromWarehouse(id, _charWh); };
 
                 _whShared.GridSizeOverride = new Size(ItemWarehouse.Cols, ItemWarehouse.Rows);
-                var sharedHost = new Panel { Width = 356, Height = 354, AutoScroll = true, Margin = new Padding(0) };
+                var sharedHost = _sharedHost = new Panel { Width = 356, Height = 354, AutoScroll = true, Margin = new Padding(0) };
                 sharedHost.Controls.Add(_whShared);
                 _whShared.SelectionChanged += UpdateButtons;
                 _whShared.ItemCtrlClicked += id => RetrieveFromWarehouse(id, ItemWarehouse.Shared);
                 _whShared.ItemDraggedOut += (id, pt) => { if (Over(_grid, pt)) RetrieveFromWarehouse(id, ItemWarehouse.Shared); };
 
                 // 個別倉庫の移動ボタン列。
-                var midChar = new Panel { Width = 130, Height = 354, Margin = new Padding(0) };
+                var midChar = _midChar = new Panel { Width = 130, Height = 354, Margin = new Padding(0) };
                 _btnToChar = new Button { Text = I18n.T("inv.toCharWarehouse"), Width = 120, Height = 32, Left = 5, Top = 130, Enabled = false };
                 _btnFromChar = new Button { Text = I18n.T("inv.fromCharWarehouse"), Width = 120, Height = 32, Left = 5, Top = 180, Enabled = false };
                 _btnToChar.Click += (_, _) => { if (_grid.SelectedId != null) SaveToWarehouse(_grid.SelectedId, _charWh); };
@@ -734,7 +827,7 @@ namespace InstantaleSaveEditor
                 midChar.Controls.Add(_btnToChar); midChar.Controls.Add(_btnFromChar);
 
                 // 共有倉庫の移動ボタン列。
-                var midShared = new Panel { Width = 130, Height = 354, Margin = new Padding(0) };
+                var midShared = _midShared = new Panel { Width = 130, Height = 354, Margin = new Padding(0) };
                 _btnToShared = new Button { Text = I18n.T("inv.toSharedWarehouse"), Width = 120, Height = 32, Left = 5, Top = 130, Enabled = false };
                 _btnFromShared = new Button { Text = I18n.T("inv.fromSharedWarehouse"), Width = 120, Height = 32, Left = 5, Top = 180, Enabled = false };
                 _btnToShared.Click += (_, _) => { if (_grid.SelectedId != null) SaveToWarehouse(_grid.SelectedId, ItemWarehouse.Shared); };
@@ -749,6 +842,7 @@ namespace InstantaleSaveEditor
                     WrapContents = false,
                     FlowDirection = FlowDirection.LeftToRight,
                 };
+                row.Controls.Add(_equipHost);
                 row.Controls.Add(invHost);
                 row.Controls.Add(midChar);
                 row.Controls.Add(charHost);
@@ -759,9 +853,14 @@ namespace InstantaleSaveEditor
             else
             {
                 // 倉庫なし: 従来どおりインベントリグリッドのみ（行数次第で背が高くなるためスクロールホストに載せる）。
-                var gridHost = new Panel { Dock = DockStyle.Top, Height = 360, AutoScroll = true };
+                // 装備欄がある仲間は左に装備欄を並べる。
+                var gridHost = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
                 gridHost.Controls.Add(_grid);
-                body = gridHost;
+                var holder = new Panel { Dock = DockStyle.Top, Height = 360 };
+                _equipHost.Dock = DockStyle.Left;
+                holder.Controls.Add(gridHost);
+                holder.Controls.Add(_equipHost);
+                body = holder;
             }
 
             var bar = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(0, 4, 0, 4) };
@@ -777,6 +876,8 @@ namespace InstantaleSaveEditor
             _btnDelete = Mk(I18n.T("btn.delete"), DeleteItem);
             _btnExport = Mk(I18n.T("btn.export"), ExportItem, 96);
             Mk(I18n.T("inv.import"), ImportItem, 96);
+            _btnEquip = Mk(I18n.T("inv.equip"), () => { if (_grid.SelectedId != null) Equip(_grid.SelectedId, null); }, 110);
+            _btnUnequip = Mk(I18n.T("inv.unequip"), () => { if (_equip.SelectedId != null) Unequip(_equip.SelectedId); }, 110);
             _btnDelete.Enabled = false;
             _btnExport.Enabled = false;
 
@@ -786,13 +887,147 @@ namespace InstantaleSaveEditor
             {
                 // グリッドの見出し（インベントリ / 個別倉庫 / 共有倉庫）。X はホスト幅の累積に合わせる。
                 var header = new Panel { Dock = DockStyle.Top, Height = 18 };
-                header.Controls.Add(new Label { Text = I18n.T("inv.inventoryLabel"), AutoSize = true, Left = 0, Top = 1 });
-                header.Controls.Add(new Label { Text = I18n.T("inv.charWarehouseLabel"), AutoSize = true, Left = 380, Top = 1 });
-                header.Controls.Add(new Label { Text = I18n.T("inv.sharedWarehouseLabel"), AutoSize = true, Left = 866, Top = 1 });
+                header.Controls.Add(_lblInv = new Label { Text = I18n.T("inv.inventoryLabel"), AutoSize = true, Left = 0, Top = 1 });
+                header.Controls.Add(_lblChar = new Label { Text = I18n.T("inv.charWarehouseLabel"), AutoSize = true, Left = 380, Top = 1 });
+                header.Controls.Add(_lblShared = new Label { Text = I18n.T("inv.sharedWarehouseLabel"), AutoSize = true, Left = 866, Top = 1 });
                 Controls.Add(header);
             }
             Controls.Add(bar);
             Controls.Add(_warn);
+        }
+
+        // 装備欄 MOD の控えから、この持ち主の装備中の品（インベントリに居るものだけ）を読み直し、装備欄の表示可否と
+        // 倉庫の見出しの位置を合わせる。ローダ未設定・控え無し・装備無しなら装備欄は出さない（全品を所持品に並べる）。
+        private void RefreshEquipped()
+        {
+            var map = ModLoaderLink.EquippedOf(SaveRootProvider?.Invoke(), EquipOwner);
+            _equipped = _inv == null ? new() : map.Where(kv => _inv[kv.Key] is JsonObject).ToDictionary(kv => kv.Key, kv => kv.Value);
+            _equipHost.Visible = _equipped.Count > 0 || (EquipAlways && !string.IsNullOrEmpty(EquipOwner) && ModLoaderLink.EquipmentSlotsAvailable);
+            if (_lblInv != null)
+            {
+                int x = _equipHost.Visible ? _equipHost.Width + _equipHost.Margin.Horizontal : 0;
+                _lblInv.Left = x;
+                x += _invHost.Width + _midChar.Width;
+                _lblChar.Left = x;
+                _lblShared.Left = x + _charHost.Width + _midShared.Width;
+            }
+        }
+
+        // 装備欄の品を外して所持品へ戻す。所持品の空きへ置き、MOD の控えから外す（控えへの書き込みは保存時。ModLoaderLink.Unequip）。
+        // 本体の equipments がこの品を指していれば外す。指したままだと、MOD が「本体が装備しているのに控えに無い品」として拾い直す。
+        private void Unequip(string id)
+        {
+            if (_inv?[id] is not JsonObject item || !_equipped.ContainsKey(id)) return;
+            int cols = Math.Max(1, Settings.Current?.InventoryGridColumns ?? 4);
+            int rows = Math.Max(1, Settings.Current?.InventoryGridRows ?? 6);
+            int w = Math.Max(1, (int)J.Int(item, "width_slots", 1));
+            int h = Math.Max(1, (int)J.Int(item, "height_slots", 1));
+            var pos = ItemPortability.TryFindFreeGridPosTopLeft(PlacementView(), w, h, cols, rows);
+            if (pos == null)
+            {
+                MessageBox.Show(FindForm(), I18n.T("msg.unequip.noSpace", w, h), I18n.T("title.confirm"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            var root = SaveRootProvider?.Invoke();
+            if (!ModLoaderLink.Unequip(root, EquipOwner, id)) return;
+            item["grid_pos"] = pos;
+            ItemUnequipped?.Invoke(id);
+            RecomputeGameEquipments(root);
+            Reload();
+        }
+
+        // 所持品の品を装備欄へ入れる（333_equipment_slots と同じ決まり）。
+        // region を指定すればその部位、null なら空いている合う部位（手と装飾は右・1つ目が先。専用の部位が埋まっていれば自由枠）。
+        // 合う部位が全部埋まっていれば専用の部位（右手・1つ目の装飾が先）の品と入れ替え、居た品は所持品の空きへ戻す（空きが無ければ入れない）。
+        // 控えへの書き込みは保存時（ModLoaderLink.Equip）。品の grid_pos は MOD と同じく装備欄の座標（y は下から）にする。
+        private void Equip(string id, string region)
+        {
+            if (_inv?[id] is not JsonObject item || _equipped.ContainsKey(id)) return;
+            string kind = ModLoaderLink.KindOf(item);
+            if (kind == null) { Notice(I18n.T("msg.equip.notEquipment")); return; }
+            int w = Math.Max(1, (int)J.Int(item, "width_slots", 1));
+            int h = Math.Max(1, (int)J.Int(item, "height_slots", 1));
+            bool Fits(Rectangle c) => w <= c.Width && h <= c.Height;
+            string Occupant(Rectangle c) => _equipped.FirstOrDefault(kv => c.Contains(kv.Value)).Key;
+
+            (string name, Rectangle cells) target = default;
+            if (region != null)
+            {
+                target = ModLoaderLink.SlotRegions.First(r => r.name == region);
+                if (!ModLoaderLink.Takes(region, kind)) { Notice(I18n.T("msg.equip.wrongSlot", ModLoaderLink.SlotLabel(region))); return; }
+                if (!Fits(target.cells)) { Notice(I18n.T("msg.equip.tooBig", ModLoaderLink.SlotLabel(region), w, h)); return; }
+            }
+            else
+            {
+                var fit = ModLoaderLink.SlotRegions.Where(r => ModLoaderLink.Takes(r.name, kind) && Fits(r.cells)).ToList();
+                var ordered = fit.Where(r => !ModLoaderLink.IsFreeRegion(r.name)).Concat(fit.Where(r => ModLoaderLink.IsFreeRegion(r.name))).ToList();
+                target = ordered.FirstOrDefault(r => Occupant(r.cells) == null);
+                if (target.name == null) target = ordered.FirstOrDefault();
+                if (target.name == null) { Notice(I18n.T("msg.equip.noSlot", w, h)); return; }
+            }
+
+            // 部位に居た品は所持品の空きへ戻す（入れる品が空けたマスも使える）。
+            string occupant = Occupant(target.cells);
+            JsonArray occPos = null;
+            if (occupant != null && _inv[occupant] is JsonObject occ)
+            {
+                var view = new JsonObject();
+                foreach (var kv in PlacementView() ?? new JsonObject())
+                    if (kv.Key != id) view[kv.Key] = kv.Value?.DeepClone();
+                int cols = Math.Max(1, Settings.Current?.InventoryGridColumns ?? 4);
+                int rows = Math.Max(1, Settings.Current?.InventoryGridRows ?? 6);
+                int ow = Math.Max(1, (int)J.Int(occ, "width_slots", 1)), oh = Math.Max(1, (int)J.Int(occ, "height_slots", 1));
+                occPos = ItemPortability.TryFindFreeGridPosTopLeft(view, ow, oh, cols, rows);
+                if (occPos == null) { Notice(I18n.T("msg.equip.noSpaceForSwap", J.Str(occ, "name", occupant), ow, oh)); return; }
+            }
+
+            var root = SaveRootProvider?.Invoke();
+            if (occupant != null)
+            {
+                if (!ModLoaderLink.Unequip(root, EquipOwner, occupant)) return;
+                ((JsonObject)_inv[occupant])["grid_pos"] = occPos;
+            }
+            if (!ModLoaderLink.Equip(root, EquipOwner, id, target.cells.Location)) return;
+            item["grid_pos"] = new JsonArray(target.cells.X, ModLoaderLink.SlotRows - target.cells.Y - h);
+            RecomputeGameEquipments(root);
+            Reload();
+        }
+
+        // 落とした位置の部位（部位の外・装備欄の外なら null）。
+        private string RegionAt(Point screen)
+        {
+            var cell = _equip.CellAtScreen(screen);
+            if (cell.X < 0) return null;
+            return ModLoaderLink.SlotRegions.FirstOrDefault(r => r.cells.Contains(cell)).name;
+        }
+
+        // 本体の装備（player_data.equipments の weapon / wearable）を装備欄から選び直す（333_ と同じ選び方）。主人公のときだけ
+        //（仲間の equipments はゲームが保存しない）。装備欄の品を本体が指したままだと、MOD が控えに無い品として拾い直すため。
+        private void RecomputeGameEquipments(JsonObject root)
+        {
+            if (string.IsNullOrEmpty(EquipOwner) || EquipOwner != ModLoaderLink.PlayerOwner(root) || J.Obj(root, "player_data") is not JsonObject pd) return;
+            var (weapon, wearable) = ModLoaderLink.ChooseGameEquipments(_inv, ModLoaderLink.EquippedOf(root, EquipOwner));
+            if (pd["equipments"] is not JsonObject eq)
+            {
+                if (weapon == null && wearable == null) return;
+                pd["equipments"] = eq = new JsonObject();
+            }
+            if (weapon != null) eq["weapon"] = weapon; else eq.Remove("weapon");
+            if (wearable != null) eq["wearable"] = wearable; else eq.Remove("wearable");
+            EquipmentsChanged?.Invoke();
+        }
+
+        private void Notice(string text)
+            => MessageBox.Show(FindForm(), text, I18n.T("title.confirm"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+
+        // 空きマス探し用のインベントリ。装備欄の品は所持品のマスを使わない（grid_pos は装備欄の座標）ので除く。
+        private JsonObject PlacementView()
+        {
+            if (_equipped.Count == 0 || _inv == null) return _inv;
+            var view = new JsonObject();
+            foreach (var kv in _inv)
+                if (!_equipped.ContainsKey(kv.Key)) view[kv.Key] = kv.Value?.DeepClone();
+            return view;
         }
 
         // スクリーン座標がグリッド c のクライアント領域内かどうか（外部ドロップの移動先判定）。
@@ -804,7 +1039,9 @@ namespace InstantaleSaveEditor
         public void Bind(JsonObject inventory, string worldName = null, string charName = null)
         {
             _inv = inventory;
+            RefreshEquipped();
             _grid.Bind(inventory);
+            _equip.Bind(inventory);
             if (_warehouse)
             {
                 _charWh = new ItemWarehouse(ItemWarehouse.CharDir(worldName, charName));
@@ -820,7 +1057,9 @@ namespace InstantaleSaveEditor
         // 全グリッドを作り直し、ボタンの有効状態を更新し、変更を通知する（倉庫有効時のみ）。
         private void ReloadAll()
         {
+            RefreshEquipped();
             _grid.Bind(_inv);
+            _equip.Bind(_inv);
             _whChar.Bind(_charWh?.Items);
             _whShared.Bind(ItemWarehouse.Shared.Items);
             UpdateWarning();
@@ -831,7 +1070,9 @@ namespace InstantaleSaveEditor
         // インベントリのみを作り直す（追加/削除/編集/インポート用。倉庫は変化しない）。
         private void Reload()
         {
+            RefreshEquipped();
             _grid.Bind(_inv);
+            _equip.Bind(_inv);
             UpdateWarning();
             UpdateButtons();
             InventoryChanged?.Invoke();
@@ -841,6 +1082,12 @@ namespace InstantaleSaveEditor
         private void UpdateButtons()
         {
             bool hasSel = _grid.SelectedId != null;
+            if (_btnUnequip != null)
+            {
+                _btnEquip.Visible = _btnUnequip.Visible = _equipHost.Visible;
+                _btnEquip.Enabled = hasSel && ModLoaderLink.KindOf(_inv?[_grid.SelectedId] as JsonObject) != null;
+                _btnUnequip.Enabled = _equip.SelectedId != null;
+            }
             if (_btnDelete != null) _btnDelete.Enabled = hasSel;
             if (_btnExport != null) _btnExport.Enabled = hasSel;
             if (_btnToChar != null) _btnToChar.Enabled = hasSel && (_charWh?.Available ?? false);
@@ -882,7 +1129,7 @@ namespace InstantaleSaveEditor
             int rows = Math.Max(1, Settings.Current?.InventoryGridRows ?? 6);
             int w = Math.Max(1, (int)J.Int(item, "width_slots", 1));
             int h = Math.Max(1, (int)J.Int(item, "height_slots", 1));
-            item["grid_pos"] = ItemPortability.FindFreeGridPosTopLeft(_inv, w, h, cols, rows);
+            item["grid_pos"] = ItemPortability.FindFreeGridPosTopLeft(PlacementView(), w, h, cols, rows);
             _inv[newId] = item;
             ReloadAll();
         }
@@ -902,7 +1149,7 @@ namespace InstantaleSaveEditor
             var item = NewItemTemplate();
             int cols = Math.Max(1, Settings.Current?.InventoryGridColumns ?? 4);
             int rows = Math.Max(1, Settings.Current?.InventoryGridRows ?? 6);
-            item["grid_pos"] = ItemPortability.FindFreeGridPosTopLeft(_inv, 1, 1, cols, rows);
+            item["grid_pos"] = ItemPortability.FindFreeGridPosTopLeft(PlacementView(), 1, 1, cols, rows);
             _inv[NewId()] = item;
             Reload();
         }
@@ -978,7 +1225,7 @@ namespace InstantaleSaveEditor
             int w = Math.Max(1, (int)J.Int(item, "width_slots", 1));
             int h = Math.Max(1, (int)J.Int(item, "height_slots", 1));
             // 追加・倉庫取り出しと同じく画面の左上から詰める（zip インポートだけ下に置かれるのを防ぐ）。
-            item["grid_pos"] = ItemPortability.FindFreeGridPosTopLeft(_inv, w, h, cols, rows);
+            item["grid_pos"] = ItemPortability.FindFreeGridPosTopLeft(PlacementView(), w, h, cols, rows);
 
             _inv[newId] = item;
             Reload();
@@ -1236,10 +1483,15 @@ namespace InstantaleSaveEditor
         private readonly string _assetRoot;
         private readonly string _itemsRoot;        // フォルダ一覧の走査基準
         private readonly string _preselect;        // 現在値（相対パス）。一致する画像を初期選択する
+        private readonly List<(string root, string itemsDir)> _dirs;   // 画像の置き場（基準フォルダ, 品種フォルダの親）
         private readonly ListBox _folders = new() { Dock = DockStyle.Fill, IntegralHeight = false };
         private readonly ListView _images = new() { Dock = DockStyle.Fill, View = View.LargeIcon, MultiSelect = false };
         private ImageList _thumbs;
         private readonly List<Image> _live = new();   // ImageList が参照する実体。遅延実体化されるため破棄まで保持する
+        // 選んだ画像の拡大表示（ドット絵なので整数倍・最近傍で描く）と、その情報（名前・大きさ・置き場）。
+        private readonly PixelPreview _preview = new() { Dock = DockStyle.Fill };
+        private readonly Label _previewInfo = new() { Dock = DockStyle.Bottom, Height = 92, Padding = new Padding(2, 6, 2, 0), AutoEllipsis = true };
+        private readonly Dictionary<string, (string full, bool mod)> _fileOf = new(StringComparer.OrdinalIgnoreCase);   // 相対パス → 実ファイル
 
         // 選択された画像の GameAssetRoot からの相対パス（未選択は null）。
         public string ResultPath { get; private set; }
@@ -1249,18 +1501,31 @@ namespace InstantaleSaveEditor
             _assetRoot = assetRoot ?? "";
             _itemsRoot = ResolveItemsRoot(_assetRoot);
             _preselect = current;
+            // ゲーム導入先に加え、ModLoader（装備画像 MOD）の絵の置き場も一覧に混ぜる。
+            // 同じ品種のフォルダは1つにまとめ、絵の相対パスはどの置き場でもゲームと同じ形になる。
+            _dirs = ModLoaderLink.ItemImageDirs().ToList();
+            if (_dirs.Count == 0 && !string.IsNullOrEmpty(_itemsRoot)) _dirs.Add((_assetRoot, _itemsRoot));
 
             Text = I18n.T("imgpick.title");
-            Width = 880; Height = 620;
+            Width = 1180; Height = 640;
             StartPosition = FormStartPosition.CenterParent;
 
-            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1 };
+            // 左: 品種フォルダ / 中: サムネイル一覧 / 右: 選んだ画像の拡大と情報。
+            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1 };
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 240));
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 320));
             layout.Controls.Add(_folders, 0, 0);
             layout.Controls.Add(_images, 1, 0);
+            var previewBox = new Panel { Dock = DockStyle.Fill, Padding = new Padding(6, 0, 0, 0) };
+            previewBox.Controls.Add(_preview);
+            previewBox.Controls.Add(_previewInfo);
+            layout.Controls.Add(previewBox, 2, 0);
 
             _folders.SelectedIndexChanged += (_, _) => LoadFolderImages();
+            _images.SelectedIndexChanged += (_, _) => ShowPreview();
+            // 今の image_src の画像を選んでおく。画面ができる前の選択は ListView に残らないので、出した後で選び直す。
+            Shown += (_, _) => SelectPreselect();
             _images.ItemActivate += (_, _) => { if (TrySelect()) DialogResult = DialogResult.OK; };
 
             var ok = new Button { Text = I18n.T("btn.ok"), Dock = DockStyle.Right, Width = 90, DialogResult = DialogResult.OK };
@@ -1319,19 +1584,21 @@ namespace InstantaleSaveEditor
         // 画像を含むフォルダを itemsRoot からの相対名で一覧化し、現在値のフォルダを初期選択する。
         private void LoadFolders()
         {
-            var rel = new List<string>();
-            try
+            var rel = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (_, items) in _dirs)
             {
-                if (Directory.Exists(_itemsRoot))
+                try
                 {
-                    if (HasImage(_itemsRoot)) rel.Add(".");   // 直下にも画像があれば先頭に
-                    foreach (var dir in Directory.EnumerateDirectories(_itemsRoot, "*", SearchOption.AllDirectories))
-                        if (HasImage(dir)) rel.Add(Path.GetRelativePath(_itemsRoot, dir).Replace('\\', '/'));
+                    if (!Directory.Exists(items)) continue;
+                    if (HasImage(items)) rel.Add(".");   // 直下にも画像があれば先頭に
+                    foreach (var dir in Directory.EnumerateDirectories(items, "*", SearchOption.AllDirectories))
+                        if (HasImage(dir)) rel.Add(Path.GetRelativePath(items, dir).Replace('\\', '/'));
                 }
+                catch { /* 走査失敗時はその置き場を飛ばす */ }
             }
-            catch { /* 走査失敗時は空一覧 */ }
-            rel.Sort(StringComparer.OrdinalIgnoreCase);
-            foreach (var r in rel) _folders.Items.Add(r);
+            var relList = rel.ToList();
+            relList.Sort(StringComparer.OrdinalIgnoreCase);
+            foreach (var r in relList) _folders.Items.Add(r);
 
             int sel = 0;
             if (!string.IsNullOrEmpty(_preselect))
@@ -1352,7 +1619,6 @@ namespace InstantaleSaveEditor
         private void LoadFolderImages()
         {
             if (_folders.SelectedItem is not string relFolder) return;
-            string dir = relFolder == "." ? _itemsRoot : Path.Combine(_itemsRoot, relFolder.Replace('/', Path.DirectorySeparatorChar));
 
             UseWaitCursor = true;
             _images.BeginUpdate();
@@ -1365,19 +1631,33 @@ namespace InstantaleSaveEditor
                 _thumbs = new ImageList { ImageSize = new Size(56, 56), ColorDepth = ColorDepth.Depth32Bit };
                 _images.LargeImageList = _thumbs;
 
-                var files = new List<string>();
-                try { foreach (var f in Directory.EnumerateFiles(dir)) if (IsImage(f)) files.Add(f); }
-                catch { /* アクセス不可は空 */ }
-                files.Sort(NaturalCompare);
-
-                int i = 0;
-                foreach (var f in files)
+                // 置き場ごとの同じ品種フォルダの絵を集める。相対パスが同じ絵は先の置き場（ゲーム）を採る（ゲームと同じ順）。
+                var files = new List<(string full, string rel, bool mod)>();
+                var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var (root, items) in _dirs)
                 {
+                    string dir = relFolder == "." ? items : Path.Combine(items, relFolder.Replace('/', Path.DirectorySeparatorChar));
+                    var here = new List<string>();
+                    try { if (Directory.Exists(dir)) foreach (var f in Directory.EnumerateFiles(dir)) if (IsImage(f)) here.Add(f); }
+                    catch { /* アクセス不可は空 */ }
+                    here.Sort(NaturalCompare);
+                    foreach (var f in here)
+                    {
+                        string relPath = RelFrom(root, f);
+                        if (seen.Add(relPath)) files.Add((f, relPath, ModLoaderLink.IsModRoot(root)));
+                    }
+                }
+
+                _fileOf.Clear();
+                int i = 0;
+                foreach (var (f, relPath, mod) in files)
+                {
+                    _fileOf[relPath] = (f, mod);
                     string key = i.ToString();
                     var thumb = MakeThumb(f, 56);
                     if (thumb != null) { _thumbs.Images.Add(key, thumb); _live.Add(thumb); }   // 破棄は次回再構築/Dispose で
-                    _images.Items.Add(new ListViewItem(Path.GetFileNameWithoutExtension(f))
-                    { ImageKey = thumb != null ? key : null, Tag = RelFromAsset(f) });
+                    string label = Path.GetFileNameWithoutExtension(f) + (mod ? " [MOD]" : "");
+                    _images.Items.Add(new ListViewItem(label) { ImageKey = thumb != null ? key : null, Tag = relPath });
                     i++;
                 }
                 oldThumbs?.Dispose();
@@ -1389,6 +1669,7 @@ namespace InstantaleSaveEditor
                         { it.Selected = true; it.EnsureVisible(); break; }
             }
             finally { _images.EndUpdate(); UseWaitCursor = false; }
+            ShowPreview();   // フォルダを替えたら拡大表示も合わせる（選択が無ければ空にする）
         }
 
         // ファイル名（数字なら数値順、その他は文字列順）で比較する。1,2,10... を期待通りに並べる。
@@ -1419,11 +1700,51 @@ namespace InstantaleSaveEditor
             catch { return null; }
         }
 
-        // フルパス→GameAssetRoot からの相対パス（/区切り）。
-        private string RelFromAsset(string full)
+        // フルパス→置き場（基準フォルダ）からの相対パス（/区切り）。どの置き場でも image_src と同じ形になる。
+        private static string RelFrom(string root, string full)
         {
-            try { return Path.GetRelativePath(_assetRoot, full).Replace('\\', '/'); }
+            try { return Path.GetRelativePath(root, full).Replace('\\', '/'); }
             catch { return full.Replace('\\', '/'); }
+        }
+
+        // 今の image_src（_preselect）の画像を選び、見える位置へ送って拡大表示する。
+        private void SelectPreselect()
+        {
+            if (!string.IsNullOrEmpty(_preselect))
+                foreach (ListViewItem it in _images.Items)
+                    if (string.Equals(it.Tag as string, _preselect, StringComparison.OrdinalIgnoreCase))
+                    {
+                        it.Selected = true;
+                        it.Focused = true;
+                        it.EnsureVisible();
+                        break;
+                    }
+            ShowPreview();
+        }
+
+        // 選んだ画像を右に大きく出す。名前・相対パス・大きさ（ピクセル）・置き場（ゲーム／MOD）も添える。
+        private void ShowPreview()
+        {
+            if (_images.SelectedItems.Count == 0 || _images.SelectedItems[0].Tag is not string rel || !_fileOf.TryGetValue(rel, out var file))
+            {
+                _preview.SetImage(null);
+                _previewInfo.Text = "";
+                return;
+            }
+            Image img = null;
+            try
+            {
+                using var ms = new MemoryStream(File.ReadAllBytes(file.full));
+                using var tmp = Image.FromStream(ms);
+                img = new Bitmap(tmp);   // ファイルを掴まないよう複製を持つ
+            }
+            catch { }
+            _preview.SetImage(img);
+            _previewInfo.Text = I18n.T("imgpick.previewInfo",
+                Path.GetFileName(file.full),
+                img != null ? $"{img.Width}×{img.Height}" : "-",
+                I18n.T(file.mod ? "imgpick.sourceMod" : "imgpick.sourceGame"),
+                rel);
         }
 
         // 現在の選択を ResultPath へ確定する。未選択なら false。
@@ -1441,7 +1762,60 @@ namespace InstantaleSaveEditor
                 _thumbs?.Dispose();
                 foreach (var im in _live) im.Dispose();
                 _live.Clear();
+                _preview.SetImage(null);
             }
+            base.Dispose(disposing);
+        }
+    }
+
+    // ドット絵の拡大表示。枠に収まる最大の整数倍で、最近傍補間（ぼかさない）で中央に描く。
+    // 絵の後ろは市松模様（透明な部分が分かるように）。
+    internal sealed class PixelPreview : Control
+    {
+        private Image _img;
+
+        public PixelPreview()
+        {
+            DoubleBuffered = true;
+            SetStyle(ControlStyles.ResizeRedraw | ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint, true);
+            BackColor = Color.FromArgb(40, 40, 40);
+        }
+
+        // 表示する画像を差し替える（前の画像は破棄する。渡した画像の破棄もこちらが受け持つ）。
+        public void SetImage(Image img)
+        {
+            _img?.Dispose();
+            _img = img;
+            Invalidate();
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var g = e.Graphics;
+            g.Clear(BackColor);
+            if (_img == null) return;
+            int avail = Math.Min(ClientSize.Width, ClientSize.Height) - 8;
+            int scale = Math.Max(1, Math.Min(avail / Math.Max(1, _img.Width), avail / Math.Max(1, _img.Height)));
+            int w = _img.Width * scale, h = _img.Height * scale;
+            var dst = new Rectangle((ClientSize.Width - w) / 2, (ClientSize.Height - h) / 2, w, h);
+            // 市松模様の地
+            using (var a = new SolidBrush(Color.FromArgb(70, 70, 70)))
+            using (var b = new SolidBrush(Color.FromArgb(55, 55, 55)))
+            {
+                const int cell = 8;
+                for (int y = dst.Top; y < dst.Bottom; y += cell)
+                    for (int x = dst.Left; x < dst.Right; x += cell)
+                        g.FillRectangle((((x - dst.Left) / cell + (y - dst.Top) / cell) % 2 == 0) ? a : b,
+                            x, y, Math.Min(cell, dst.Right - x), Math.Min(cell, dst.Bottom - y));
+            }
+            g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.NearestNeighbor;
+            g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.Half;
+            g.DrawImage(_img, dst);
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) { _img?.Dispose(); _img = null; }
             base.Dispose(disposing);
         }
     }

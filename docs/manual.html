@@ -111,7 +111,7 @@
 <div class="wrap">
 
 <header class="title">
-  <h1>Instantale Save Editor 説明書 <span class="badge">v10.6</span></h1>
+  <h1>Instantale Save Editor 説明書 <span class="badge">v10.7</span></h1>
   <div class="sub">ゲーム Instantale のセーブデータ／ワールドデータ編集ツール（非公式）</div>
 </header>
 
@@ -130,6 +130,7 @@
     <li><a href="#player">プレイヤータブ</a></li>
     <li><a href="#world">ワールドタブ</a></li>
     <li><a href="#variables">ゲーム変数タブ</a></li>
+    <li><a href="#modtab">MOD タブ <span class="badge">v10.7</span></a></li>
     <li><a href="#lifelog">生涯ログの編集</a></li>
     <li><a href="#relationship">好感度の編集</a></li>
     <li><a href="#areahistory">エリア履歴の編集</a></li>
@@ -206,6 +207,7 @@
   <tr><td>バックアップ...</td><td>上書き保存時の自動バックアップの ON/OFF・保存先・世代の自動削除を設定します。<a href="#settings">詳細</a>。</td></tr>
   <tr><td>言語...</td><td>UI の表示言語（日本語／英語／簡体字中国語／ロシア語など）を切り替えます。<a href="#settings">詳細</a>。</td></tr>
   <tr><td>その他...</td><td>ウィンドウサイズの記憶／固定などを設定します。<a href="#settings">詳細</a>。</td></tr>
+  <tr><td>ModLoader連携... <span class="badge">v10.7</span></td><td>InstantaleModLoader のフォルダを指定し、装備枠追加 MOD の装備欄と装備画像追加 MOD の絵をインベントリに表示します。<a href="#modloader">詳細</a>。</td></tr>
 </table>
 <div class="note">
   メニューバー右端には、現在の自動バックアップが ON か OFF かが常に表示されます。
@@ -291,7 +293,38 @@
   <li>画面のパーティ欄は 3 枠のため、仲間が 4 人以上いると 4 人目以降は表示されません（会話と戦闘には加わります）。 <span class="badge">v10.6</span></li>
 </ul>
 
-<h2 id="lifelog">6. 生涯ログの編集</h2>
+<h2 id="modtab">6. MOD タブ <span class="badge">v10.7</span></h2>
+<p>
+  InstantaleModLoader の MOD が、セーブの外（ModLoader の <code>state</code> フォルダ）に持っている記録を一覧で表示し、編集します。
+  記録は周回（ワールド×主人公）ごとなので、開いているセーブの主人公の分だけを表示します。
+  ModLoader と連携していないとき（<a href="#modloader">設定 → ModLoader連携</a>）や、ワールドデータだけのファイルを開いたときは何も表示しません。
+</p>
+<table>
+  <tr><th>欄</th><th>MOD</th><th>内容</th></tr>
+  <tr><td>家</td><td><code>330_real_estate</code></td><td>借りている家・持ち家ごとに、街・契約（賃貸／持ち家）・家賃と1期の日数・次の支払い・管理人・保管庫の品の数。世界で1つの保管庫と、役場の預かりの数も出します。</td></tr>
+  <tr><td>出資した施設</td><td><code>331_facility_investment</code></td><td>施設ごとに、街・種類・等級・主・建設費・建てた日・前回売上を受け取った日・受け取り済みの額。</td></tr>
+  <tr><td>評判と二つ名</td><td><code>317_reputation</code></td><td>世界に1つの二つ名とその由来、土地ごとの評判の文と編纂した日。</td></tr>
+  <tr><td>勢力</td><td><code>339_town_factions</code></td><td>勢力ごとの主人公の見られ方（-100〜100 と段階）・勢力内での呼び名・治める街・理由、勢力どうしの仲、住人ごとの立場（勢力の一員・従っている・内心では反感・関心なし・別の勢力の者）。</td></tr>
+</table>
+<p>日付はゲームの経過日数で、今日からの差（あと何日・何日前）も添えます。</p>
+<h3>編集</h3>
+<ul>
+  <li>表に出している項目は、<strong>淡い黄色の欄</strong>をダブルクリック（または F2）してその場で直せます。
+    家（名前・契約・家賃・1期の日数・次の支払いの日（空欄で期限なし）・管理人）、出資した施設（名前・種類・等級・主・建設費・建てた日・前回受け取った日・受け取り済みの額）、
+    評判（土地ごとの文・編纂した日・二つ名・その由来）、勢力（名前・種類・見られ方 -100〜100・勢力内での呼び名・理由・勢力どうしの仲 -2〜2・住人の街・勢力・立場・理由）。</li>
+  <li>名前・種類のように MOD の別の控え（街に建つ建物・管理人や主の人物）に写しがある項目は、<strong>写しも一緒に直します</strong>（建物の名前・種類、人物の名前・職）。</li>
+  <li>段階や「あと何日」は直した値から作り直します。数の欄に数でない値、範囲のある欄（見られ方・仲）に範囲外の値は入りません（MOD が読めなくなるため）。</li>
+  <li>家と施設の「街」は表では直せません（街を変えるには MOD の配置も要るため）。これを含め、表に無い項目は各欄の<strong>「JSON編集...」</strong>で控えを丸ごと編集できます。</li>
+  <li><strong>「ファイルを開く」</strong>で、その欄の控えのファイル（<code>state\&lt;MOD&gt;\&lt;ワールド名&gt;×&lt;主人公名&gt;.json</code>）を既定のアプリで開きます。</li>
+  <li>編集した欄には「編集中」と出ます。控えへ書き込むのは<strong>セーブデータを上書き保存したとき</strong>です（保存しないで閉じると、未保存の確認が出ます）。ゲームを終了してから行ってください。</li>
+</ul>
+<div class="note">
+  評判の文と二つ名は、主人公の行いが変わったときに MOD が編み直して上書きすることがあります。
+  見られ方が一度 -81 以下まで落ちた勢力（<code>locked</code>）は、数値を上げても会話や出来事では敵対のまま扱われます。
+  MOD の家や施設はゲームの最中だけ建つもので、セーブには入っていません（ワールドタブには出ません）。
+</div>
+
+<h2 id="lifelog">7. 生涯ログの編集</h2>
 <p>生涯ログ（<code>life_log</code>）は表（グリッド）で編集します。プレイヤータブと NPC の両方で同じ操作です。</p>
 <table>
   <tr><th>列</th><th>意味</th></tr>
@@ -306,7 +339,7 @@
   <li>表の下端のグレーの帯を上下にドラッグすると、表の高さを変えられます。</li>
 </ul>
 
-<h2 id="relationship">7. 好感度の編集</h2>
+<h2 id="relationship">8. 好感度の編集</h2>
 <p>
   NPC の好感度（<code>relationship</code>）は、関係を持つ<strong>対象ごとに 1 行</strong>の表（グリッド）で編集します。
   対象が増えても自動で行が増えます。プレイヤーの行は常に先頭に表示されます。
@@ -325,7 +358,7 @@
   <li>表の下端のグレーの帯を上下にドラッグすると、表の高さを変えられます。</li>
 </ul>
 
-<h2 id="areahistory">8. エリア履歴の編集</h2>
+<h2 id="areahistory">9. エリア履歴の編集</h2>
 <p>
   プレイヤータブのエリア履歴（<code>area_history</code>）は、訪れたエリアごとに 1 行の表（グリッド）で編集します。
   行の追加・削除はできず、<strong>既存エリアの値だけ</strong>を書き換えます。
@@ -343,7 +376,7 @@
   <li>表の下端のグレーの帯を上下にドラッグすると、表の高さを変えられます。</li>
 </ul>
 
-<h2 id="inventory">9. インベントリの編集 <span class="badge">v8</span></h2>
+<h2 id="inventory">10. インベントリの編集 <span class="badge">v8</span></h2>
 <p>
   所持アイテム（<code>inventory</code>）は、ゲームと同じ格子（グリッド）で編集します。
   各アイテムは自身の大きさ（<code>width_slots</code>×<code>height_slots</code>）どおりに表示され、設定したアイテム画像も格子上に描画されます。
@@ -358,6 +391,8 @@
 </table>
 <div class="note">
   アイテム画像は設定の「ゲーム導入先」（<a href="#settings">設定</a>）を基準に各アイテムの <code>image_src</code> から解決します。未設定や画像が見つからない場合はグリッド上に「画像パスが未設定」と警告が出ます（編集は可能）。格子の列数・行数も同じ設定で変更できます。
+
+  アイテム編集の画像欄の「参照...」で開く<strong>画像の選択画面</strong>では、選んだ画像が右側に大きく表示されます（ドット絵をぼかさず整数倍で拡大。ファイル名・大きさ・置き場（ゲーム／MOD）も表示）。<span class="badge">v10.7</span>
 </div>
 <div class="note">
   グリッド画面の「エクスポート」「インポート」でアイテムを zip として持ち出し／取り込みできます。プレイヤーのインベントリではツール内の倉庫にも一時保管できます（<a href="#itemio">詳細</a>）。<span class="badge">v9</span>
@@ -368,8 +403,26 @@
   インベントリ内の最大＋1 で決めるとカウンタが進まないため、ゲーム側があとから同じ ID を配り直し、追加したアイテムが上書きで消えたり、アイテムの合成・移動でゲームが落ちたりします。
   すでに使われている番号は、カウンタがデータとずれていても飛ばして採番します。
 </div>
+<div class="note" id="modloader">
+  <strong>ModLoader との連携（装備欄・装備画像）</strong> <span class="badge">v10.7</span><br>
+  <strong>設定 → ModLoader連携</strong> で InstantaleModLoader のフォルダ（<code>runtime</code> と <code>state</code> がある場所）を指定すると、次の 2 つの MOD の内容をインベントリに表示します。
+  <ul>
+    <li><strong>装備枠追加 MOD</strong>（<code>333_equipment_slots</code>）: インベントリの左に「装備欄（MOD）」が出て、装備中の品が頭・胴・左右の手・腕・脚・装飾・自由の部位に表示されます（主人公と、装備欄を持つ仲間の NPC）。
+      装備中の品は所持品のグリッドからは外して表示します（セーブでは装備中の品も <code>inventory</code> に入っていて、位置は装備欄の座標で書かれるため、そのまま並べると重なります）。
+      装備欄の品はダブルクリックで編集できます。主人公とパーティにいる仲間は、装備が無くても装備欄が出ます。
+      <ul>
+        <li><strong>装備する</strong>: 所持品の品を選んで「装備する」を押すか、装備欄の部位へドラッグします。部位ごとに入る品が決まっています（左右の手＝武器と盾、頭＝兜、胴＝鎧と服、腕＝籠手、脚＝脚の防具、装飾＝装身具、自由＝手の品以外の防具なら何でも）。「装備する」では空いている合う部位へ入り（手と装飾は右・1つ目が先、専用の部位が埋まっていれば自由枠）、どこも埋まっていれば専用の部位の品と入れ替えます。入れ替えで戻る品の空きが所持品に無いときは入れ替えません。</li>
+        <li><strong>装備を外す</strong>: 装備欄の品を選んで「装備を外す」を押すか、所持品のグリッドへドラッグします。品は所持品の空きへ移ります。所持品に品の大きさぶんの空きが無いときは外せません。</li>
+      </ul>
+      どちらも、本体の装備（<code>equipments</code>）を MOD と同じ決め方（手の武器で攻撃力が最高の品・自由枠以外の防具で防御力が最高の品）で選び直します。
+      ModLoader の控えへ書くのは、セーブデータを上書き保存したときです（保存しなければ控えは変わりません）。ゲームを終了してから行ってください。
+      装備欄の中での付け替え（部位から部位への移動）は、一度外してから装備し直してください。</li>
+    <li><strong>装備画像追加 MOD</strong>（<code>128_item_image_variety</code>）: MOD が足した武器・防具・服などの絵を、グリッド・編集画面・画像一覧で表示します。画像一覧では MOD の絵に「[MOD]」が付きます。</li>
+  </ul>
+  どの品がどの部位に居るかは ModLoader の控え（<code>state\equipment_slots\&lt;ワールド名&gt;×&lt;主人公名&gt;.json</code>）から読みます。
+</div>
 
-<h2 id="itemio">10. アイテムの倉庫・エクスポート／インポート <span class="badge">v9</span></h2>
+<h2 id="itemio">11. アイテムの倉庫・エクスポート／インポート <span class="badge">v9</span></h2>
 <p>
   インベントリのアイテムを、ファイル（zip）として持ち出したり、ツール内の倉庫に一時保管したりできます。
   操作はすべて<a href="#inventory">インベントリ</a>のグリッド画面のボタンから行います。
@@ -401,7 +454,7 @@
   <li>倉庫の中身は zip としてツールのフォルダ配下に保存され、ツールを閉じても残ります。</li>
 </ul>
 
-<h2 id="skills">11. スキルの編集 <span class="badge">v8</span></h2>
+<h2 id="skills">12. スキルの編集 <span class="badge">v8</span></h2>
 <p>
   スキル（<code>skills</code>）は一覧＋追加／編集／削除で管理します。
   一覧のスキルをダブルクリックするか「編集」を押すと、専用フォームが開きます（生 JSON を触らずに編集できます）。
@@ -418,7 +471,7 @@
   <tr><td>効果(effects)</td><td>スキルの効果を一覧で追加・編集・削除します。効果の種別（<code>type</code>）に応じて入力欄が切り替わります。</td></tr>
 </table>
 
-<h2 id="image">12. キャラクター画像の編集</h2>
+<h2 id="image">13. キャラクター画像の編集</h2>
 <p>
   ワールドタブで NPC を選んだとき、またはプレイヤータブの「キャラクター画像」セクションで、
   顔画像と立ち絵 3 種（縮小色・ピクセル化・原本）が表示されます。どちらも操作は同じです。
@@ -446,7 +499,7 @@
   手元に画像が見つからないパスはそのまま残します。
 </p>
 
-<h2 id="worldgen">13. ワールド生成 <span class="badge">v10</span></h2>
+<h2 id="worldgen">14. ワールド生成 <span class="badge">v10</span></h2>
 <p>
   <strong>ツール → ワールドを生成</strong> から、新しいワールドをまるごと自動生成します。ファイルを開いていなくても使えます。
 </p>
@@ -468,7 +521,7 @@
   上書きはカテゴリ（キー）単位で、書かなかったカテゴリには内蔵の名前プールがそのまま使われます。<span class="badge">v10.3</span>
 </div>
 
-<h2 id="quest">14. クエスト作成</h2>
+<h2 id="quest">15. クエスト作成</h2>
 <p>
   <strong>ツール → クエスト作成（テンプレから）</strong> から開く合成ビルダーです。文章類（タイトル・依頼主名・依頼概要・発言、ダンジョン名・描写・場所）は自由入力でき、各欄の「テンプレ」で保存済みテンプレ（<code>templates/quests/</code>）の値を流用、「テンプレ一括読込」で各欄へまとめて流し込めます。
 </p>
@@ -486,7 +539,7 @@
   使用後は必ずゲームで動作を確認してください。
 </div>
 
-<h2 id="npcio">15. NPC のエクスポート／インポート <span class="badge">v7</span></h2>
+<h2 id="npcio">16. NPC のエクスポート／インポート <span class="badge">v7</span></h2>
 <p>
   NPC を JSON＋画像をまとめた zip パッケージとして書き出し、別のワールドへ取り込めます。
 </p>
@@ -520,7 +573,7 @@
   配布された NPC・施設・アイテムの zip を取り込むときは、パッケージ外へ書き出そうとする不正なパスや極端に大きいエントリを取り込まないようにしています。とはいえ、出所の分からない zip は取り込まないでください。
 </div>
 
-<h2 id="facilityio">16. 施設のエクスポート／インポート <span class="badge">v10.1</span></h2>
+<h2 id="facilityio">17. 施設のエクスポート／インポート <span class="badge">v10.1</span></h2>
 <p>
   施設（facility）を facility の JSON＋背景画像をまとめた zip パッケージとして書き出し、別のワールドへ取り込めます。NPC の移植と同じ考え方の、施設版です。
 </p>
@@ -544,7 +597,7 @@
   取り込み時、施設の <code>id</code> は自動採番されます。エクスポートでは接続（<code>connections</code>）は保持されず、インポート時に選んだ接続先施設と双方向に張り直されます（<code>owner</code> も初期化）。背景画像は選んだワールドのキャラ／背景フォルダへ展開されます（ワールドフォルダが特定できない場合、背景画像はコピーされません）。
 </div>
 
-<h2 id="player2npc">17. プレイヤーを NPC 化 <span class="badge">v7</span></h2>
+<h2 id="player2npc">18. プレイヤーを NPC 化 <span class="badge">v7</span></h2>
 <p>
   <strong>ツール → プレイヤーをNPCに</strong> から、プレイヤー（<code>player_data</code>）を NPC オブジェクトへ変換します。
   名前・年齢・性格・スキル・インベントリ・画像などはそのまま流用され、能力値は整数へ自動換算されます。
@@ -560,7 +613,7 @@
   生成後は<strong>ゲームで動作を確認</strong>してください。
 </div>
 
-<h2 id="player2preset">18. プレイヤーをプリセット化 <span class="badge">v10</span></h2>
+<h2 id="player2preset">19. プレイヤーをプリセット化 <span class="badge">v10</span></h2>
 <p>
   <strong>ツール → プレイヤーをプリセット化</strong> から、プレイヤー（<code>player_data</code>）を
   ゲームのキャラ作成画面で選べるキャラクタープリセットに変換して書き出します。
@@ -582,7 +635,7 @@
   出力後はゲームのキャラ作成画面で動作を確認してください。
 </div>
 
-<h2 id="cleanup">19. ワールドデータのクリーンアップ <span class="badge">v9</span></h2>
+<h2 id="cleanup">20. ワールドデータのクリーンアップ <span class="badge">v9</span></h2>
 <p>
   <strong>ツール → ワールドデータをクリーンアップ</strong> から、ワールドを「遊び始める前」に近い状態へ一括で戻します。
   自分で作ったワールドを配布用に整えるときなどに使います。
@@ -601,7 +654,7 @@
   この操作は<strong>元に戻せません</strong>（保存するまではファイルには反映されません）。実行前に必ずバックアップを取ってください。
 </div>
 
-<h2 id="worldsync">20. ワールドデータとの同期 <span class="badge">v10.5</span></h2>
+<h2 id="worldsync">21. ワールドデータとの同期 <span class="badge">v10.5</span></h2>
 <p>
   ゲームは同じ世界のデータを <code>saves\{ワールド名}\savedata.json</code> と <code>worlds\{ワールド名}\world_data.json</code> の 2 つに持ち、
   店で「売買する」を押したときや未生成エリアへ到着したときは <code>world_data.json</code> 側を参照します。
@@ -634,7 +687,7 @@
   ゲームを起動したまま保存すると、ゲームが後から書く内容で上書きされることがあります。ゲームを終了してから編集・保存してください。
 </div>
 
-<h2 id="questlog">21. quest_event_log の圧縮 <span class="badge">v10.1</span></h2>
+<h2 id="questlog">22. quest_event_log の圧縮 <span class="badge">v10.1</span></h2>
 <p>
   <strong>ツール → quest_event_logを圧縮</strong> から、<code>game_variables</code> の <code>quest_event_log</code> を切り詰めます。
   これはゲーム側の既知のバグで、このログが際限なく肥大化しセーブが重くなる問題への緩和策です（ゲーム本体の修正までの一時対応）。
@@ -647,7 +700,7 @@
   この操作は<strong>元に戻せません</strong>（保存するまではファイルには反映されません）。実行前に必ずバックアップを取ってください。
 </div>
 
-<h2 id="settings">22. 設定（言語・バックアップ・ウィンドウ・ゲーム導入先） <span class="badge">v7</span></h2>
+<h2 id="settings">23. 設定（言語・バックアップ・ウィンドウ・ゲーム導入先） <span class="badge">v7</span></h2>
 <p><strong>設定</strong>メニューから、UI 言語・自動バックアップ・ウィンドウの挙動を変更できます。設定は exe と同じ場所の <code>setting\settings.json</code> に保存されます（v9.2 以前の exe 直下の <code>settings.json</code> は初回起動時に自動で移動します <span class="badge">v10</span>）。</p>
 
 <h3>言語</h3>
@@ -683,6 +736,13 @@
   「ゲーム導入先」は、インベントリのアイテム画像（<code>image_src</code>）を解決する基準フォルダです。Instantale をインストールしたフォルダを指定するとグリッドに画像が表示されます（未設定でも編集は可）。「インベントリの列数・行数」で<a href="#inventory">格子の大きさ</a>も指定できます。
 </p>
 
+<h3>ModLoader連携 <span class="badge">v10.7</span></h3>
+<p>
+  <strong>設定 → ModLoader連携</strong> で InstantaleModLoader のフォルダを指定します（<code>runtime</code> や <code>runtime\mods</code> を選んでもかまいません）。
+  入力すると、装備枠追加 MOD・装備画像追加 MOD が見つかったかが表示されます。空欄にすると連携しません。
+  内容は<a href="#modloader">インベントリの編集</a>を参照してください。
+</p>
+
 <h3>NPCエクスポート <span class="badge">v9</span></h3>
 <p>
   「ワールド毎にフォルダを分けて出力する」が ON（既定）なら <code>npc\{ワールド名}\</code>、OFF なら <code>npc\ALL\</code> へ出力します（<a href="#npcio">詳細</a>）。
@@ -698,7 +758,7 @@
   ウィンドウサイズを前回のサイズで起動するか固定サイズで起動するかを選べます。起動位置の記憶も指定できます。
 </p>
 
-<h2 id="files">23. データの保存場所</h2>
+<h2 id="files">24. データの保存場所</h2>
 <table>
   <tr><th>種類</th><th>場所</th></tr>
   <tr><td>セーブデータ</td><td><code>%LocalAppData%\Darmabeko\Instantale\saves\{ワールド名}\savedata.json</code></td></tr>
@@ -713,7 +773,7 @@
   ※ <code>%AppData%</code> はエクスプローラーのアドレス欄にそのまま入力すると開けます。
 </p>
 
-<h2 id="faq">24. 困ったときは</h2>
+<h2 id="faq">25. 困ったときは</h2>
 <ul>
   <li><strong>エディタで足した店で「売買する」を押すと固まる／作ったエリアへ到着できない</strong> … そのレコードが <code>world_data.json</code> に無い状態です。<a href="#worldsync">ワールドデータと突き合わせ</a>で写してください。</li>
   <li><strong>編集が反映されない</strong> … 入力欄からフォーカスを外す（別の場所をクリック）と反映されます。最後に「上書き保存」を忘れずに。</li>

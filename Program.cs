@@ -34,14 +34,15 @@ namespace InstantaleSaveEditor
         private readonly PlayerTab _player = new();
         private readonly WorldTab _world = new();
         private readonly VariablesTab _vars = new();
+        private readonly ModTab _mod = new();   // ModLoader の MOD の記録（家・出資施設・評判・勢力）。読み取り専用
         private readonly StatusStrip _status = new();
         private readonly ToolStripStatusLabel _statusLabel = new();
 
         // Localize() で文言を再適用するため、可視文言を持つ要素を保持する。
-        private TabPage _tpPlayer, _tpWorld, _tpVars;
+        private TabPage _tpPlayer, _tpWorld, _tpVars, _tpMod;
         private ToolStripMenuItem _miFile, _miFileOpen, _miFileRecent, _miFileSave, _miFileSaveAs, _miFileExport, _miFileExit;
         private ToolStripMenuItem _miTools, _miToolGenerateWorld, _miToolCreateQuest, _miToolExtract, _miToolImportNpc, _miToolImportFacility, _miToolPlayerToNpc, _miToolPlayerToPreset, _miToolCleanup, _miToolSyncWorld, _miToolRepairImages, _miToolCompactQuestLog, _miToolEditRaw;
-        private ToolStripMenuItem _miSettings, _miSettingsBackup, _miSettingsLang, _miSettingsMisc;
+        private ToolStripMenuItem _miSettings, _miSettingsBackup, _miSettingsLang, _miSettingsMisc, _miSettingsModLoader;
         private ToolStripMenuItem _miAutoBackup;   // メニュー右端の自動バックアップ ON/OFF トグル表示
         private string _statusKey = "status.initial";   // 現在のステータス文言キー（言語切替時に再解決する）
 
@@ -51,11 +52,12 @@ namespace InstantaleSaveEditor
             ApplyWindowSettings();   // 設定に基づいてサイズ/位置を決める（既定はセンター表示）
 
             // Fill(本体=タブ) を先に、端の Top(メニュー)/Bottom(ステータス) を後に追加して重なりを防ぐ。
-            _player.Dock = _world.Dock = _vars.Dock = DockStyle.Fill;
+            _player.Dock = _world.Dock = _vars.Dock = _mod.Dock = DockStyle.Fill;
             _tpPlayer = new TabPage(); _tpPlayer.Controls.Add(_player);
             _tpWorld = new TabPage(); _tpWorld.Controls.Add(_world);
             _tpVars = new TabPage(); _tpVars.Controls.Add(_vars);
-            _tabs.TabPages.AddRange(new[] { _tpPlayer, _tpWorld, _tpVars });
+            _tpMod = new TabPage(); _tpMod.Controls.Add(_mod);
+            _tabs.TabPages.AddRange(new[] { _tpPlayer, _tpWorld, _tpVars, _tpMod });
             Controls.Add(_tabs);
 
             BuildMenu();
@@ -79,6 +81,7 @@ namespace InstantaleSaveEditor
             _tpPlayer.Text = I18n.T("tab.player");
             _tpWorld.Text = I18n.T("tab.world");
             _tpVars.Text = I18n.T("tab.variables");
+            _tpMod.Text = I18n.T("tab.mod");
 
             _miFile.Text = I18n.T("menu.file");
             _miFileOpen.Text = I18n.T("menu.file.open");
@@ -106,6 +109,7 @@ namespace InstantaleSaveEditor
             _miSettingsBackup.Text = I18n.T("menu.settings.backup");
             _miSettingsLang.Text = I18n.T("menu.settings.language");
             _miSettingsMisc.Text = I18n.T("menu.settings.misc");
+            _miSettingsModLoader.Text = I18n.T("menu.settings.modLoader");
             UpdateAutoBackupIndicator();
 
             _statusLabel.Text = ResolveStatus();
@@ -175,9 +179,11 @@ namespace InstantaleSaveEditor
             _miSettingsBackup = new ToolStripMenuItem(null, null, (_, _) => OpenSettings(SettingsSection.Backup));
             _miSettingsLang = new ToolStripMenuItem(null, null, (_, _) => OpenSettings(SettingsSection.Language));
             _miSettingsMisc = new ToolStripMenuItem(null, null, (_, _) => OpenSettings(SettingsSection.Misc));
+            _miSettingsModLoader = new ToolStripMenuItem(null, null, (_, _) => OpenSettings(SettingsSection.ModLoader));
             _miSettings.DropDownItems.Add(_miSettingsBackup);
             _miSettings.DropDownItems.Add(_miSettingsLang);
             _miSettings.DropDownItems.Add(_miSettingsMisc);
+            _miSettings.DropDownItems.Add(_miSettingsModLoader);
 
             // メニュー右端に自動バックアップ ON/OFF を表示。クリックで即トグルして settings.json へ保存する。
             _miAutoBackup = new ToolStripMenuItem { Alignment = ToolStripItemAlignment.Right };
@@ -248,8 +254,19 @@ namespace InstantaleSaveEditor
         // 設定ダイアログを指定セクションで開く。OK ならウィンドウサイズ等と右端表示を即時反映する。
         private void OpenSettings(SettingsSection section)
         {
+            string assetBefore = _settings.GameAssetRoot, loaderBefore = _settings.ModLoaderRoot;
             using var dlg = new SettingsForm(_settings, section);
-            if (dlg.ShowDialog(this) == DialogResult.OK) ApplyWindowSettings();
+            if (dlg.ShowDialog(this) == DialogResult.OK)
+            {
+                ApplyWindowSettings();
+                // 画像の探し先・装備欄の控えが変わったら、開いているデータの表示を作り直す（未確定の入力は先に反映）。
+                if (_root != null && (assetBefore != _settings.GameAssetRoot || loaderBefore != _settings.ModLoaderRoot) && ApplyAll())
+                {
+                    _player.Bind(_root, _path);
+                    _world.Bind(_root, _path);
+                }
+                if (loaderBefore != _settings.ModLoaderRoot) _mod.Bind(_root);
+            }
             UpdateAutoBackupIndicator();   // バックアップ設定で ON/OFF が変わった可能性に追従
         }
 
@@ -411,7 +428,8 @@ namespace InstantaleSaveEditor
             if (_root == null || _baseline == null) return true;
             // 未確定入力を反映してから比較する。反映に失敗した場合も「変更あり」として確認する。
             bool applied = ApplyAll();
-            if (applied && Codec.Encode(_root).AsSpan().SequenceEqual(_baseline)) return true;
+            // MOD タブで編集した控え（保存時に書く）も未保存の変更に数える。
+            if (applied && !ModLoaderLink.HasPendingState && Codec.Encode(_root).AsSpan().SequenceEqual(_baseline)) return true;
             var r = MessageBox.Show(this, I18n.T("msg.unsavedPrompt"), I18n.T("title.unsaved"),
                 MessageBoxButtons.YesNoCancel, MessageBoxIcon.Warning);
             if (r == DialogResult.Cancel) return false;
@@ -455,6 +473,8 @@ namespace InstantaleSaveEditor
             }
             _root = root;
             _path = path;
+            ModLoaderLink.ClearPendingEquipment();   // 前のファイルで装備した・外した操作（未保存）は捨てる
+            ModLoaderLink.ClearPendingState();       // MOD タブで編集した控え（未保存）も捨てる
             // 平文 JSON（エクスポートした確認用ファイル等）を開いた場合は、保存時に黙って
             // 難読化で上書きしないよう覚えておく。
             _srcPlain = Codec.IsPlainJsonFile(path);
@@ -465,7 +485,7 @@ namespace InstantaleSaveEditor
             AddRecent(_path);
             _player.Bind(_root, _path);
             _world.Bind(_root, _path);
-            _vars.Bind(_root);
+            _vars.Bind(_root); _mod.Bind(_root);
             // タブの書き戻しはグリッド再構築等で表記を揃えるため、未保存変更の基準は
             // 一度反映させた後の内容で取る（開いただけで「変更あり」になる誤検知の防止）。
             ApplyAll();
@@ -587,6 +607,14 @@ namespace InstantaleSaveEditor
                 Codec.WriteAtomic(_path, bytes);
             }
             catch (Exception ex) { MessageBox.Show(this, ex.Message, I18n.T("title.saveFailed"), MessageBoxButtons.OK, MessageBoxIcon.Error); return false; }
+            // 装備欄（MOD）で装備した・外した品を ModLoader の控えへ書く。セーブと同じ時に書かないと、ゲームで食い違う。
+            // MOD タブで編集した控えも同じ時に書く。
+            var failedState = new List<string>();
+            if (ModLoaderLink.HasPendingEquipment) failedState.AddRange(ModLoaderLink.CommitPendingEquipment());
+            if (ModLoaderLink.HasPendingState) failedState.AddRange(ModLoaderLink.CommitPendingState());
+            if (failedState.Count > 0)
+                MessageBox.Show(this, I18n.T("msg.unequip.writeFailed", string.Join(", ", failedState)), I18n.T("title.saveFailed"),
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
             // savedata の書き込みが成った後で相方を書く（savedata が失敗したら world 側も書かない）。
             if (world != null && sync.WorldChanged && !WriteWorld(world)) worldOk = false;
             // 未保存判定は保存形式によらず難読化後のバイトで統一する。
@@ -671,11 +699,13 @@ namespace InstantaleSaveEditor
             _root = root;
             _path = null;
             _worldPath = null; _saveBase = null; _worldMissingWarned = false;   // 生成データに相方は無い
+            ModLoaderLink.ClearPendingEquipment();   // 前のファイルで装備した・外した操作（未保存）は捨てる
+            ModLoaderLink.ClearPendingState();       // MOD タブで編集した控え（未保存）も捨てる
             // 数値の表記を UI の書き戻しと同じ形へ揃えておく（未保存変更の誤検知防止）。
             CanonicalizeNumbers(_root);
             _player.Bind(_root, null);
             _world.Bind(_root, null);
-            _vars.Bind(_root);
+            _vars.Bind(_root); _mod.Bind(_root);
             // 生成直後を未保存変更の基準にする。手を加えず再生成した場合は確認なしで置き換わる。
             ApplyAll();
             _baseline = Codec.Encode(_root);
@@ -830,7 +860,7 @@ namespace InstantaleSaveEditor
 
             var res = WorldCleanup.Run(_root);
             _world.Bind(_root, _path);   // life_log / relationship 等の表示を更新
-            _vars.Bind(_root);           // パーティの解散を反映
+            _vars.Bind(_root); _mod.Bind(_root);           // パーティの解散を反映
             Status("status.cleaned", res.Quests, res.Npcs);
             MessageBox.Show(this, I18n.T("msg.cleanup.done", res.Quests, res.Npcs, res.Party),
                 I18n.T("title.cleanupDone"), MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -907,7 +937,7 @@ namespace InstantaleSaveEditor
                     MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) != DialogResult.OK) return;
 
             int removed = QuestEventLogCompactor.Run(_root);
-            _vars.Bind(_root);   // quest_event_log の表示を更新
+            _vars.Bind(_root); _mod.Bind(_root);   // quest_event_log の表示を更新
             Status("status.questLogCompacted", removed);
             MessageBox.Show(this, I18n.T("msg.compactQuestLog.done", removed),
                 I18n.T("title.compactDone"), MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -922,7 +952,7 @@ namespace InstantaleSaveEditor
             if (d.ShowDialog(this) == DialogResult.OK && d.ResultNode is JsonObject obj)
             {
                 _root = obj;
-                _player.Bind(_root, _path); _world.Bind(_root, _path); _vars.Bind(_root);
+                _player.Bind(_root, _path); _world.Bind(_root, _path); _vars.Bind(_root); _mod.Bind(_root);
                 Status("status.jsonApplied");
             }
         }

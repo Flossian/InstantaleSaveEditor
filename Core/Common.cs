@@ -1073,13 +1073,14 @@ namespace InstantaleSaveEditor
 
         // アセット先からの相対パスで画像を読み込む（プレビュー用）。解決不能・未設定・例外時は null。
         // 元PNGをロックしないよう ReadAllBytes→MemoryStream 経由で複製を返す。
+        // image_src をゲーム導入先（と ModLoader の絵の置き場）から解決して読む（ModLoaderLink.ResolveAsset）。
         private static Image LoadAssetImage(string assetRoot, string rel)
         {
             if (string.IsNullOrEmpty(assetRoot) || string.IsNullOrEmpty(rel)) return null;
             try
             {
-                string full = Path.Combine(assetRoot, rel.Replace('/', Path.DirectorySeparatorChar));
-                if (!File.Exists(full)) return null;
+                string full = ModLoaderLink.ResolveAsset(rel);
+                if (full == null) return null;
                 byte[] bytes = File.ReadAllBytes(full);
                 using var ms = new MemoryStream(bytes);
                 using var tmp = Image.FromStream(ms);
@@ -1236,7 +1237,12 @@ namespace InstantaleSaveEditor
         // 追加/削除/編集は inv へ即時反映されるため FieldRef は登録しない（Apply() の対象外）。
         private void AddInventoryRow(TableLayoutPanel t, int row, JsonObject inv)
         {
-            var panel = new InventoryPanel { Dock = DockStyle.Top, SaveRootProvider = SaveRootProvider };
+            // 装備欄 MOD の控えでの持ち主。NPC（id を持つキャラ）は "npc:<id>"。
+            string ownerId = _obj != null && _obj.ContainsKey("category") ? J.Str(_obj, "id") : null;
+            // パーティにいる仲間は、装備が無くても装備欄を出す（402_ の受け渡しの窓で装備欄が付くのは同行中の仲間）。
+            bool inParty = ownerId != null && J.Arr(J.Obj(SaveRootProvider?.Invoke(), "game_variables"), "party") is JsonArray party
+                && party.Any(n => (n?.ToString() ?? "") == ownerId);
+            var panel = new InventoryPanel { Dock = DockStyle.Top, SaveRootProvider = SaveRootProvider, EquipOwner = ModLoaderLink.NpcOwner(ownerId), EquipAlways = inParty };
             panel.Bind(inv);
             t.Controls.Add(panel, 1, row);
         }
